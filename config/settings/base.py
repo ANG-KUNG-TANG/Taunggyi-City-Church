@@ -1,30 +1,32 @@
+from logging import config
 import os
 from pathlib import Path
 import environ
-from apps import tcc
-# ------------------------------
-# Environment setup
-# ------------------------------
+from datetime import timedelta
+
 env = environ.Env(
-    DEBUG=(bool, False)
+    DEBUG=(bool, False),
+    DJANGO_ALLOWED_HOSTS=(list, []),
+    CORS_ALLOWED_ORIGINS=(list, []),
+    SECURE_SSL_REDIRECT=(bool, False),
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
-# ------------------------------
-# Core settings
-# ------------------------------
-SECRET_KEY = env("SECRET_KEY", default="unsafe-secret-key")
-DEBUG = env("DEBUG", default=True)
+# ──────────────────────────────
+# Core
+# ──────────────────────────────
+SECRET_KEY = env("SECRET_KEY")
+DEBUG = env("DEBUG")
 
+# NEVER empty in prod → enforced in prod.py
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["127.0.0.1", "localhost"])
 
-# ------------------------------
-# Applications
-# ------------------------------
+# ──────────────────────────────
+# Apps
+# ──────────────────────────────
 INSTALLED_APPS = [
-    # Django apps
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -32,25 +34,24 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # Third-party apps
     "rest_framework",
     "rest_framework_simplejwt",
-    "django_extensions",
     "django_filters",
     "django_cleanup.apps.CleanupConfig",
     "corsheaders",
     "crispy_forms",
     "crispy_bootstrap5",
+    'request_id',
 
-    # Local apps
     "apps.tcc",
 ]
 
 MIDDLEWARE = [
+    'config.middleware.RequestIDMiddleware',
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -59,7 +60,11 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
+WSGI_APPLICATION = "config.wsgi.application"
 
+# ──────────────────────────────
+# Templates
+# ──────────────────────────────
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -76,18 +81,32 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "config.wsgi.application"
-
-# ------------------------------
+# ──────────────────────────────
 # Database
-# ------------------------------
+# ──────────────────────────────
+# DATABASES = {
+#     "default": env.db("DATABASE_URL", default="sqlite:///db.sqlite3")
+# }
 DATABASES = {
-    "default": env.db(default="mysql://root:password@127.0.0.1:3306/church_operation")
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': config('DB_HOST', default='localhost'),
+        'PORT': config('DB_PORT', default='3306'),
+        'OPTIONS': {
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            'charset': 'utf8mb4',
+        },
+    }
 }
+DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
+DATABASES["default"]["OPTIONS"] = {"charset": "utf8mb4"}
 
-# ------------------------------
-# Password validation
-# ------------------------------
+# ──────────────────────────────
+# Auth & Password
+# ──────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -95,115 +114,163 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# ------------------------------
+# ──────────────────────────────
 # Internationalization
-# ------------------------------
+# ──────────────────────────────
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Bangkok"
 USE_I18N = True
 USE_TZ = True
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# ------------------------------
-# Static & media
-# ------------------------------
+# ──────────────────────────────
+# Static & Media
+# ──────────────────────────────
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-# ------------------------------
+# ──────────────────────────────
 # REST Framework
-# ------------------------------
+# ──────────────────────────────
 REST_FRAMEWORK = {
-    'EXCEPTION_HANDLER': 'api.exceptions.drf_custom_exception_handler',
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
+    'EXCEPTION_HANDLER': 'helpers.exceptions.handlers.drf_exception_handler',
+    'DEFAULT_RENDERER_CLASSES': ('rest_framework.renderers.JSONRenderer',),
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
     ],
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ),
-    "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.IsAuthenticated",
-    ),
-    "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle'
+    ],
+    'DEFAULT_THROTTLE_RATES': {'anon': '100/day', 'user': '1000/day'}
 }
 
-# ------------------------------
-# Cache (Redis optional)
-# ------------------------------
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+}
+
+# ──────────────────────────────
+# Cache
+# ──────────────────────────────
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": env("REDIS_URL", default="redis://127.0.0.1:6379/0"),
-        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {"max_connections": 50},
+            "SOCKET_CONNECT_TIMEOUT": 5,
+            "SOCKET_TIMEOUT": 5,
+        },
+        "KEY_PREFIX": "church",
     }
 }
+
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "default"
 
-# ------------------------------
+# ──────────────────────────────
 # CORS
-# ------------------------------
-CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL", default=True)
+# ──────────────────────────────
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL", default=False)
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ['X-Request-ID']
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+# ──────────────────────────────
+# Crispy Forms
+# ──────────────────────────────
+CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
+CRISPY_TEMPLATE_PACK = "bootstrap5"
+
+# ──────────────────────────────
+# Email
+# ──────────────────────────────
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", default="localhost")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
+
+# ──────────────────────────────
+# Logging (Enhanced)
+# ──────────────────────────────
+LOGS_DIR = BASE_DIR / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
 
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'structured': {
-            'format': '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s", "module": "%(module)s", "function": "%(funcName)s"}'
+            'format': '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s","req":"%(request_id)s"}'
         },
         'detailed': {
-            'format': '%(asctime)s - %(name)s - %(levelname)s - [%(module)s:%(funcName)s:%(lineno)d] - %(message)s'
+            'format': '%(asctime)s %(levelname)s %(name)s [%(module)s:%(funcName)s] %(message)s req=%(request_id)s'
         }
+    },
+    'filters': {
+        'request_id': {
+            '()': 'config.middleware.RequestIDFilter'},
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'structured',
+            'filters': ['request_id'],
         },
         'file': {
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': 'logs/django_app.log',
-            'maxBytes': 10485760,  # 10MB
-            'backupCount': 5,
+            'filename': LOGS_DIR / 'app.log',
+            'maxBytes': 10*1024*1024,
+            'backupCount': 10,
             'formatter': 'structured',
+            'filters': ['request_id'],
         },
         'error_file': {
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': 'logs/errors.log',
+            'filename': LOGS_DIR / 'errors.log',
             'level': 'ERROR',
-            'maxBytes': 10485760,
-            'backupCount': 5,
+            'maxBytes': 10*1024*1024,
+            'backupCount': 10,
             'formatter': 'detailed',
+            'filters': ['request_id'],
         },
         'db_file': {
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': 'logs/database.log',
+            'filename': LOGS_DIR / 'database.log',
             'level': 'INFO',
-            'maxBytes': 10485760,
+            'maxBytes': 10*1024*1024,
             'backupCount': 5,
             'formatter': 'structured',
+            'filters': ['request_id'],
         },
     },
     'loggers': {
-        'api': {
-            'handlers': ['console', 'file', 'error_file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'db': {
-            'handlers': ['console', 'db_file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'django.db.backends': {
-            'handlers': ['db_file'],
-            'level': 'DEBUG' if DEBUG else 'INFO',
-            'propagate': False,
-        },
+        'django': {'handlers': ['console', 'file'], 'level': 'INFO', 'propagate': False},
+        'django.request': {'handlers': ['error_file'], 'level': 'ERROR', 'propagate': False},
+        'django.db.backends': {'handlers': ['db_file'], 'level': 'INFO', 'propagate': False},
+        'db': {'handlers': ['db_file', 'console'], 'level': 'INFO', 'propagate': False},
+        'api': {'handlers': ['console', 'file'], 'level': 'INFO', 'propagate': False},
     },
+    'root': {'handlers': ['console'], 'level': 'INFO'},
 }
