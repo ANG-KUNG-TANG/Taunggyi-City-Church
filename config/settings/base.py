@@ -274,3 +274,16 @@ LOGGING = {
     },
     'root': {'handlers': ['console'], 'level': 'INFO'},
 }
+
+# ──────────────────────────────
+# Snowflake ID Configuration
+# ──────────────────────────────
+SNOWFLAKE_DATACENTER_ID = env.int("SNOWFLAKE_DATACENTER_ID", default=1)
+SNOWFLAKE_MACHINE_ID = env.int("SNOWFLAKE_MACHINE_ID", default=1)
+SNOWFLAKE_EPOCH = env.int("SNOWFLAKE_EPOCH", default=1672531200000)  # Jan 1, 2023
+
+# ──────────────────────────────
+# Application Constants
+# ──────────────────────────────
+MAX_FILE_UPLOAD_SIZE = env.int("MAX_FILE_UPLOAD_SIZE", default=10)  # MB
+DEFAULT_PAGE_SIZE = env.int("DEFAULT_PAGE_SIZE", default=20)
