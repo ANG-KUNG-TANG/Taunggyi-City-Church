@@ -1,5 +1,5 @@
 import pytest
-from apps.tcc.models.enums import UserRole, DonationStatus, PrayerPrivacy
+from apps.tcc.models.base.enums import UserRole, DonationStatus, PrayerPrivacy
 
 class TestEnums:
     def test_user_role_values(self):
