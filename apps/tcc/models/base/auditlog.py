@@ -22,7 +22,7 @@ class AuditLog(BaseModel):
     ]
     
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.UUIDField()
+    object_id = models.BigIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
     
     action = models.CharField(max_length=10, choices=ACTION_CHOICES)
@@ -37,6 +37,8 @@ class AuditLog(BaseModel):
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(null=True, blank=True)
     changes = models.JSONField(default=dict, help_text="Field-level changes")
+    resource_type = models.CharField(max_length=100, blank=True)
+
     
     class Meta:
         ordering = ['-timestamp']
@@ -44,6 +46,8 @@ class AuditLog(BaseModel):
             models.Index(fields=['content_type', 'object_id']),
             models.Index(fields=['timestamp']),
             models.Index(fields=['user']),
+            models.Index(fields=['resource_type', 'action']),
+
         ]
     
     def __str__(self):

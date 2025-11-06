@@ -1,49 +1,125 @@
+# docker-compose.prod.yml
 version: "3.9"
 
 services:
   web:
-    build: .
-    container_name: django_web
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
-    volumes:
-      - .:/app
-    ports:
-      - "8000:8000"
+    build: 
+      context: .
+      target: production
+    container_name: django_app_prod
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             python manage.py migrate &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --access-logfile - --error-logfile - --timeout 120"
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - PYTHONPATH=/app
     env_file:
-      - .env
+      - .env.production
     depends_on:
       - db
       - redis
     networks:
       - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.django.rule=Host(`yourdomain.com`)"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   db:
     image: mysql:8.0
-    container_name: mysql_db
-    restart: always
+    container_name: mysql_db_prod
+    restart: unless-stopped
     environment:
-      MYSQL_DATABASE: churchdb
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
-      MYSQL_ROOT_PASSWORD: rootpass
-    ports:
-      - "3306:3306"
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - mysql_data_prod:/var/lib/mysql
+      - ./mysql/conf.d:/etc/mysql/conf.d:ro
+    networks:
+      - backend
+    command: 
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb_buffer_pool_size=256M
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache_prod
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data_prod:/data
     networks:
       - backend
 
-  redis:
-    image: redis:7
-    container_name: redis_cache
-    restart: always
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: nginx_proxy_prod
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - static_volume:/app/static
+      - media_volume:/app/media
+    depends_on:
+      - web
+    networks:
+      - backend
+
+  celery:
+    build: 
+      context: .
+      target: production
+    container_name: celery_worker_prod
+    restart: unless-stopped
+    command: celery -A config worker --loglevel=info --concurrency=2
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    env_file:
+      - .env.production
+    depends_on:
+      - db
+      - redis
+      - web
+    networks:
+      - backend
+
+  celery-beat:
+    build: 
+      context: .
+      target: production
+    container_name: celery_beat_prod
+    restart: unless-stopped
+    command: celery -A config beat --loglevel=info
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    env_file:
+      - .env.production
+    depends_on:
+      - db
+      - redis
+      - web
     networks:
       - backend
 
 volumes:
-  mysql_data:
+  mysql_data_prod:
+  redis_data_prod:
+  static_volume:
+  media_volume:
 
 networks:
   backend:
+    driver: bridge

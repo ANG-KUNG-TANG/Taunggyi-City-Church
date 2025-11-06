@@ -1,17 +1,18 @@
 #!/bin/bash
+# entrypoint.prod.sh
 set -e
 
-# wait for DB if needed (very simple)
-if [ "$DATABASE_URL" != "" ]; then
-  # optionally add wait-for logic here or rely on docker-compose restart policy
-  :
-fi
+echo "Waiting for database..."
+while ! nc -z $DB_HOST $DB_PORT; do
+  sleep 1
+done
+echo "Database is ready!"
 
-# collect static files
-python manage.py collectstatic --noinput
-
-# run migrations
+echo "Running migrations..."
 python manage.py migrate --noinput
 
-# run whatever command was sent
+echo "Collecting static files..."
+python manage.py collectstatic --noinput
+
+echo "Starting application..."
 exec "$@"

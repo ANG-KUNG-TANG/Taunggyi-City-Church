@@ -8,6 +8,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 import json
 
 from apps.tcc.models.base.manager import BaseModelManager
+from apps.tcc.utils.fields import SnowflakeField
 
 User = get_user_model()
 
@@ -19,11 +20,7 @@ class BaseModel(models.Model):
     """
     
     # Core Identity & Tracking
-    id = models.UUIDField(
-        primary_key=True, 
-        default=uuid.uuid4, 
-        editable=False,
-        unique=True,
+    id = SnowflakeField(
         verbose_name="Unique Identifier"
     )
     
@@ -167,7 +164,9 @@ class BaseModel(models.Model):
             self.updated_by = user
         
         self.save(update_fields=['is_active', 'deleted_at', 'deleted_by', 'updated_by'])
-    
+        from apps.tcc.models.base.signals import model_restored
+        model_restored.send(sender=self.__class__, instance=self)
+        
     def hard_delete(self, *args, **kwargs):
         """
         Permanent deletion - use with caution
