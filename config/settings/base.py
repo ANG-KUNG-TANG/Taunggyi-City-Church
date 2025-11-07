@@ -45,7 +45,7 @@ INSTALLED_APPS = [
 
     "apps.tcc",
 ]
-
+AUTH_USER_MODEL = 'users.users'
 MIDDLEWARE = [
     'apps.tcc.models.base.signals.AuditLogMiddleware',
     'config.middleware.RequestIDMiddleware',
@@ -288,3 +288,21 @@ SNOWFLAKE_EPOCH = env.int("SNOWFLAKE_EPOCH", default=1672531200000)  # Jan 1, 20
 # ──────────────────────────────
 MAX_FILE_UPLOAD_SIZE = env.int("MAX_FILE_UPLOAD_SIZE", default=10)  # MB
 DEFAULT_PAGE_SIZE = env.int("DEFAULT_PAGE_SIZE", default=20)
+
+# ──────────────────────────────
+# Security Settings
+# ──────────────────────────────
+# HSTS Settings
+SECURE_HSTS_SECONDS = env.int('SECURE_HSTS_SECONDS', default=0)  # Disabled by default for dev
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=False)
+SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=False)
+
+# SSL Settings (will be overridden in dev.py)
+SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=False)
+SESSION_COOKIE_SECURE = env.bool('SESSION_COOKIE_SECURE', default=False)
+CSRF_COOKIE_SECURE = env.bool('CSRF_COOKIE_SECURE', default=False)
+
+# Other Security Headers
+SECURE_BROWSER_XSS_FILTER = env.bool('SECURE_BROWSER_XSS_FILTER', default=True)
+SECURE_CONTENT_TYPE_NOSNIFF = env.bool('SECURE_CONTENT_TYPE_NOSNIFF', default=True)
+X_FRAME_OPTIONS = env('X_FRAME_OPTIONS', default='DENY')

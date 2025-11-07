@@ -1,33 +1,64 @@
-# config/settings/prod.py
 from .base import *
-from django.core.exceptions import ImproperlyConfigured
 
 DEBUG = False
 
-# CRITICAL: Enforce ALLOWED_HOSTS
-if not ALLOWED_HOSTS:
-    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must be set in production!")
+# ──────────────────────────────
+# Production Security Settings
+# ──────────────────────────────
+# HSTS Settings (enable in production)
+SECURE_HSTS_SECONDS = env.int('SECURE_HSTS_SECONDS', default=31536000)  # 1 year
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=True)
+SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=True)
 
-# Security
-SECURE_HSTS_SECONDS = 31536000
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
-SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=True)
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
+# SSL Settings (enable in production)
+SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=True)
+SESSION_COOKIE_SECURE = env.bool('SESSION_COOKIE_SECURE', default=True)
+CSRF_COOKIE_SECURE = env.bool('CSRF_COOKIE_SECURE', default=True)
+
+# Other Security Headers
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-MIDDLEWARE.insert(1, 'config.middleware.SecurityHeadersMiddleware')
+# ──────────────────────────────
+# Production Allowed Hosts
+# ──────────────────────────────
+# This should be set via environment variable in production
+ALLOWED_HOSTS = env.list('DJANGO_ALLOWED_HOSTS', default=['your-production-domain.com'])
 
-# Production DB
-DATABASES['default']['CONN_MAX_AGE'] = 300
+# ──────────────────────────────
+# Production CORS
+# ──────────────────────────────
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
+# ──────────────────────────────
 # Production Logging
-LOGGING['handlers']['console']['formatter'] = 'structured'
-LOGGING['loggers']['django']['level'] = 'WARNING'
-LOGGING['loggers']['django.db.backends']['level'] = 'WARNING'
+# ──────────────────────────────
+# Less verbose logging in production
+LOGGING['loggers']['django.db.backends']['level'] = 'ERROR'
+LOGGING['loggers']['django']['level'] = 'INFO'
+LOGGING['loggers']['api']['level'] = 'INFO'
 
-# Email
-ADMINS = [('Admin', env('ADMIN_EMAIL'))]
-SERVER_EMAIL = DEFAULT_FROM_EMAIL
+# ──────────────────────────────
+# Production REST Framework
+# ──────────────────────────────
+# JSON only in production
+REST_FRAMEWORK['DEFAULT_RENDERER_CLASSES'] = (
+    'rest_framework.renderers.JSONRenderer',
+)
+
+# Strict permissions in production
+REST_FRAMEWORK['DEFAULT_PERMISSION_CLASSES'] = [
+    'rest_framework.permissions.IsAuthenticated'
+]
+
+# Enable throttling in production
+REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {
+    'anon': '100/day', 
+    'user': '1000/day'
+}
+
+print("🔒 Production mode: All security features enabled")

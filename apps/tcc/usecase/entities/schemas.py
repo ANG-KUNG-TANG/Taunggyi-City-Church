@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime, date
 import re
 
-from rules import (
+from helpers.validators.rules import (
     validate_email,
     validate_username,
     validate_phone,
