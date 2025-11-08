@@ -45,7 +45,7 @@ INSTALLED_APPS = [
 
     "apps.tcc",
 ]
-AUTH_USER_MODEL = 'users.users'
+AUTH_USER_MODEL = 'tcc.users'
 MIDDLEWARE = [
     'apps.tcc.models.base.signals.AuditLogMiddleware',
     'config.middleware.RequestIDMiddleware',

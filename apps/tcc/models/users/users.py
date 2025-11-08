@@ -39,6 +39,7 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     REQUIRED_FIELDS = ['name']
     
     class Meta:
+        app_label='tcc'
         db_table = "church_users"
         verbose_name = "Church Member"
         verbose_name_plural = "Church Members"
