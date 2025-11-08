@@ -1,5 +1,5 @@
 
-from datetime import timezone
+from datetime import datetime
 from apps.tcc.models.base.base import BaseModel
 from django.db import models
 
@@ -56,7 +56,7 @@ class Donation(BaseModel):
         decimal_places=2,
         help_text="Donation amount"
     )
-    donation_date = models.DateTimeField(default=timezone.now)
+    donation_date = models.DateTimeField(default=datetime.now())
     
     payment_method = models.CharField(
         max_length=20,

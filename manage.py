@@ -8,7 +8,7 @@ def main():
     # Try different settings locations
     settings_modules = [
         'config.settings.base',  # Your current structure
-        'config.settings',       # If single settings file
+        'config.settings.prod',       # If single settings file
         'config.settings.dev',   # If dev settings exist
         'settings'               # Fallback
     ]
@@ -17,7 +17,7 @@ def main():
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.base')
     
     # Add project root to Python path
-    project_root = os.path.dirname(os.path.abspath(__file__))
+    project_root = sys.path.append(os.path.join(os.path.dirname(__file__), 'apps'))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
     

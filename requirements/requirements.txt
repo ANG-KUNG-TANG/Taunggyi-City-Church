@@ -1,108 +1,28 @@
-# ----------------------------
-# Django Core
-# ----------------------------
-Django==5.2.5
-asgiref==3.10.0
-sqlparse==0.5.3
-tzdata==2025.2
+Django>=4.2,<5.0
+djangorestframework>=3.14
+django-cors-headers>=4.0
+psycopg2-binary>=2.9
+Pillow>=10.0
+python-decouple>=3.8
+celery>=5.3
+redis>=4.5
+drf-yasg>=1.21
+django-filter>=23.0
+django-debug-toolbar>=4.0
+django-extensions>=3.2
+whitenoise>=6.4
+gunicorn>=21.0
+django-cleanup>=8.0
+python-memcached>=1.59
+django-redis>=5.2
 
-# ----------------------------
-# Database: MySQL
-# ----------------------------
-mysqlclient==2.2.7
+# JWT packages compatible with Python 3.12
+djangorestframework-simplejwt>=5.2.0
+PyJWT>=2.8.0
 
-# ----------------------------
-# Environment Variables
-# ----------------------------
-django-environ==0.12.0
+# Database
+psycopg2-binary>=2.9.6
 
-# ----------------------------
-# Django REST Framework (API)
-# ----------------------------
-djangorestframework==3.16.1
-djangorestframework-simplejwt==5.5.1
-django-filter==25.2
-
-# ----------------------------
-# Django Extensions (Developer Tools)
-# ----------------------------
-django-extensions==4.1
-
-# ----------------------------
-# Form Rendering & Bootstrap Support
-# ----------------------------
-django-crispy-forms==2.4
-crispy-bootstrap5==2025.6
-
-# ----------------------------
-# Image & File Handling
-# ----------------------------
-Pillow==12.0.0
-django-cleanup==9.0.0
-
-# ----------------------------
-# Static Files in Production
-# ----------------------------
-whitenoise==6.11.0
-
-# ----------------------------
-# Production WSGI Server
-# ----------------------------
-gunicorn==23.0.0
-
-# ----------------------------
-# CORS for Frontend–Backend Integration
-# ----------------------------
-django-cors-headers==4.9.0
-
-# ----------------------------
-# Caching / Performance
-# ----------------------------
-django-redis==6.0.0
-redis==7.0.1
-
-# ----------------------------
-# Security & Authentication Enhancements
-# ----------------------------
-django-allauth==65.12.1
-
-# ----------------------------
-# Task Queue (Optional Background Jobs)
-# ----------------------------
-celery==5.5.3
-amqp==5.3.1
-billiard==4.2.2
-kombu==5.5.4
-vine==5.1.0
-
-# ----------------------------
-# Developer Tools (Formatting & Linting)
-# ----------------------------
-black==25.9.0
-isort==7.0.0
-flake8==7.3.0
-ruff==0.14.2
-pre-commit==4.3.0
-
-# ----------------------------
-# Testing
-# ----------------------------
-pytest==8.4.2
-pytest-django==4.11.1
-pytest-cov==7.0.0
-coverage==7.11.0
-factory-boy==3.3.3
-Faker==37.12.0
-
-# ----------------------------
-# CLI / Utility Dependencies
-# ----------------------------
-click==8.3.0
-colorama==0.4.6
-prompt_toolkit==3.0.52
-PyYAML==6.0.3
-python-dateutil==2.9.0.post0
-packaging==25.0
-pathspec==0.12.1
-platformdirs==4.5.0
-virtualenv==20.35.4
+# Development tools
+black>=23.0
+flake8>=6.0

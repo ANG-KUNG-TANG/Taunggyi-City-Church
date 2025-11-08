@@ -1,7 +1,6 @@
-from asyncio import Event
-from datetime import timezone
-from models.base.base import BaseModel
-from models.base.enums import SermonStatus
+from datetime import datetime
+from apps.tcc.models.base.base import BaseModel
+from apps.tcc.models.base.enums import SermonStatus
 from django.db import models
 
 
@@ -16,7 +15,7 @@ class Sermon(BaseModel):
     description = models.TextField(blank=True, help_text="Sermon summary")
     content = models.TextField(blank=True, help_text="Full sermon content/notes")
     
-    sermon_date = models.DateTimeField(default=timezone.now)
+    sermon_date = models.DateTimeField(default=datetime.now)  # Remove parentheses to pass function reference
     status = models.CharField(
         max_length=20,
         choices=SermonStatus.choices,
@@ -29,14 +28,6 @@ class Sermon(BaseModel):
         help_text="Sermon duration in minutes"
     )
     
-    # Link to event if this was part of a service
-    event = models.ForeignKey(
-        Event, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True,
-        related_name='sermons'
-    )
     
     class Meta:
         db_table = "sermons"
@@ -51,43 +42,3 @@ class Sermon(BaseModel):
     
     def __str__(self):
         return f"{self.title} by {self.preacher}"
-
-
-# class SermonMedia(BaseModel):
-#     sermon = models.ForeignKey(
-#         Sermon,
-#         on_delete=models.CASCADE,
-#         related_name='media_files'
-#     )
-#     media_type = models.CharField(
-#         max_length=20,
-#         choices=MediaType.choices,
-#         default=MediaType.AUDIO
-#     )
-#     file = models.FileField(
-#         upload_to='sermons/',
-#         help_text="Media file (audio/video)"
-#     )
-#     url = models.URLField(
-#         blank=True,
-#         help_text="External media URL"
-#     )
-#     duration = models.PositiveIntegerField(
-#         null=True,
-#         blank=True,
-#         help_text="Media duration in seconds"
-#     )
-#     file_size = models.PositiveIntegerField(
-#         null=True,
-#         blank=True,
-#         help_text="File size in bytes"
-#     )
-    
-#     class Meta:
-#         db_table = "sermon_media"
-#         verbose_name = "Sermon Media"
-#         verbose_name_plural = "Sermon Media"
-    
-#     def __str__(self):
-#         return f"{self.get_media_type_display()} for {self.sermon.title}"
-

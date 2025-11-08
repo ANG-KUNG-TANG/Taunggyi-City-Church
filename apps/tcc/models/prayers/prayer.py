@@ -1,12 +1,14 @@
-
 from datetime import timezone
 from apps.tcc.models.base.base import BaseModel
 from apps.tcc.models.base.enums import PrayerCategory, PrayerPrivacy, PrayerStatus, UserRole
 from django.db import models
+from apps.tcc.models.users.users import User
+
+
 
 class PrayerRequest(BaseModel):
     user = models.ForeignKey(
-        'User',
+        User,
         on_delete=models.CASCADE,
         related_name='prayer_requests'
     )

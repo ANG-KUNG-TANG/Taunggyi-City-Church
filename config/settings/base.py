@@ -45,7 +45,7 @@ INSTALLED_APPS = [
     "apps.tcc",
     # "apps.tcc.apps.TccConfig",
 ]
-AUTH_USER_MODEL = 'tcc.user'
+AUTH_USER_MODEL = 'tcc.User'
 MIDDLEWARE = [
     # 'apps.tcc.models.base.signals.AuditLogMiddleware',
     'config.middleware.RequestIDMiddleware',
@@ -171,19 +171,13 @@ SIMPLE_JWT = {
 # ──────────────────────────────
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": env("REDIS_URL", default="redis://127.0.0.1:6379/0"),
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "CONNECTION_POOL_KWARGS": {"max_connections": 50},
-            "SOCKET_CONNECT_TIMEOUT": 5,
-            "SOCKET_TIMEOUT": 5,
-        },
-        "KEY_PREFIX": "church",
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "unique-snowflake",
     }
 }
 
-SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+
 SESSION_CACHE_ALIAS = "default"
 
 # ──────────────────────────────

@@ -1,98 +1,179 @@
-#!/usr/bin/env python3
 """
-TCC Project Initialization Script
-One-click setup for development environment, dependencies, and project configuration
+TCC Project Auto Initialization Script
+Fully automatic: creates venv with Python 3.12, installs deps, prepares environment, and runs Django setup.
 """
 
-import os
-import sys
-import subprocess
-import platform
-import venv
-import shutil
+import os, sys, subprocess, platform, shutil, json
 from pathlib import Path
-import importlib.util
-import json
 
 class ProjectInitializer:
     def __init__(self):
         self.project_root = Path(__file__).parent
         self.venv_path = self.project_root / "viro"
-        self.requirements_file = self.project_root / "requirements/requirements.txt"
+        self.requirements_file = self.project_root / "requirements" / "requirements.txt"
         self.is_windows = platform.system() == "Windows"
         self.python_executable = None
-        
+        self.pip_executable = None
+        self.python_12 = None
+
+    # ----------------------------------------------------------
     def print_header(self):
-        """Print initialization header"""
         print("=" * 60)
-        print("🚀 TCC Project Initialization")
+        print("🚀  TCC Project Auto Initialization (Python 3.12)")
         print("=" * 60)
+
+    # ----------------------------------------------------------
+    def find_python_312(self):
+        """Find Python 3.12 executable with better Windows support"""
+        print("🔍 Looking for Python 3.12...")
         
-    def check_python_version(self):
-        """Check if Python version is compatible"""
-        print("🔍 Checking Python version...")
-        version = sys.version_info
-        if version.major < 3 or (version.major == 3 and version.minor < 8):
-            print(f"❌ Python 3.8+ required. Current: {version.major}.{version.minor}.{version.micro}")
-            return False
-        print(f"✅ Python {version.major}.{version.minor}.{version.micro} - Compatible")
-        return True
-    
-    def create_virtual_environment(self):
-        """Create Python virtual environment"""
-        print("\n🐍 Creating virtual environment...")
+        # Common Python 3.12 locations on Windows
+        possible_paths = [
+            # User might have installed Python 3.12 in different locations
+            "python3.12", "python312", 
+            "py -3.12", "py -3.12-32", "py -3.12-64",
+            # Common installation paths
+            "C:\\Python312\\python.exe",
+            "C:\\Program Files\\Python312\\python.exe", 
+            "C:\\Users\\" + os.getenv('USERNAME') + "\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            # Environment variables
+            os.getenv('PYTHON312_PATH', ''),
+            # Check if Python 3.12 is available via python command
+            "python"
+        ]
         
-        if self.venv_path.exists():
-            print("📁 Virtual environment already exists")
-        else:
+        for path_cmd in possible_paths:
+            if not path_cmd.strip():
+                continue
+                
             try:
-                venv.create(self.venv_path, with_pip=True)
-                print("✅ Virtual environment created")
-            except Exception as e:
-                print(f"❌ Failed to create virtual environment: {e}")
-                return False
+                if path_cmd.startswith("py "):
+                    # Handle Windows py launcher
+                    cmd = path_cmd.split() + ["--version"]
+                else:
+                    cmd = [path_cmd, "--version"]
+                    
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0 and "3.12" in result.stdout:
+                    print(f"✅ Found Python 3.12: {path_cmd}")
+                    return path_cmd
+            except (FileNotFoundError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+                continue
         
-        # Set Python executable path
+        # Last resort: check current Python version
+        current_version = sys.version_info
+        if current_version.major == 3 and current_version.minor == 12:
+            print("✅ Using current Python 3.12")
+            return sys.executable
+        
+        print("\n❌ Python 3.12 not found automatically.")
+        print("\n🔧 Please install Python 3.12 from:")
+        print("   https://www.python.org/downloads/release/python-3120/")
+        print("\n📋 Or try one of these solutions:")
+        print("   1. Install Python 3.12 using the Windows installer")
+        print("   2. Use the Python launcher: 'py -3.12' should work after installation")
+        print("   3. Add Python 3.12 to your PATH during installation")
+        
+        # Ask user for manual path
+        manual_path = input("\n📁 Or enter the full path to Python 3.12 executable (or press Enter to exit): ").strip()
+        if manual_path and os.path.exists(manual_path):
+            return manual_path
+        else:
+            sys.exit(1)
+
+    # ----------------------------------------------------------
+    def check_python_version(self):
+        print("🔍 Checking Python version...")
+        self.python_12 = self.find_python_312()
+        
+        # Verify it's actually 3.12 with better error handling
+        try:
+            if self.python_12.startswith("py "):
+                cmd = self.python_12.split() + ["--version"]
+            else:
+                cmd = [self.python_12, "--version"]
+                
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=True)
+            version_output = result.stdout.strip()
+            print(f"✅ Using: {version_output}")
+            
+            if "3.12" not in version_output:
+                print(f"❌ Expected Python 3.12 but got: {version_output}")
+                sys.exit(1)
+                
+        except Exception as e:
+            print(f"❌ Failed to verify Python 3.12: {e}")
+            print(f"   Command tried: {cmd}")
+            sys.exit(1)
+
+    # ----------------------------------------------------------
+    def recreate_virtual_environment(self):
+        """Always recreate a fresh virtual environment with Python 3.12"""
+        if self.venv_path.exists():
+            print("🧹 Removing existing virtual environment...")
+            try:
+                shutil.rmtree(self.venv_path)
+            except Exception as e:
+                print(f"❌ Failed to remove old environment: {e}")
+                sys.exit(1)
+
+        print("🐍 Creating new virtual environment with Python 3.12...")
+        try:
+            # Use the found Python 3.12 to create venv
+            if self.python_12.startswith("py "):
+                # Handle py launcher on Windows
+                cmd = self.python_12.split() + ["-m", "venv", str(self.venv_path)]
+            else:
+                cmd = [self.python_12, "-m", "venv", str(self.venv_path)]
+                
+            print(f"   Running: {' '.join(cmd)}")
+            subprocess.run(cmd, check=True, timeout=60)
+        except Exception as e:
+            print(f"❌ Could not create venv with Python 3.12: {e}")
+            print("💡 Try installing Python 3.12 manually and ensure it's in PATH")
+            sys.exit(1)
+
         if self.is_windows:
             self.python_executable = self.venv_path / "Scripts" / "python.exe"
             self.pip_executable = self.venv_path / "Scripts" / "pip.exe"
         else:
             self.python_executable = self.venv_path / "bin" / "python"
             self.pip_executable = self.venv_path / "bin" / "pip"
+        
+        # Verify the venv was created successfully
+        if not self.python_executable.exists():
+            print(f"❌ Virtual environment creation failed: {self.python_executable} not found")
+            sys.exit(1)
             
-        return True
-    
+        print(f"✅ Virtual environment ready: {self.python_executable}")
+
+    # ----------------------------------------------------------
     def install_dependencies(self):
-        """Install project dependencies"""
-        print("\n📦 Installing dependencies...")
-        
+        print("📦 Installing dependencies...")
         if not self.requirements_file.exists():
-            print("❌ requirements.txt not found. Creating default...")
-            self.create_default_requirements()
-        
+            self.requirements_file.parent.mkdir(exist_ok=True)
+            self.create_compatible_requirements()
+
         try:
             # Upgrade pip first
-            subprocess.run([
-                str(self.python_executable), "-m", "pip", "install", "--upgrade", "pip"
-            ], check=True, capture_output=True)
+            subprocess.run([str(self.python_executable), "-m", "pip", "install", "--upgrade", "pip"], 
+                         check=True, timeout=120)
             
-            # Install dependencies
-            result = subprocess.run([
-                str(self.python_executable), "-m", "pip", "install", "-r", str(self.requirements_file)
-            ], check=True, capture_output=True, text=True)
-            
-            print("✅ Dependencies installed successfully")
-            return True
-            
+            # Install requirements
+            subprocess.run([str(self.python_executable), "-m", "pip", "install", "-r", str(self.requirements_file)], 
+                         check=True, timeout=300)
+            print("✅ Dependencies installed successfully.")
+        except subprocess.TimeoutExpired:
+            print("❌ Dependency installation timed out. Try running again.")
+            sys.exit(1)
         except subprocess.CalledProcessError as e:
             print(f"❌ Failed to install dependencies: {e}")
-            if e.stderr:
-                print(f"Error details: {e.stderr}")
-            return False
-    
-    def create_default_requirements(self):
-        """Create default requirements.txt if missing"""
-        default_requirements = """Django>=4.2,<5.0
+            sys.exit(1)
+
+    # ----------------------------------------------------------
+    def create_compatible_requirements(self):
+        """Create requirements compatible with Python 3.12"""
+        compatible_reqs = """Django>=4.2,<5.0
 djangorestframework>=3.14
 django-cors-headers>=4.0
 psycopg2-binary>=2.9
@@ -109,271 +190,209 @@ gunicorn>=21.0
 django-cleanup>=8.0
 python-memcached>=1.59
 django-redis>=5.2
-"""
-        with open(self.requirements_file, 'w') as f:
-            f.write(default_requirements)
-        print("📄 Created default requirements.txt")
-    
-    def setup_environment_variables(self):
-        """Create environment configuration files"""
-        print("\n⚙️  Setting up environment variables...")
-        
-        env_example = self.project_root / ".env.example"
-        env_file = self.project_root / ".env"
-        
-        if not env_example.exists():
-            self.create_env_example()
-        
-        if not env_file.exists():
-            shutil.copy(env_example, env_file)
-            print("✅ Created .env file from .env.example")
-            print("⚠️  Please edit .env file with your actual configuration")
-        else:
-            print("📁 .env file already exists")
-        
-        return True
-    
-    def create_env_example(self):
-        """Create .env.example file"""
-        env_example_content = """# Django Settings
-DEBUG=True
-SECRET_KEY=your-secret-key-here
-ALLOWED_HOSTS=localhost,127.0.0.1,.localhost
+
+# JWT packages compatible with Python 3.12
+djangorestframework-simplejwt>=5.2.0
+PyJWT>=2.8.0
 
 # Database
-DB_ENGINE=django.db.backends.postgresql
-DB_NAME=tcc_db
-DB_USER=tcc_user
-DB_PASSWORD=tcc_password
-DB_HOST=localhost
-DB_PORT=5432
+psycopg2-binary>=2.9.6
 
-# Redis
-REDIS_URL=redis://localhost:6379/0
-
-# Snowflake ID Generator
-SNOWFLAKE_DATACENTER_ID=1
-SNOWFLAKE_MACHINE_ID=1
-SNOWFLAKE_EPOCH=1672531200000
-
-# Security
-CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-
-# Email (Optional)
-EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USE_TLS=True
-EMAIL_HOST_USER=your-email@gmail.com
-EMAIL_HOST_PASSWORD=your-app-password
-
-# File Storage
-DEFAULT_FILE_STORAGE=django.core.files.storage.FileSystemStorage
-MEDIA_ROOT=media
-MEDIA_URL=/media/
-
-# Logging
-LOG_LEVEL=INFO
+# Development tools
+black>=23.0
+flake8>=6.0
 """
-        with open(self.project_root / ".env.example", 'w') as f:
-            f.write(env_example_content)
-        print("📄 Created .env.example file")
-    
-    def run_django_commands(self):
-        """Run essential Django management commands"""
-        print("\n🛠️  Running Django setup commands...")
+        with open(self.requirements_file, "w") as f:
+            f.write(compatible_reqs)
+        print("📄 Created Python 3.12 compatible requirements.txt")
+
+    # ----------------------------------------------------------
+    def fix_jwt_compatibility(self):
+        """Apply workaround for JWT package compatibility issues"""
+        print("🔧 Checking for JWT compatibility fixes...")
         
+        # This is now less critical since we're using Python 3.12
+        jwt_init_file = self.venv_path / "Lib" / "site-packages" / "rest_framework_simplejwt" / "__init__.py"
+        
+        if jwt_init_file.exists():
+            try:
+                # Only fix if there's an importlib issue
+                with open(jwt_init_file, 'r') as f:
+                    content = f.read()
+                    
+                if "importlib" in content and "version" in content:
+                    # Backup original file
+                    backup_file = jwt_init_file.with_suffix('.py.backup')
+                    if not backup_file.exists():
+                        shutil.copy2(jwt_init_file, backup_file)
+                    
+                    # Replace with fixed version
+                    fixed_content = '''__version__ = "5.3.0"  # Manual version
+
+default_app_config = 'rest_framework_simplejwt.apps.SimpleJwtConfig'
+'''
+                    with open(jwt_init_file, 'w') as f:
+                        f.write(fixed_content)
+                    print("✅ Applied JWT compatibility fix")
+                else:
+                    print("✅ JWT package already compatible")
+            except Exception as e:
+                print(f"⚠️  Could not check JWT package (non-critical): {e}")
+        else:
+            print("ℹ️  JWT package not installed yet")
+
+    # ----------------------------------------------------------
+    def setup_env_files(self):
+        print("⚙️  Setting up .env files...")
+        env_example = self.project_root / ".env.example"
+        env_file = self.project_root / ".env"
+
+        if not env_example.exists():
+            with open(env_example, "w") as f:
+                f.write("""DEBUG=True
+SECRET_KEY=your-secret-key-here-make-it-very-long-and-secure
+ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+DATABASE_URL=sqlite:///db.sqlite3
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+""")
+            print("📄 Created .env.example")
+
+        if not env_file.exists():
+            shutil.copy(env_example, env_file)
+            print("✅ Created .env from template")
+        else:
+            print("📁 .env already exists")
+
+    # ----------------------------------------------------------
+    def run_django_setup(self):
+        print("🛠️  Running Django setup...")
         manage_py = self.project_root / "manage.py"
         if not manage_py.exists():
-            print("❌ manage.py not found. Is this a Django project?")
-            return False
-        
+            print("❌ manage.py not found — please ensure you're in a Django project root.")
+            sys.exit(1)
+
         commands = [
             ["makemigrations"],
             ["migrate"],
             ["collectstatic", "--noinput"],
         ]
         
-        for command in commands:
+        for cmd in commands:
             try:
-                print(f"🔧 Running: python manage.py {' '.join(command)}")
-                result = subprocess.run([
-                    str(self.python_executable), str(manage_py)
-                ] + command, check=True, capture_output=True, text=True, cwd=self.project_root)
-                print(f"✅ Command completed: {' '.join(command)}")
+                print(f"   Running: python manage.py {cmd[0]}")
+                subprocess.run([str(self.python_executable), str(manage_py)] + cmd, check=True, timeout=60)
+                print(f"✅ Django {cmd[0]} completed")
             except subprocess.CalledProcessError as e:
-                print(f"⚠️  Command failed: {' '.join(command)} - {e}")
-                if e.stderr:
-                    print(f"Error: {e.stderr}")
+                print(f"⚠️  Django {cmd[0]} failed: {e}")
+                if "auth" in str(e).lower() or "user" in str(e).lower():
+                    print("💡 Tip: You may need to check your custom user model configuration")
+            except subprocess.TimeoutExpired:
+                print(f"⚠️  Django {cmd[0]} timed out")
         
-        # Ask about creating superuser
-        self.create_superuser()
-        
-        return True
-    
-    def create_superuser(self):
-        """Create Django superuser interactively"""
-        try:
-            create = input("\n👤 Create Django superuser? (y/n): ").lower().strip()
-            if create in ['y', 'yes']:
-                print("Creating superuser...")
-                subprocess.run([
-                    str(self.python_executable), str(self.project_root / "manage.py"),
-                    "createsuperuser"
-                ], check=True, cwd=self.project_root)
-        except (KeyboardInterrupt, subprocess.CalledProcessError):
-            print("Superuser creation skipped or failed")
-    
-    def setup_pre_commit(self):
-        """Set up pre-commit hooks if desired"""
-        try:
-            setup = input("\n🔧 Set up pre-commit hooks? (y/n): ").lower().strip()
-            if setup in ['y', 'yes']:
-                # Install pre-commit
-                subprocess.run([
-                    str(self.python_executable), "-m", "pip", "install", "pre-commit"
-                ], check=True)
-                
-                # Set up hooks
-                pre_commit_config = self.project_root / ".pre-commit-config.yaml"
-                if not pre_commit_config.exists():
-                    self.create_pre_commit_config()
-                
-                subprocess.run([
-                    str(self.python_executable), "-m", "pre-commit", "install"
-                ], check=True, cwd=self.project_root)
-                print("✅ Pre-commit hooks installed")
-        except (KeyboardInterrupt, subprocess.CalledProcessError):
-            print("Pre-commit setup skipped")
-    
-    def create_pre_commit_config(self):
-        """Create pre-commit configuration file"""
-        pre_commit_content = """repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
-    hooks:
-    -   id: trailing-whitespace
-    -   id: end-of-file-fixer
-    -   id: check-yaml
-    -   id: check-added-large-files
-    -   id: check-merge-conflict
+        print("✅ Django setup completed.")
 
--   repo: https://github.com/psf/black
-    rev: 23.3.0
-    hooks:
-    -   id: black
-        args: [--line-length=88]
-
--   repo: https://github.com/pycqa/isort
-    rev: 5.12.0
-    hooks:
-    -   id: isort
-        args: ["--profile", "black"]
-
--   repo: https://github.com/pycqa/flake8
-    rev: 6.0.0
-    hooks:
-    -   id: flake8
-        args: [--max-line-length=88, --extend-ignore=E203,W503]
-"""
-        with open(self.project_root / ".pre-commit-config.yaml", 'w') as f:
-            f.write(pre_commit_content)
-        print("📄 Created .pre-commit-config.yaml")
-    
-    def setup_ide_configuration(self):
-        """Create IDE configuration files"""
-        print("\n🔧 Setting up IDE configuration...")
-        
-        # VS Code settings
+    # ----------------------------------------------------------
+    def setup_vscode(self):
+        print("🧩 Setting up VS Code configuration...")
         vscode_dir = self.project_root / ".vscode"
         vscode_dir.mkdir(exist_ok=True)
         
-        vscode_settings = {
+        settings = {
             "python.defaultInterpreterPath": str(self.python_executable),
-            "python.terminal.activateEnvironment": False,
             "editor.formatOnSave": True,
-            "editor.codeActionsOnSave": {
-                "source.organizeImports": True
-            },
             "python.formatting.provider": "black",
-            "python.linting.enabled": True,
-            "python.linting.flake8Enabled": True,
-            "[python]": {
-                "editor.defaultFormatter": "ms-python.black-formatter"
-            }
+            "python.terminal.activateEnvironment": False
         }
         
-        with open(vscode_dir / "settings.json", 'w') as f:
-            json.dump(vscode_settings, f, indent=2)
+        with open(vscode_dir / "settings.json", "w") as f:
+            json.dump(settings, f, indent=2)
         
-        print("✅ VS Code configuration created")
-    
-    def print_success_message(self):
-        """Print completion message with next steps"""
-        print("\n" + "=" * 60)
-        print("🎉 Project Initialization Complete!")
-        print("=" * 60)
-        print("\n📝 Next Steps:")
-        print("1. Edit .env file with your actual configuration")
-        print("2. Activate virtual environment:")
-        if self.is_windows:
-            print("   venv\\Scripts\\activate")
-        else:
-            print("   source venv/bin/activate")
-        print("3. Run development server:")
-        print("   python manage.py runserver")
-        print("4. Access your application at http://localhost:8000")
-        print("\n🛠️  Useful Commands:")
-        print("   python manage.py makemigrations")
-        print("   python manage.py migrate")
-        print("   python manage.py createsuperuser")
-        print("   python manage.py collectstatic")
-        print("\n🐛 Debugging:")
-        print("   python manage.py check")
-        print("   python manage.py test")
-        print("\n" + "=" * 60)
-    
-    def run(self):
-        """Main initialization method"""
-        self.print_header()
+        # Create launch.json for debugging
+        launch_config = {
+            "version": "0.2.0",
+            "configurations": [
+                {
+                    "name": "Django Debug",
+                    "type": "python",
+                    "request": "launch",
+                    "program": "${workspaceFolder}/manage.py",
+                    "args": ["runserver"],
+                    "django": True,
+                    "justMyCode": True
+                }
+            ]
+        }
         
-        # Check prerequisites
-        if not self.check_python_version():
-            sys.exit(1)
-        
-        # Setup steps
-        steps = [
-            self.create_virtual_environment,
-            self.install_dependencies,
-            self.setup_environment_variables,
-            self.run_django_commands,
-            self.setup_pre_commit,
-            self.setup_ide_configuration,
-        ]
-        
-        for step in steps:
-            try:
-                if not step():
-                    print(f"❌ Step {step.__name__} failed")
-                    if input("Continue anyway? (y/n): ").lower() != 'y':
-                        sys.exit(1)
-            except KeyboardInterrupt:
-                print("\n❌ Initialization cancelled by user")
-                sys.exit(1)
-            except Exception as e:
-                print(f"❌ Unexpected error in {step.__name__}: {e}")
-                if input("Continue anyway? (y/n): ").lower() != 'y':
-                    sys.exit(1)
-        
-        self.print_success_message()
+        with open(vscode_dir / "launch.json", "w") as f:
+            json.dump(launch_config, f, indent=2)
+            
+        print("✅ VS Code configured for Python 3.12")
 
+    # ----------------------------------------------------------
+    def verify_installation(self):
+        """Verify that everything is working correctly"""
+        print("🔍 Verifying installation...")
+        
+        try:
+            # Test Python version in venv
+            result = subprocess.run(
+                [str(self.python_executable), "--version"], 
+                capture_output=True, text=True, check=True, timeout=10
+            )
+            print(f"✅ {result.stdout.strip()}")
+            
+            # Test Django
+            result = subprocess.run(
+                [str(self.python_executable), "manage.py", "check"], 
+                capture_output=True, text=True, check=True, timeout=30
+            )
+            print("✅ Django check passed")
+            
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  Verification issue: {e}")
+            return False
+        except subprocess.TimeoutExpired:
+            print("⚠️  Verification timed out")
+            return False
+            
+        return True
+
+    # ----------------------------------------------------------
+    def run(self):
+        self.print_header()
+        self.check_python_version()
+        self.recreate_virtual_environment()
+        self.install_dependencies()
+        self.fix_jwt_compatibility()
+        self.setup_env_files()
+        self.run_django_setup()
+        self.setup_vscode()
+        self.verify_installation()
+        
+        print("\n🎉 All set! Project initialized with Python 3.12")
+        print("\n🚀 To start your project:")
+        if self.is_windows:
+            print("   viro\\Scripts\\activate")
+            print("   python manage.py runserver")
+        else:
+            print("   source viro/bin/activate")
+            print("   python manage.py runserver")
+        
+        print("\n📝 Next steps:")
+        print("   1. Configure your database in .env file")
+        print("   2. Create a superuser: python manage.py createsuperuser")
+        print("   3. Start developing!")
+        print("\n✅ Initialization complete.")
+
+# --------------------------------------------------------------
 def main():
-    """Main entry point"""
     try:
-        initializer = ProjectInitializer()
-        initializer.run()
+        ProjectInitializer().run()
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Command failed: {e}")
+        sys.exit(1)
     except KeyboardInterrupt:
-        print("\n❌ Initialization cancelled by user")
+        print("\n❌ Cancelled by user.")
         sys.exit(1)
     except Exception as e:
         print(f"❌ Initialization failed: {e}")
