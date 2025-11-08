@@ -1,56 +1,44 @@
-from pyexpat import model
-from django.contrib.auth import get_user_model
+# permissions.py
+from django.db import models
+from django.core.exceptions import PermissionDenied
 
-User = get_user_model()
-
-
-class PermissionMixin(model.Model):
+class RoleBasedPermissionsMixin:
     """
-    Adds permission methods: can_view, can_edit, can_delete
-    Requires: created_by (from AuditMixin) or override
+    Mixin to add role-based permission checks to models
     """
-
-    class Meta:
-        abstract = True
-
+    
+    def can_create(self, user):
+        """Check if user can create this type of object"""
+        raise NotImplementedError("Subclasses must implement can_create")
+    
     def can_view(self, user):
-        """Can user view this object?"""
-        if not user or not user.is_authenticated:
-            return False
-
-        # Admin sees all
-        if getattr(user, 'is_admin', False) or user.is_superuser:
-            return True
-
-        # Owner can view
-        if hasattr(self, 'created_by') and self.created_by == user:
-            return True
-
-        # Zone leader logic (if ZoneMixin used)
-        if hasattr(self, 'is_zone_leader'):
-            return self.is_zone_leader(user)
-
-        return False
-
+        """Check if user can view this object"""
+        raise NotImplementedError("Subclasses must implement can_view")
+    
     def can_edit(self, user):
-        """Can user edit this object?"""
-        if not self.can_view(user):
-            return False
-
-        # Only active records can be edited
-        if hasattr(self, 'is_active') and not self.is_active:
-            return False
-
-        # Owner can edit
-        if hasattr(self, 'created_by') and self.created_by == user:
-            return True
-
-        # Zone leader can edit
-        if hasattr(self, 'is_zone_leader'):
-            return self.is_zone_leader(user)
-
-        return False
-
+        """Check if user can edit this object"""
+        raise NotImplementedError("Subclasses must implement can_edit")
+    
     def can_delete(self, user):
-        """Can user delete this object?"""
-        return self.can_edit(user)
+        """Check if user can delete this object"""
+        raise NotImplementedError("Subclasses must implement can_delete")
+    
+    def check_can_create(self, user):
+        """Raise PermissionDenied if user cannot create"""
+        if not self.can_create(user):
+            raise PermissionDenied("You do not have permission to create this resource")
+    
+    def check_can_view(self, user):
+        """Raise PermissionDenied if user cannot view"""
+        if not self.can_view(user):
+            raise PermissionDenied("You do not have permission to view this resource")
+    
+    def check_can_edit(self, user):
+        """Raise PermissionDenied if user cannot edit"""
+        if not self.can_edit(user):
+            raise PermissionDenied("You do not have permission to edit this resource")
+    
+    def check_can_delete(self, user):
+        """Raise PermissionDenied if user cannot delete"""
+        if not self.can_delete(user):
+            raise PermissionDenied("You do not have permission to delete this resource")

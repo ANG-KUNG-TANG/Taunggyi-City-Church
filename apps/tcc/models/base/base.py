@@ -301,34 +301,69 @@ class BaseModel(models.Model):
         
         return new_instance
     
-    # Audit Methods
-    def get_audit_info(self):
-        """
-        Get comprehensive audit information
-        """
-        return {
-            'id': str(self.id),
-            'model': self.__class__.__name__,
-            'created_by': str(self.created_by) if self.created_by else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_by': str(self.updated_by) if self.updated_by else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'is_active': self.is_active,
-            'version': self.version,
-            'deleted_by': str(self.deleted_by) if self.deleted_by else None,
-            'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None,
-        }
     
-    # Class methods
-    @classmethod
-    def get_content_type(cls):
-        """Get ContentType for this model"""
-        return ContentType.objects.get_for_model(cls)
+    def save_with_audit(self, user, request=None, *args, **kwargs):
+        """
+        Save with automatic audit logging
+        """
+        is_new = self._state.adding
+        action = 'CREATE' if is_new else 'UPDATE'
+        
+        # Get request info if available
+        ip_address = ""
+        user_agent = ""
+        request_path = ""
+        request_method = ""
+        
+        if request:
+            ip_address = self._get_client_ip(request)
+            user_agent = request.META.get('HTTP_USER_AGENT', '')
+            request_path = request.path
+            request_method = request.method
+        
+        # Save the object
+        self.save(*args, **kwargs)
+        
+        # Log the action
+        from apps.tcc.utils.audit_logging import AuditLogger
+        
+        if is_new:
+            AuditLogger.log_create(user, self, ip_address, user_agent)
+        else:
+            # For updates, you might want to track what changed
+            changes = self._get_changes()
+            AuditLogger.log_update(user, self, changes, ip_address, user_agent)
     
-    @classmethod
-    def get_model_name(cls):
-        """Get human-readable model name"""
-        return cls._meta.verbose_name.title()
-
-
-
+    def delete_with_audit(self, user, request=None, *args, **kwargs):
+        """
+        Delete with automatic audit logging
+        """
+        # Get request info if available
+        ip_address = ""
+        user_agent = ""
+        
+        if request:
+            ip_address = self._get_client_ip(request)
+            user_agent = request.META.get('HTTP_USER_AGENT', '')
+        
+        # Log before deletion
+        from apps.tcc.utils.audit_logging import AuditLogger
+        AuditLogger.log_delete(user, self, ip_address, user_agent)
+        
+        # Perform deletion (soft delete by default)
+        self.soft_delete(user=user)
+    
+    def _get_client_ip(self, request):
+        """Get client IP address from request"""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+    
+    def _get_changes(self):
+        """Get changes made in this update (simplified version)"""
+        # This would need to be implemented based on your specific needs
+        # You might want to use django-model-utils or similar for change tracking
+        return {}
