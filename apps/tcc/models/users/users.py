@@ -1,4 +1,3 @@
-# users.py
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from apps.tcc.models.base.base import BaseModel
@@ -8,7 +7,7 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     # Personal Information
     name = models.CharField(max_length=120, help_text="Full name of the member")
     email = models.EmailField(unique=True, db_index=True, help_text="Primary email for login and communication")
-    phone = models.CharField(max_length=20, blank=True, help_text="Contact phone number")
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
     
     # Demographic Information
     age = models.PositiveIntegerField(null=True, blank=True, help_text="Age for ministry grouping")
@@ -39,10 +38,9 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     REQUIRED_FIELDS = ['name']
     
     class Meta:
-        app_label='tcc'
-        db_table = "church_users"
-        verbose_name = "Church Member"
-        verbose_name_plural = "Church Members"
+        db_table = 'users'
+        verbose_name = ('User')
+        verbose_name_plural = ('Users')
         ordering = ['name']
     
     def __str__(self):

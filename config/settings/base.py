@@ -42,12 +42,12 @@ INSTALLED_APPS = [
     "crispy_forms",
     "crispy_bootstrap5",
     'request_id',
-
     "apps.tcc",
+    # "apps.tcc.apps.TccConfig",
 ]
-AUTH_USER_MODEL = 'tcc.users'
+AUTH_USER_MODEL = 'tcc.user'
 MIDDLEWARE = [
-    'apps.tcc.models.base.signals.AuditLogMiddleware',
+    # 'apps.tcc.models.base.signals.AuditLogMiddleware',
     'config.middleware.RequestIDMiddleware',
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",

@@ -12,3 +12,4 @@ class TccConfig(AppConfig):
             from apps.tcc.models.base import signals
         except ImportError as e:
             print(f'Warning: Could not import signals: {e}')
+        
