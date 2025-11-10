@@ -1,4 +1,5 @@
 amqp==5.3.1
+annotated-types==0.7.0
 asgiref==3.10.0
 billiard==4.2.2
 black==25.9.0
@@ -37,6 +38,8 @@ platformdirs==4.5.0
 prompt_toolkit==3.0.52
 psycopg2-binary==2.9.11
 pycodestyle==2.14.0
+pydantic==2.12.4
+pydantic_core==2.41.5
 pyflakes==3.4.0
 PyJWT==2.10.1
 PyMySQL==1.1.2
@@ -49,6 +52,8 @@ PyYAML==6.0.3
 redis==7.0.1
 six==1.17.0
 sqlparse==0.5.3
+typing-inspection==0.4.2
+typing_extensions==4.15.0
 tzdata==2025.2
 uritemplate==4.2.0
 vine==5.1.0

@@ -62,7 +62,7 @@ def schema_exists(name: str) -> bool:
 
 # Register default schemas
 try:
-    from apps.tcc.usecase.entities.schemas import UserCreateSchema, UserUpdateSchema
+    from apps.tcc.usecase.schemas.base import UserCreateSchema, UserUpdateSchema
     register_schema("user_create", UserCreateSchema)
     register_schema("user_update", UserUpdateSchema)
 except ImportError:
