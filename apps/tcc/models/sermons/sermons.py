@@ -15,7 +15,7 @@ class Sermon(BaseModel):
     description = models.TextField(blank=True, help_text="Sermon summary")
     content = models.TextField(blank=True, help_text="Full sermon content/notes")
     
-    sermon_date = models.DateTimeField(default=datetime.now)  # Remove parentheses to pass function reference
+    sermon_date = models.DateTimeField(default=datetime.now) 
     status = models.CharField(
         max_length=20,
         choices=SermonStatus.choices,

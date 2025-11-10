@@ -4,6 +4,7 @@ from apps.tcc.models.base.base import BaseModel
 from django.db import models
 
 from apps.tcc.models.base.enums import DonationStatus, PaymentMethod
+from apps.tcc.models.users.users import User
 
 class FundType(BaseModel):
     name = models.CharField(max_length=100, unique=True)
@@ -47,7 +48,7 @@ class FundType(BaseModel):
 
 class Donation(BaseModel):
     donor = models.ForeignKey(
-        'User', 
+        User, 
         on_delete=models.PROTECT,
         related_name='donations'
     )

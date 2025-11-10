@@ -20,7 +20,6 @@ class Event(BaseModel):
     end_date = models.DateTimeField()
     location = models.TextField(blank=True)
     
-    # Fixed attendees field with through_fields
     attendees = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through='EventRegistration',

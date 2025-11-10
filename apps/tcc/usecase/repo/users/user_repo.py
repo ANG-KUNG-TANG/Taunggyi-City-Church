@@ -1,9 +1,13 @@
 from typing import List, Optional, Dict, Any
 from django.db.models import Q
 from repo.base.base_repo import ModelRepository
-from apps.tcc.models.users import User
+from apps.tcc.models.users.users import User
 from apps.tcc.models.base.enums import UserRole, UserStatus
 from models.base.permission import PermissionDenied
+
+
+
+
 class UserRepository(ModelRepository[User]):
     
     def __init__(self):

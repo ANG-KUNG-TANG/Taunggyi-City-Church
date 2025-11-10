@@ -5,7 +5,6 @@ from django.db import models
 from apps.tcc.models.users.users import User
 
 
-
 class PrayerRequest(BaseModel):
     user = models.ForeignKey(
         User,

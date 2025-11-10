@@ -96,11 +96,8 @@ class ModelRepository(BaseRepository[T]):
         """
         queryset = self.model_class.objects.filter(is_active=True)
         
-        # Apply filters
         if filters:
             queryset = queryset.filter(**filters)
-        
-        # Filter based on user permissions
         if hasattr(self.model_class, 'can_view'):
             # This is a simplified approach - in practice, you might need more complex filtering
             objects = []

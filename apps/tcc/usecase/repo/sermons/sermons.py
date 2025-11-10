@@ -2,7 +2,7 @@ from typing import List, Optional, Dict, Any
 from django.utils import timezone
 from django.db.models import Q
 from repo.base.base_repo import ModelRepository
-from apps.tcc.models.sermons.sermons import Sermon, SermonMedia
+from apps.tcc.models.sermons.sermons import Sermon
 from apps.tcc.models.base.enums import SermonStatus, MediaType
 from utils.audit_logging import AuditLogger
 from models.base.permission import PermissionDenied
@@ -88,34 +88,34 @@ class SermonRepository(ModelRepository[Sermon]):
         
         return sermons
 
-class SermonMediaRepository(ModelRepository[SermonMedia]):
+# class SermonMediaRepository(ModelRepository[SermonMedia]):
     
-    def __init__(self):
-        super().__init__(SermonMedia)
+#     def __init__(self):
+#         super().__init__(SermonMedia)
     
-    def get_media_by_sermon(self, sermon_id: int, user) -> List[SermonMedia]:
-        """Get all media for a sermon"""
-        sermon_repo = SermonRepository()
-        sermon = sermon_repo.get_by_id(sermon_id, user)
+#     def get_media_by_sermon(self, sermon_id: int, user) -> List[SermonMedia]:
+#         """Get all media for a sermon"""
+#         sermon_repo = SermonRepository()
+#         sermon = sermon_repo.get_by_id(sermon_id, user)
         
-        if not sermon:
-            return []
+#         if not sermon:
+#             return []
         
-        return SermonMedia.objects.filter(
-            sermon=sermon,
-            is_active=True
-        ).order_by('media_type')
+#         return SermonMedia.objects.filter(
+#             sermon=sermon,
+#             is_active=True
+#         ).order_by('media_type')
     
-    def get_media_by_type(self, sermon_id: int, media_type: MediaType, user) -> List[SermonMedia]:
-        """Get media by type for a sermon"""
-        sermon_repo = SermonRepository()
-        sermon = sermon_repo.get_by_id(sermon_id, user)
+#     def get_media_by_type(self, sermon_id: int, media_type: MediaType, user) -> List[SermonMedia]:
+#         """Get media by type for a sermon"""
+#         sermon_repo = SermonRepository()
+#         sermon = sermon_repo.get_by_id(sermon_id, user)
         
-        if not sermon:
-            return []
+#         if not sermon:
+#             return []
         
-        return SermonMedia.objects.filter(
-            sermon=sermon,
-            media_type=media_type,
-            is_active=True
-        )
+#         return SermonMedia.objects.filter(
+#             sermon=sermon,
+#             media_type=media_type,
+#             is_active=True
+#         )
