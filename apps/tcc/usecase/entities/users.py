@@ -39,7 +39,6 @@ class UserEntity(UserCreateSchema):
         self.sanitize_inputs()
         self.validate_business_rules()
     
-    # Your existing permission properties and methods
     @property
     def can_manage_users(self) -> bool:
         return self.role in [UserRole.SUPER_ADMIN, UserRole.STAFF]

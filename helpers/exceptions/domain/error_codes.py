@@ -46,3 +46,4 @@ class ErrorCode(Enum):
     PAYMENT_SERVICE_UNAVAILABLE = "payment_service_unavailable"
     EMAIL_SERVICE_FAILED = "email_service_failed"
     SMS_SERVICE_FAILED = "sms_service_failed"
+    SYSTEM_ERROR = 'system_error'

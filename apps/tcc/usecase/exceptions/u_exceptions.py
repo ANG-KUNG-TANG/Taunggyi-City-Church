@@ -1,4 +1,4 @@
-# user_exceptions.py
+
 from typing import Dict, Any, Optional, List
 from helpers.exceptions.domain.base_exception import BusinessException, TechnicalException
 from helpers.exceptions.domain.domain_exceptions import (
@@ -16,6 +16,12 @@ class UserException(BusinessException):
 class UserTechnicalException(TechnicalException):
     """Base exception for all user-related technical errors"""
     pass
+
+class DomainException(BusinessException):
+    """Base exception for user domain errors"""
+    def __init__(self, message: str, error_code: str, status_code: int = 400, 
+                 details: Optional[Dict[str, Any]] = None, cause: Optional[Exception] = None):
+        super().__init__(message, error_code, status_code, details, cause)
 
 # Authentication & Authorization Exceptions
 class UserAuthenticationException(AuthenticationException):
@@ -393,7 +399,87 @@ class FamilyRelationshipException(UserException):
                 "reason": reason
             }
         )
+        
+class UnauthorizedActionException(UserPermissionException):
+    """Raised when a user attempts an action they are not authorized to perform."""
+    def __init__(
+        self,
+        user_id: str,
+        action: str,
+        resource: str = "",
+        reason: str = "Unauthorized action",
+        required_permission: str = None,
+        status_code: int = 403
+    ):
+        permission = required_permission or f"PERFORM_{action.upper()}"
+        super().__init__(
+            user=user_id,
+            permission=permission,
+            resource=resource or action
+        )
 
+        # Attach consistent details (best-effort error_code retrieval)
+        try:
+            code = ErrorCode.PERMISSION_DENIED.value
+        except Exception:
+            code = None
+
+        self.details.update({
+            "user_id": user_id,
+            "action": action,
+            "resource": resource or action,
+            "reason": reason,
+            "required_permission": permission,
+            "status_code": status_code,
+            "error_code": code
+        })
+
+        # Provide a helpful message attribute if the base supports it
+        try:
+            self.message = f"User {user_id} is not authorized to perform '{action}' on '{resource or action}'"
+        except Exception:
+            pass
+
+
+class UserAuthenticationError(UserAuthenticationException):
+    """Generic authentication error for user operations (business-level)"""
+    def __init__(self, email: str = "", reason: str = "Authentication error", status_code: int = 401, cause: Exception = None):
+        details = {"reason": reason}
+        if email:
+            details["email"] = email
+        # attach a best-effort error code if available
+        try:
+            details["error_code"] = ErrorCode.SECURITY_ERROR.value
+        except Exception:
+            pass
+        details["status_code"] = status_code
+
+        super().__init__(email=email, details=details)
+
+        if cause:
+            # preserve original exception if callers inspect __cause__
+            self.__cause__ = cause
+
+
+class InvalidUserInputError(InvalidUserDataException):
+    """Validation error wrapper for invalid user input (returns 422 by default)"""
+    def __init__(self, validation_errors: Dict[str, List[str]], field_errors: Dict[str, str] = None, message: str = "Invalid user input", status_code: int = 422, cause: Exception = None):
+        super().__init__(validation_errors=validation_errors, field_errors=field_errors)
+
+        # augment details with message/status and best-effort error code
+        try:
+            code = ErrorCode.VALIDATION_ERROR.value
+        except Exception:
+            code = None
+
+        self.details.update({
+            "message": message,
+            "status_code": status_code,
+            "error_code": code
+        })
+
+        if cause:
+            self.__cause__ = cause
 # Utility functions for user exceptions
 class UserExceptionFactory:
     """Factory for creating user exceptions with consistent formatting"""
