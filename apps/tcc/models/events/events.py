@@ -1,5 +1,5 @@
 from django.conf import settings
-from apps.tcc.models.base.base import BaseModel
+from apps.tcc.models.base.base_model import BaseModel
 from django.db import models
 from apps.tcc.models.base.enums import EventStatus, EventType, RegistrationStatus
 

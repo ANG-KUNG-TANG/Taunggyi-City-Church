@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, TypeVar, Generic
 from django.db import models
 from django.db.models import Q
-from apps.tcc.models.base.base import BaseModel
+from apps.tcc.models.base.base_model import BaseModel
 from apps.tcc.utils.audit_logging import AuditLogger
 
 T = TypeVar('T', bound=BaseModel)

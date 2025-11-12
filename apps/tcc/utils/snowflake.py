@@ -7,6 +7,12 @@ from asgiref.local import Local
 
 logger = logging.getLogger(__name__)
 
+
+try:
+    from django_redis import get_redis_connection
+except Exception:
+    get_redis_connection = None
+    
 class SnowflakeException(Exception):
     """Custom exception for Snowflake generator errors"""
     pass
@@ -58,14 +64,14 @@ class DjangoSnowflakeGenerator:
         self._local = Local()
         self._lock = threading.RLock()
         
-        # Cache key for distributed environments
-        self._cache_key = f"snowflake_{self.datacenter_id}_{self.machine_id}_sequence"
-        
+       # cache key base (for distributed sequence)
+        self._cache_key_prefix = f"snowflake_{self.datacenter_id}_{self.machine_id}_seq"
+
         logger.info(
-            f"DjangoSnowflake initialized: "
-            f"datacenter_id={self.datacenter_id}, "
-            f"machine_id={self.machine_id}, "
-            f"epoch={self.epoch}"
+            "DjangoSnowflake initialized datacenter=%s machine=%s epoch=%s",
+            self.datacenter_id,
+            self.machine_id,
+            self.epoch,
         )
     
     def _init_local(self):
@@ -76,8 +82,8 @@ class DjangoSnowflakeGenerator:
             self._local.last_timestamp = -1
     
     def _current_timestamp(self) -> int:
-        """Get current timestamp in milliseconds since epoch."""
-        return int(time.time() * 1000) - self.epoch
+        """Milliseconds since configured epoch."""
+        return int(time.time() * 1000) - int(self.epoch)
     
     def _wait_for_next_millis(self, last_timestamp: int) -> int:
         """
@@ -98,6 +104,18 @@ class DjangoSnowflakeGenerator:
             )
         
         return timestamp
+    
+    def _get_redis_client(self):
+        """
+        Return a raw Redis client (if django-redis is configured), otherwise None.
+        """
+        if get_redis_connection:
+            try:
+                return get_redis_connection("default")
+            except Exception as e:
+                logger.warning("Could not get django_redis connection: %s", e)
+                return None
+        return None
     
     def _get_distributed_sequence(self, timestamp: int) -> int:
         """

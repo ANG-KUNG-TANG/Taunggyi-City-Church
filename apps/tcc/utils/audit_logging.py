@@ -1,7 +1,7 @@
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
-from apps.tcc.models.base.base import BaseModel
+from apps.tcc.models.base.base_model import BaseModel
 
 class AuditLogger:
     """

@@ -24,7 +24,6 @@ class UserSchema(BaseSchema):
     status: UserStatus = Field(default=UserStatus.PENDING)
     
     email_notifications: bool = Field(default=True)
-    sms_notifications: bool = Field(default=False)
 
     @model_validator(mode='after')
     def validate_business_constraints(self):
@@ -58,7 +57,6 @@ class UserUpdateSchema(BaseSchema):
     status: Optional[UserStatus] = None
     
     email_notifications: Optional[bool] = None
-    sms_notifications: Optional[bool] = None
 
 
 class UserResponseSchema(UserSchema):

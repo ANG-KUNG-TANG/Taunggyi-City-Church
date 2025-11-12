@@ -9,7 +9,7 @@ import json
 from django.db import models
 
 from apps.tcc.models.base. auditlog import AuditLog
-from apps.tcc.models.base.base import BaseModel
+from apps.tcc.models.base.base_model import BaseModel
 
 User = get_user_model()
 

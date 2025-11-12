@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
-from apps.tcc.models.base.base import BaseModel
+from apps.tcc.models.base.base_model import BaseModel
 from apps.tcc.models.base.enums import UserRole, UserStatus, Gender, MaritalStatus
 
 class User(AbstractBaseUser, PermissionsMixin, BaseModel):

@@ -43,7 +43,6 @@ INSTALLED_APPS = [
     "crispy_bootstrap5",
     'request_id',
     "apps.tcc",
-    # "apps.tcc.apps.TccConfig",
 ]
 AUTH_USER_MODEL = 'tcc.User'
 MIDDLEWARE = [
@@ -167,18 +166,38 @@ SIMPLE_JWT = {
 }
 
 # ──────────────────────────────
-# Cache
+# Cache (Redis / Async Ready)
 # ──────────────────────────────
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "unique-snowflake",
+CACHE_BACKEND = env("CACHE_BACKEND", default="redis")
+REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379/0")
+CACHE_DEFAULT_EXPIRE = env.int("CACHE_DEFAULT_EXPIRE", default=300)
+
+if CACHE_BACKEND == "redis":
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "CONNECTION_POOL_KWARGS": {"max_connections": 50, "encoding": "utf-8"},
+            },
+            "TIMEOUT": CACHE_DEFAULT_EXPIRE,
+        }
     }
-}
+else:
+    # fallback local memory cache (useful for development)
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "unique-snowflake",
+            "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
 
-SESSION_ENGINE = "django.contrib.sessions.backends.db"
+        }
+    }
 
+SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "default"
+
 
 # ──────────────────────────────
 # CORS
@@ -269,6 +288,14 @@ LOGGING = {
     },
     'root': {'handlers': ['console'], 'level': 'INFO'},
 }
+
+# ──────────────────────────────
+# Async and Event Loop Configuration
+# ──────────────────────────────
+ASYNC_MODE = env.bool("ASYNC_MODE", default=True)
+ASYNC_DB_BACKEND = env.str("ASYNC_DB_BACKEND", default="aiomysql")  # or asyncpg, aiosqlite, etc.
+ASYNC_POOL_SIZE = env.int("ASYNC_POOL_SIZE", default=10)
+ASYNC_TIMEOUT = env.int("ASYNC_TIMEOUT", default=30)
 
 # ──────────────────────────────
 # Snowflake ID Configuration

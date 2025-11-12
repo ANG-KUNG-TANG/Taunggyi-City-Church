@@ -1,6 +1,6 @@
 import uuid
 from django.db import models
-from django.conf import settings  # Add this import
+from django.conf import settings
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.models import ContentType
@@ -8,30 +8,29 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 import json
 
 from apps.tcc.models.base.manager import BaseModelManager
-from apps.tcc.utils.fields import SnowflakeField
+from apps.tcc.utils.fields import SnowflakeField  # We'll update this field
 
-# Remove problematic imports at module level
-# from apps.tcc.models.base.manager import BaseModelManager
-# from apps.tcc.utils.fields import SnowflakeField
-
-from django.db import models
-from django.conf import settings
-from django.utils import timezone
-
+# Import the snowflake generator
+from apps.tcc.utils.snowflake import generate_snowflake_id, decompose_snowflake_id
 
 class BaseModel(models.Model):
     """
-    Simplified base model - we'll add complexity later
+    Base model with Snowflake ID instead of UUID
     """
     
-    # Use standard AutoField for now
-    id = models.BigAutoField(primary_key=True)
+    # Use Snowflake ID as primary key
+    id = models.BigIntegerField(
+        primary_key=True,
+        default=generate_snowflake_id,
+        editable=False,
+        verbose_name="ID"
+    )
     
     # Timestamps
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
     
-    # User References - use string reference
+    # User References
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -50,27 +49,70 @@ class BaseModel(models.Model):
     # Basic fields
     is_active = models.BooleanField(default=True)
     
+    # Meta information (JSON field for flexible data)
+    meta_info = models.JSONField(default=dict, blank=True)
+    
+    # Version for optimistic locking
+    version = models.PositiveIntegerField(default=1, editable=False)
+    
+    # Soft delete fields
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='%(class)s_deleted'
+    )
+    
+    # Custom manager
+    objects = BaseModelManager()
+    
     class Meta:
         abstract = True
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['updated_at']),
+            models.Index(fields=['is_active']),
+        ]
     
     def __str__(self):
         return f"{self.__class__.__name__} ({self.id})"
+    
     def __repr__(self):
         """Detailed representation for debugging"""
         return f"<{self.__class__.__name__} {self.id} active={self.is_active}>"
     
-    def get_user_model(self):
-        """Safe method to get user model when needed"""
-        from django.contrib.auth import get_user_model
-        return get_user_model()
+    def get_snowflake_info(self):
+        """
+        Decompose the Snowflake ID to get timestamp, datacenter, machine, and sequence info
+        """
+        return decompose_snowflake_id(self.id)
+    
+    def get_created_timestamp(self):
+        """
+        Get the actual creation timestamp from Snowflake ID
+        Useful for auditing when created_at might be different
+        """
+        snowflake_info = self.get_snowflake_info()
+        return snowflake_info.get('datetime') if snowflake_info else None
+    
+    @classmethod
+    def generate_id(cls):
+        """Generate a new Snowflake ID"""
+        return generate_snowflake_id()
     
     def save(self, *args, **kwargs):
-        """Override save to handle timestamps, versioning, and validation"""
+        """Override save to handle Snowflake ID generation and validation"""
+        
+        # Generate Snowflake ID if this is a new instance
+        if not self.id:
+            self.id = generate_snowflake_id()
         
         # Pre-save validation
         self.full_clean()
         
-        # Update timestamps and version
+        # Update timestamps
         if not self.created_at:
             self.created_at = timezone.now()
         
@@ -125,7 +167,7 @@ class BaseModel(models.Model):
             model_restored.send(sender=self.__class__, instance=self)
         except ImportError:
             pass  # Signals not available yet
-        
+    
     def hard_delete(self, *args, **kwargs):
         """
         Permanent deletion - use with caution
@@ -197,7 +239,7 @@ class BaseModel(models.Model):
     # Utility Methods
     def get_meta_value(self, key, default=None):
         """Safely get value from meta_info"""
-        return self.meta_info.get(key, default)
+        return self.meta_info.get(key, default) if self.meta_info else default
     
     def set_meta_value(self, key, value):
         """Safely set value in meta_info"""
@@ -213,7 +255,7 @@ class BaseModel(models.Model):
         self.meta_info.update(kwargs)
         self.save(update_fields=['meta_info'])
     
-    def to_dict(self, include_meta=False):
+    def to_dict(self, include_meta=False, include_snowflake_info=False):
         """
         Convert model to dictionary representation
         """
@@ -228,11 +270,14 @@ class BaseModel(models.Model):
         if include_meta:
             data['meta_info'] = self.meta_info
         
+        if include_snowflake_info:
+            data['snowflake_info'] = self.get_snowflake_info()
+        
         return data
     
     def clone(self, user=None, **overrides):
         """
-        Create a copy of this instance with new UUID
+        Create a copy of this instance with new Snowflake ID
         """
         model_class = self.__class__
         
@@ -249,7 +294,7 @@ class BaseModel(models.Model):
         # Apply overrides
         fields.update(overrides)
         
-        # Create new instance
+        # Create new instance (will auto-generate Snowflake ID)
         new_instance = model_class(**fields)
         
         # Save with user context
@@ -331,3 +376,28 @@ class BaseModel(models.Model):
         # This would need to be implemented based on your specific needs
         # You might want to use django-model-utils or similar for change tracking
         return {}
+
+    @classmethod
+    def get_by_snowflake_id(cls, snowflake_id):
+        """
+        Get object by Snowflake ID with caching support
+        """
+        try:
+            return cls.objects.get(id=snowflake_id)
+        except cls.DoesNotExist:
+            return None
+
+    @classmethod
+    def get_by_snowflake_ids(cls, snowflake_ids):
+        """
+        Get multiple objects by Snowflake IDs
+        """
+        return cls.objects.filter(id__in=snowflake_ids)
+
+    def get_creation_time_from_id(self):
+        """
+        Extract creation time from Snowflake ID
+        Useful when you need the exact time the ID was generated
+        """
+        info = self.get_snowflake_info()
+        return info.get('datetime') if info else None

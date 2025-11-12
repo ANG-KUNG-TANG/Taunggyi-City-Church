@@ -4,14 +4,14 @@ import logging
 from functools import wraps
 from django.db import DatabaseError, IntegrityError, OperationalError
 
-from helpers.exceptions.domain.base_exception import BaseApplicationException
-from helpers.exceptions.domain.domain_exceptions import (
+from apps.core.core_exceptions.domain.base_exception import BaseApplicationException
+from apps.core.core_exceptions.domain.domain_exceptions import (
     AuthenticationException, PermissionException, ObjectNotFoundException,
     DatabaseConnectionException, DatabaseTimeoutException, MySQLIntegrityException
 )
-from helpers.exceptions.domain.http_exceptions import ExternalServiceException
-from helpers.exceptions.domain.error_codes import ErrorCode
-from helpers.exceptions.db.db_mapper import db_exception_mapper
+from apps.core.core_exceptions.domain.http_exceptions import ExternalServiceException
+from apps.core.core_exceptions.domain.error_codes import ErrorCode
+from apps.core.core_exceptions.db.db_mapper import db_exception_mapper
 from .loggers import default_logger
 from .error_monitor import ErrorEvent, ErrorMonitor, AlertManager
 
