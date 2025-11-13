@@ -74,6 +74,7 @@ class EventStatus(models.TextChoices):
     PUBLISHED = "published", _("Published")
     CANCELLED = "cancelled", _("Cancelled")
     COMPLETED = "completed", _("Completed")
+    UPCOMING = 'Upcoming',_('Upcoming')
 
 
 class EventType(models.TextChoices):

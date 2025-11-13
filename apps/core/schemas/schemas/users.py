@@ -1,8 +1,9 @@
 from typing import Optional
 from datetime import date
 from pydantic import Field, EmailStr, field_validator, model_validator
+
+from apps.tcc.models.base.enums import Gender, MaritalStatus, UserRole, UserStatus
 from .base import BaseSchema
-from models.base.enums import UserRole, UserStatus, Gender, MaritalStatus
 
 
 class UserSchema(BaseSchema):
