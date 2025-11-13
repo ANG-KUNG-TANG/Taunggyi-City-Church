@@ -4,13 +4,13 @@ from functools import wraps
 from django.db import DatabaseError, IntegrityError, OperationalError
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 
-from domain.base_exception import BaseApplicationException
-from domain.django_exceptions import (
+from core_exceptions.base_exception import BaseApplicationException
+from core_exceptions.django_exceptions import (
     ObjectNotFoundException, ObjectValidationException,
     BulkOperationException, DatabaseConnectionException,
     DatabaseTimeoutException, QueryExecutionException
 )
-from domain.error_codes import ErrorCode
+from core_exceptions.error_codes import ErrorCode
 from .db_mapper import DatabaseExceptionMapper
 
 T = TypeVar('T')

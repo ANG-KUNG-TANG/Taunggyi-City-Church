@@ -1,12 +1,12 @@
 from typing import List, Optional, Dict, Any
 from django.utils import timezone
 from django.db.models import Q
-from repo.base.base_repo import ModelRepository
+from repo.base.modelrepo import ModelRepository
 from apps.tcc.models.prayers.prayer import PrayerRequest, PrayerResponse
 from apps.tcc.models.base.enums import PrayerPrivacy, PrayerCategory, PrayerStatus
 from utils.audit_logging import AuditLogger
 from models.base.permission import PermissionDenied
-
+from core.db.decorators import with_db_error_handling, with_retry
 
 
 class PrayerRequestRepository(ModelRepository[PrayerRequest]):
@@ -14,27 +14,32 @@ class PrayerRequestRepository(ModelRepository[PrayerRequest]):
     def __init__(self):
         super().__init__(PrayerRequest)
     
-    def get_all(self, user, filters: Dict = None) -> List[PrayerRequest]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_all(self, user, filters: Dict = None) -> List[PrayerRequest]:
         """
         Get prayer requests based on user permissions and privacy settings
         """
         base_queryset = PrayerRequest.objects.filter(is_active=True)
         
         if filters:
-            base_queryset = base_queryset.filter(**filters)
+            for key, value in filters.items():
+                base_queryset = base_queryset.filter(**{key: value})
         
         # Apply privacy filtering
         prayers = []
-        for prayer in base_queryset:
+        async for prayer in base_queryset:
             try:
-                if prayer.can_view(user):
+                if await prayer.can_view(user):
                     prayers.append(prayer)
             except PermissionDenied:
                 continue
         
         return prayers
     
-    def get_public_prayers(self, user, limit: int = None) -> List[PrayerRequest]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_public_prayers(self, user, limit: int = None) -> List[PrayerRequest]:
         """Get public prayer requests"""
         queryset = PrayerRequest.objects.filter(
             is_active=True,
@@ -45,16 +50,26 @@ class PrayerRequestRepository(ModelRepository[PrayerRequest]):
         if limit:
             queryset = queryset[:limit]
         
-        return list(queryset)
+        prayers = []
+        async for prayer in queryset:
+            prayers.append(prayer)
+        return prayers
     
-    def get_user_prayers(self, user) -> List[PrayerRequest]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_user_prayers(self, user) -> List[PrayerRequest]:
         """Get all prayer requests by a user"""
-        return PrayerRequest.objects.filter(
+        prayers = []
+        async for prayer in PrayerRequest.objects.filter(
             user=user,
             is_active=True
-        ).order_by('-created_at')
+        ).order_by('-created_at'):
+            prayers.append(prayer)
+        return prayers
     
-    def get_prayers_by_category(self, category: PrayerCategory, user) -> List[PrayerRequest]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_prayers_by_category(self, category: PrayerCategory, user) -> List[PrayerRequest]:
         """Get prayers by category with privacy filtering"""
         queryset = PrayerRequest.objects.filter(
             is_active=True,
@@ -63,18 +78,20 @@ class PrayerRequestRepository(ModelRepository[PrayerRequest]):
         ).order_by('-created_at')
         
         prayers = []
-        for prayer in queryset:
+        async for prayer in queryset:
             try:
-                if prayer.can_view(user):
+                if await prayer.can_view(user):
                     prayers.append(prayer)
             except PermissionDenied:
                 continue
         
         return prayers
     
-    def mark_as_answered(self, prayer_id: int, user, answer_notes: str = "", request=None) -> Optional[PrayerRequest]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def mark_as_answered(self, prayer_id: int, user, answer_notes: str = "", request=None) -> Optional[PrayerRequest]:
         """Mark prayer request as answered"""
-        prayer = self.get_by_id(prayer_id, user)
+        prayer = await self.get_by_id(prayer_id, user)
         if not prayer:
             return None
         
@@ -82,10 +99,10 @@ class PrayerRequestRepository(ModelRepository[PrayerRequest]):
         if prayer.user != user and not user.can_manage_prayers:
             raise PermissionDenied("You can only mark your own prayers as answered")
         
-        prayer.mark_answered(answer_notes)
+        await prayer.mark_answered(answer_notes)
         
-        context, ip_address, user_agent = self._get_audit_context(request)
-        AuditLogger.log_update(
+        context, ip_address, user_agent = await self._get_audit_context(request)
+        await AuditLogger.log_update(
             user, prayer,
             {'is_answered': {'old': False, 'new': True}},
             ip_address, user_agent,
@@ -94,14 +111,16 @@ class PrayerRequestRepository(ModelRepository[PrayerRequest]):
         
         return prayer
     
-    def add_prayer_response(self, prayer_id: int, user, content: str, is_private: bool = False, request=None) -> Optional[PrayerResponse]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def add_prayer_response(self, prayer_id: int, user, content: str, is_private: bool = False, request=None) -> Optional[PrayerResponse]:
         """Add response to prayer request"""
-        prayer = self.get_by_id(prayer_id, user)
+        prayer = await self.get_by_id(prayer_id, user)
         if not prayer:
             return None
         
         # Check if user can respond to this prayer
-        if not prayer.can_view(user):
+        if not await prayer.can_view(user):
             raise PermissionDenied("You cannot respond to this prayer request")
         
         response_data = {
@@ -113,41 +132,41 @@ class PrayerRequestRepository(ModelRepository[PrayerRequest]):
         
         response = PrayerResponse(**response_data)
         
-        context, ip_address, user_agent = self._get_audit_context(request)
-        response.save()
+        context, ip_address, user_agent = await self._get_audit_context(request)
+        await response.asave()
         
-        AuditLogger.log_create(
+        await AuditLogger.log_create(
             user, response, ip_address, user_agent,
             notes=f"Added response to prayer: {prayer.title}"
         )
         
         return response
 
+
 class PrayerResponseRepository(ModelRepository[PrayerResponse]):
     
     def __init__(self):
         super().__init__(PrayerResponse)
     
-    def get_responses_for_prayer(self, prayer_id: int, user) -> List[PrayerResponse]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_responses_for_prayer(self, prayer_id: int, user) -> List[PrayerResponse]:
         """Get responses for a prayer request with privacy filtering"""
         prayer_repo = PrayerRequestRepository()
-        prayer = prayer_repo.get_by_id(prayer_id, user)
+        prayer = await prayer_repo.get_by_id(prayer_id, user)
         
         if not prayer:
             return []
         
         # Get all responses
-        responses = PrayerResponse.objects.filter(
+        responses = []
+        async for response in PrayerResponse.objects.filter(
             prayer_request=prayer,
             is_active=True
-        ).order_by('created_at')
-        
-        # Filter based on privacy
-        visible_responses = []
-        for response in responses:
+        ).order_by('created_at'):
             # Private responses are only visible to the prayer owner
             if response.is_private and response.prayer_request.user != user:
                 continue
-            visible_responses.append(response)
+            responses.append(response)
         
-        return visible_responses
+        return responses

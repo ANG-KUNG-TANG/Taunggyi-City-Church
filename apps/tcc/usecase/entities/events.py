@@ -1,12 +1,18 @@
-from schemas.events import EventCreateSchema, EventRegistrationCreateSchema
 import html
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
-from models.base.enums import EventStatus, EventType, RegistrationStatus
 
+from apps.core.schemas.events import EventCreateSchema, EventRegistrationCreateSchema
 
-class EventEntity(EventCreateSchema):
+class EventEntity:
+    def __init__(self, event_data: EventCreateSchema):
+        self.title = event_data.title
+        self.description = event_data.description
+        self.location = event_data.location
+        self.start_date = event_data.start_date
+        self.end_date = event_data.end_date
+        self.event_type = event_data.event_type
+        self.status = event_data.status
+    
     def sanitize_inputs(self):
         """Sanitize event content"""
         self.title = html.escape(self.title.strip())
@@ -15,27 +21,16 @@ class EventEntity(EventCreateSchema):
         if self.location:
             self.location = html.escape(self.location.strip())
     
-    def validate_business_rules(self):
-        """Event-specific business rules"""
-        # Event cannot be in the past
-        if self.start_date < datetime.now():
-            raise ValueError("Event cannot be in the past")
-        
-        # Event duration cannot exceed 24 hours
-        event_duration = self.end_date - self.start_date
-        if event_duration.total_seconds() > 86400:  # 24 hours
-            raise ValueError("Event duration cannot exceed 24 hours")
-    
     def prepare_for_persistence(self):
         self.sanitize_inputs()
-        self.validate_business_rules()
+        # Business rules are now in schema validation
 
-
-class EventRegistrationEntity(EventRegistrationCreateSchema):
-    def validate_business_rules(self):
-        """Registration-specific business rules"""
-        # Additional validation can be added here
-        pass
+class EventRegistrationEntity:
+    def __init__(self, registration_data: EventRegistrationCreateSchema):
+        self.event_id = registration_data.event_id
+        self.user_id = registration_data.user_id
+        self.status = registration_data.status
     
     def prepare_for_persistence(self):
-        self.validate_business_rules()
+        # Additional validation can be added here if needed
+        pass

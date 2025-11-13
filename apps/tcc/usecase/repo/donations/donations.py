@@ -1,14 +1,14 @@
-
 from typing import List, Optional, Dict, Any
 from django.utils import timezone
 from django.db.models import Q, Sum
 from decimal import Decimal
-from repo.base.base_repo import ModelRepository
+from repo.base.modelrepo import ModelRepository
 from apps.tcc.models.donations.donation import Donation, FundType
 from apps.tcc.models.base.enums import DonationStatus, PaymentMethod
 from models.base.permission import PermissionDenied
 from utils.audit_logging import AuditLogger
 from django.db import models
+from core.db.decorators import with_db_error_handling, with_retry
 
 
 class DonationRepository(ModelRepository[Donation]):
@@ -16,7 +16,9 @@ class DonationRepository(ModelRepository[Donation]):
     def __init__(self):
         super().__init__(Donation)
     
-    def get_all(self, user, filters: Dict = None) -> List[Donation]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_all(self, user, filters: Dict = None) -> List[Donation]:
         """
         Get donations - users can only see their own, admins can see all
         """
@@ -27,16 +29,22 @@ class DonationRepository(ModelRepository[Donation]):
             queryset = Donation.objects.filter(is_active=True)
         
         if filters:
-            queryset = queryset.filter(**filters)
+            for key, value in filters.items():
+                queryset = queryset.filter(**{key: value})
         
-        return list(queryset.order_by('-donation_date'))
+        donations = []
+        async for donation in queryset.order_by('-donation_date'):
+            donations.append(donation)
+        return donations
     
-    def get_by_id(self, id: int, user) -> Optional[Donation]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_by_id(self, id: int, user) -> Optional[Donation]:
         """
         Get donation by ID - users can only see their own
         """
         try:
-            donation = Donation.objects.get(id=id, is_active=True)
+            donation = await Donation.objects.aget(id=id, is_active=True)
             
             # Permission check
             if donation.donor != user and not user.can_manage_donations:
@@ -46,24 +54,36 @@ class DonationRepository(ModelRepository[Donation]):
         except Donation.DoesNotExist:
             return None
     
-    def get_user_donations(self, user) -> List[Donation]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_user_donations(self, user) -> List[Donation]:
         """Get all donations by a user"""
-        return Donation.objects.filter(
+        donations = []
+        async for donation in Donation.objects.filter(
             donor=user,
             is_active=True
-        ).order_by('-donation_date')
+        ).order_by('-donation_date'):
+            donations.append(donation)
+        return donations
     
-    def get_donations_by_fund(self, fund_id: int, user) -> List[Donation]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_donations_by_fund(self, fund_id: int, user) -> List[Donation]:
         """Get donations by fund - admin only"""
         if not user.can_manage_donations:
             raise PermissionDenied("Only administrators can view donations by fund")
         
-        return Donation.objects.filter(
+        donations = []
+        async for donation in Donation.objects.filter(
             fund_id=fund_id,
             is_active=True
-        ).order_by('-donation_date')
+        ).order_by('-donation_date'):
+            donations.append(donation)
+        return donations
     
-    def get_donation_summary(self, user, start_date=None, end_date=None) -> Dict[str, Any]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_donation_summary(self, user, start_date=None, end_date=None) -> Dict[str, Any]:
         """Get donation summary - admin only"""
         if not user.can_manage_donations:
             raise PermissionDenied("Only administrators can view donation summaries")
@@ -78,41 +98,49 @@ class DonationRepository(ModelRepository[Donation]):
         if end_date:
             queryset = queryset.filter(donation_date__lte=end_date)
         
-        total_amount = queryset.aggregate(total=Sum('amount'))['total'] or Decimal('0')
-        donation_count = queryset.count()
+        total_amount = await queryset.aaggregate(total=Sum('amount'))
+        total_amount = total_amount['total'] or Decimal('0')
+        
+        donation_count = await queryset.acount()
         
         # Group by fund
-        by_fund = queryset.values('fund__name').annotate(
+        by_fund = []
+        async for item in queryset.values('fund__name').annotate(
             total=Sum('amount'),
             count=models.Count('id')
-        ).order_by('-total')
+        ).order_by('-total'):
+            by_fund.append(item)
         
         # Group by payment method
-        by_method = queryset.values('payment_method').annotate(
+        by_method = []
+        async for item in queryset.values('payment_method').annotate(
             total=Sum('amount'),
             count=models.Count('id')
-        ).order_by('-total')
+        ).order_by('-total'):
+            by_method.append(item)
         
         return {
             'total_amount': total_amount,
             'donation_count': donation_count,
-            'by_fund': list(by_fund),
-            'by_payment_method': list(by_method),
+            'by_fund': by_fund,
+            'by_payment_method': by_method,
         }
     
-    def process_donation(self, donation_id: int, user, request=None) -> Optional[Donation]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def process_donation(self, donation_id: int, user, request=None) -> Optional[Donation]:
         """Process donation payment - admin only"""
         if not user.can_manage_donations:
             raise PermissionDenied("Only administrators can process donations")
         
-        donation = self.get_by_id(donation_id, user)
+        donation = await self.get_by_id(donation_id, user)
         if not donation:
             return None
         
-        success = donation.process_payment()
+        success = await donation.process_payment()
         
-        context, ip_address, user_agent = self._get_audit_context(request)
-        AuditLogger.log_update(
+        context, ip_address, user_agent = await self._get_audit_context(request)
+        await AuditLogger.log_update(
             user, donation,
             {'status': {'old': DonationStatus.PENDING, 'new': DonationStatus.COMPLETED}},
             ip_address, user_agent,
@@ -121,18 +149,26 @@ class DonationRepository(ModelRepository[Donation]):
         
         return donation if success else None
 
+
 class FundTypeRepository(ModelRepository[FundType]):
     
     def __init__(self):
         super().__init__(FundType)
     
-    def get_active_funds(self, user) -> List[FundType]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_active_funds(self, user) -> List[FundType]:
         """Get all active funds"""
-        return FundType.objects.filter(is_active=True).order_by('name')
+        funds = []
+        async for fund in FundType.objects.filter(is_active=True).order_by('name'):
+            funds.append(fund)
+        return funds
     
-    def get_fund_with_stats(self, fund_id: int, user) -> Optional[Dict]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_fund_with_stats(self, fund_id: int, user) -> Optional[Dict]:
         """Get fund with donation statistics"""
-        fund = self.get_by_id(fund_id, user)
+        fund = await self.get_by_id(fund_id, user)
         if not fund:
             return None
         
@@ -142,15 +178,19 @@ class FundTypeRepository(ModelRepository[FundType]):
             is_active=True
         )
         
-        total_raised = donations.aggregate(total=Sum('amount'))['total'] or Decimal('0')
-        donation_count = donations.count()
+        total_raised = await donations.aaggregate(total=Sum('amount'))
+        total_raised = total_raised['total'] or Decimal('0')
         
-        recent_donations = donations.order_by('-donation_date')[:5]
+        donation_count = await donations.acount()
+        
+        recent_donations = []
+        async for donation in donations.order_by('-donation_date')[:5]:
+            recent_donations.append(donation)
         
         return {
             'fund': fund,
             'total_raised': total_raised,
             'donation_count': donation_count,
             'progress_percentage': fund.progress_percentage,
-            'recent_donations': list(recent_donations),
+            'recent_donations': recent_donations,
         }

@@ -1,10 +1,11 @@
 from typing import List, Optional, Dict, Any
 from django.db.models import Q
-from repo.base.base_repo import ModelRepository
+from repo.base.modelrepo import ModelRepository
 from apps.tcc.models.users.users import User
 from apps.tcc.models.base.enums import UserRole, UserStatus
 from models.base.permission import PermissionDenied
 from entities.users import UserEntity
+from core.db.decorators import with_db_error_handling, with_retry
 
 
 class UserRepository(ModelRepository[User]):
@@ -14,7 +15,9 @@ class UserRepository(ModelRepository[User]):
     
     # ============ CRUD OPERATIONS ============
     
-    def create(self, user_entity: UserEntity, requesting_user: UserEntity) -> UserEntity:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def create(self, user_entity: UserEntity, requesting_user: UserEntity) -> UserEntity:
         """Create new user - only admins can create users"""
         if not requesting_user.can_manage_users:
             raise PermissionDenied("Only administrators can create users")
@@ -22,41 +25,47 @@ class UserRepository(ModelRepository[User]):
         # Convert entity to model data
         user_data = self._entity_to_model_data(user_entity)
         
-        # Create user model
-        user_model = self.model_class.objects.create(**user_data)
+        # Create user model asynchronously
+        user_model = await self.model_class.objects.acreate(**user_data)
         
         # Return as entity
-        return self._model_to_entity(user_model)
+        return await self._model_to_entity(user_model)
     
-    def get_by_id(self, id: int, requesting_user: UserEntity) -> Optional[UserEntity]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_by_id(self, id: int, requesting_user: UserEntity) -> Optional[UserEntity]:
         """Get user by ID with permission check"""
         try:
-            user_model = self.model_class.objects.get(id=id, is_active=True)
+            user_model = await self.model_class.objects.aget(id=id, is_active=True)
             
             # Permission check
             if requesting_user.id != user_model.id and not requesting_user.can_manage_users:
                 raise PermissionDenied("You can only view your own profile")
             
-            return self._model_to_entity(user_model)
+            return await self._model_to_entity(user_model)
         except User.DoesNotExist:
             return None
     
-    def get_by_email(self, email: str, requesting_user: UserEntity) -> Optional[UserEntity]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_by_email(self, email: str, requesting_user: UserEntity) -> Optional[UserEntity]:
         """Get user by email with permission check"""
         try:
-            user_model = self.model_class.objects.get(email=email, is_active=True)
+            user_model = await self.model_class.objects.aget(email=email, is_active=True)
             
             # Users can only see their own profile by email, admins can see all
             if requesting_user.email != email and not requesting_user.can_manage_users:
                 raise PermissionDenied("You can only view your own profile")
             
-            return self._model_to_entity(user_model)
+            return await self._model_to_entity(user_model)
         except User.DoesNotExist:
             return None
     
-    def update(self, id: int, user_entity: UserEntity, requesting_user: UserEntity) -> Optional[UserEntity]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def update(self, id: int, user_entity: UserEntity, requesting_user: UserEntity) -> Optional[UserEntity]:
         """Update user - users can update their own profile, admins can update any"""
-        target_user = self.get_by_id(id, requesting_user)
+        target_user = await self.get_by_id(id, requesting_user)
         if not target_user:
             return None
         
@@ -67,23 +76,28 @@ class UserRepository(ModelRepository[User]):
         # Get update data (filter fields based on permissions)
         update_data = self._get_filtered_update_data(user_entity, requesting_user)
         
-        # Update model
-        updated_model = self.model_class.objects.filter(id=id).update(**update_data)
-        if updated_model:
-            return self.get_by_id(id, requesting_user)
+        # Update model asynchronously
+        updated_count = await self.model_class.objects.filter(id=id).aupdate(**update_data)
+        if updated_count:
+            return await self.get_by_id(id, requesting_user)
         return None
     
-    def delete(self, id: int, requesting_user: UserEntity) -> bool:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def delete(self, id: int, requesting_user: UserEntity) -> bool:
         """Soft delete user - only admins can delete users"""
         if not requesting_user.can_manage_users:
             raise PermissionDenied("Only administrators can delete users")
         
-        # Soft delete (set is_active=False)
-        return self.model_class.objects.filter(id=id).update(is_active=False) > 0
+        # Soft delete (set is_active=False) asynchronously
+        updated_count = await self.model_class.objects.filter(id=id).aupdate(is_active=False)
+        return updated_count > 0
     
     # ============ SYSTEM REQUIREMENTS ============
     
-    def get_all(self, requesting_user: UserEntity, filters: Dict = None) -> List[UserEntity]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_all(self, requesting_user: UserEntity, filters: Dict = None) -> List[UserEntity]:
         """Get all users with permission filtering"""
         if not requesting_user.can_manage_users:
             # Regular users only see their own profile
@@ -94,17 +108,27 @@ class UserRepository(ModelRepository[User]):
         if filters:
             queryset = queryset.filter(**filters)
         
-        return [self._model_to_entity(user) for user in queryset]
+        # Convert queryset to list asynchronously
+        users = []
+        async for user in queryset:
+            users.append(await self._model_to_entity(user))
+        return users
     
-    def get_by_role(self, role: UserRole, requesting_user: UserEntity) -> List[UserEntity]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_by_role(self, role: UserRole, requesting_user: UserEntity) -> List[UserEntity]:
         """Get users by role - admin only"""
         if not requesting_user.can_manage_users:
             raise PermissionDenied("Only administrators can filter users by role")
         
-        users = User.objects.filter(role=role, is_active=True)
-        return [self._model_to_entity(user) for user in users]
+        users = []
+        async for user in User.objects.filter(role=role, is_active=True):
+            users.append(await self._model_to_entity(user))
+        return users
     
-    def search_users(self, search_term: str, requesting_user: UserEntity) -> List[UserEntity]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def search_users(self, search_term: str, requesting_user: UserEntity) -> List[UserEntity]:
         """Search users by name or email"""
         if not requesting_user.can_manage_users:
             # Regular users can only search for themselves
@@ -116,44 +140,60 @@ class UserRepository(ModelRepository[User]):
             Q(is_active=True) &
             (Q(name__icontains=search_term) | Q(email__icontains=search_term))
         )
-        return [self._model_to_entity(user) for user in queryset]
+        
+        users = []
+        async for user in queryset:
+            users.append(await self._model_to_entity(user))
+        return users
     
-    def get_ministry_leaders(self, requesting_user: UserEntity) -> List[UserEntity]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_ministry_leaders(self, requesting_user: UserEntity) -> List[UserEntity]:
         """Get all ministry leaders"""
-        return self.get_by_role(UserRole.MINISTRY_LEADER, requesting_user)
+        return await self.get_by_role(UserRole.MINISTRY_LEADER, requesting_user)
     
-    def change_user_status(self, user_id: int, status: UserStatus, admin_user: UserEntity) -> Optional[UserEntity]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def change_user_status(self, user_id: int, status: UserStatus, admin_user: UserEntity) -> Optional[UserEntity]:
         """Change user status - admin only"""
         if not admin_user.can_manage_users:
             raise PermissionDenied("Only administrators can change user status")
         
-        user = self.get_by_id(user_id, admin_user)
+        user = await self.get_by_id(user_id, admin_user)
         if not user:
             return None
         
-        # Update status
-        self.model_class.objects.filter(id=user_id).update(status=status)
-        return self.get_by_id(user_id, admin_user)
+        # Update status asynchronously
+        await self.model_class.objects.filter(id=user_id).aupdate(status=status)
+        return await self.get_by_id(user_id, admin_user)
     
-    def email_exists(self, email: str) -> bool:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def email_exists(self, email: str) -> bool:
         """Check if email already exists (for validation)"""
-        return User.objects.filter(email=email, is_active=True).exists()
+        return await User.objects.filter(email=email, is_active=True).aexists()
     
-    def get_active_users_count(self) -> int:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_active_users_count(self) -> int:
         """Get count of active users (for reporting)"""
-        return User.objects.filter(is_active=True).count()
+        return await User.objects.filter(is_active=True).acount()
     
-    def get_users_by_status(self, status: UserStatus, requesting_user: UserEntity) -> List[UserEntity]:
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_users_by_status(self, status: UserStatus, requesting_user: UserEntity) -> List[UserEntity]:
         """Get users by status - admin only"""
         if not requesting_user.can_manage_users:
             raise PermissionDenied("Only administrators can filter by status")
         
-        users = User.objects.filter(status=status, is_active=True)
-        return [self._model_to_entity(user) for user in users]
+        users = []
+        async for user in User.objects.filter(status=status, is_active=True):
+            users.append(await self._model_to_entity(user))
+        return users
     
     # ============ CONVERSION METHODS ============
     
-    def _model_to_entity(self, user_model: User) -> UserEntity:
+    async def _model_to_entity(self, user_model: User) -> UserEntity:
         """Convert Django model to UserEntity"""
         return UserEntity(
             id=user_model.id,

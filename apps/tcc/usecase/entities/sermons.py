@@ -1,9 +1,17 @@
-from schemas.sermons import SermonCreateSchema
 import html
+import re
 
+from apps.core.schemas.sermons import SermonCreateSchema
 
-class SermonEntity(SermonCreateSchema):
-    """Sermon entity with security and business logic"""
+class SermonEntity:
+    def __init__(self, sermon_data: SermonCreateSchema):
+        self.title = sermon_data.title
+        self.preacher = sermon_data.preacher
+        self.bible_passage = sermon_data.bible_passage
+        self.description = sermon_data.description
+        self.content = sermon_data.content
+        self.duration_minutes = sermon_data.duration_minutes
+        self.sermon_date = sermon_data.sermon_date
     
     def sanitize_inputs(self):
         """Sanitize sermon content"""
@@ -16,22 +24,12 @@ class SermonEntity(SermonCreateSchema):
         if self.content:
             self.content = html.escape(self.content.strip())
     
-    def validate_business_rules(self):
-        """Sermon-specific business rules"""
-        if self.duration_minutes and self.duration_minutes > 480:  # 8 hours max
-            raise ValueError("Sermon duration too long")
-        
-        # Validate bible passage format
-        if self.bible_passage and not self.is_valid_bible_reference(self.bible_passage):
-            raise ValueError("Invalid bible reference format")
+    def prepare_for_persistence(self):
+        self.sanitize_inputs()
+        # Business rules are now in schema validation
     
     @staticmethod
     def is_valid_bible_reference(reference: str) -> bool:
         """Basic bible reference validation"""
-        import re
         pattern = r'^[1-9]?[A-Za-z]+\s+\d+:\d+'
         return bool(re.match(pattern, reference))
-    
-    def prepare_for_persistence(self):
-        self.sanitize_inputs()
-        self.validate_business_rules()

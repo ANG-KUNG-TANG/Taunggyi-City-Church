@@ -3,12 +3,12 @@ from typing import Dict, Any, Optional
 from django.db import DatabaseError, IntegrityError, OperationalError
 import re
 
-from domain.django_exceptions import (
+from core_exceptions.django_exceptions import (
     MySQLIntegrityException, MySQLDeadlockException,
     MySQLTimeoutException, DatabaseConnectionException,
     DatabaseTimeoutException, QueryExecutionException
 )
-from domain.error_codes import ErrorCode
+from core_exceptions.error_codes import ErrorCode
 
 logger = logging.getLogger('db.mapper')
 

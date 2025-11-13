@@ -1,43 +1,29 @@
-from schemas.users import UserBaseSchema, UserCreateSchema
+from apps.core.schemas.base import UserCreateSchema
 from models.base.enums import UserRole, UserStatus
 import html
 from typing import Dict
 
-
-class UserEntity(UserCreateSchema):
-    """Entity inherits schema validation AND adds business logic"""
+class UserEntity:
+    def __init__(self, user_data: UserCreateSchema):
+        self.name = user_data.name
+        self.email = user_data.email
+        self.phone_number = user_data.phone_number
+        self.date_of_birth = user_data.date_of_birth
+        self.age = user_data.age
+        self.role = user_data.role
+        self.status = user_data.status
+        self.testimony = user_data.testimony
     
     def sanitize_inputs(self):
         """Sanitize all inputs to prevent injection attacks"""
         self.name = html.escape(self.name.strip())
-        self.email = self.email.lower().strip()
-        if self.phone_number:
-            self.phone_number = self.sanitize_phone(self.phone_number)
         if self.testimony:
             self.testimony = html.escape(self.testimony.strip())
-    
-    @staticmethod
-    def sanitize_phone(phone: str) -> str:
-        """Keep only digits in phone numbers"""
-        return ''.join(filter(str.isdigit, phone))
-    
-    def validate_business_rules(self):
-        """Business-specific validation beyond schema"""
-        # Check for temporary/disposable emails
-        if self.email.endswith(('.tmp', '.temp', 'tempmail.com')):
-            raise ValueError("Temporary emails are not allowed")
-        
-        # Validate age consistency with date of birth
-        if self.age and self.date_of_birth:
-            from datetime import date
-            calculated_age = (date.today() - self.date_of_birth).days // 365
-            if abs(calculated_age - self.age) > 1:
-                raise ValueError("Age doesn't match date of birth")
     
     def prepare_for_persistence(self):
         """Final preparation before saving to database"""
         self.sanitize_inputs()
-        self.validate_business_rules()
+        # Business rules are now in schema validation
     
     @property
     def can_manage_users(self) -> bool:
@@ -66,14 +52,6 @@ class UserEntity(UserCreateSchema):
     @property
     def is_visitor(self) -> bool:
         return self.role == UserRole.VISITOR
-    
-    @property
-    def can_manage_users(self) -> bool:
-        return self.role in [UserRole.SUPER_ADMIN, UserRole.STAFF]
-    
-    @property
-    def can_manage_events(self) -> bool:
-        return self.role in [UserRole.SUPER_ADMIN, UserRole.STAFF, UserRole.MINISTRY_LEADER]
     
     @property
     def can_manage_sermons(self) -> bool:
@@ -107,7 +85,6 @@ class UserEntity(UserCreateSchema):
             'join_events': self.can_join_events,
             'create_prayers': self.can_create_prayers,
         }
+    
     def __str__(self):
         return f"{self.name} ({self.email})"
-    
-    

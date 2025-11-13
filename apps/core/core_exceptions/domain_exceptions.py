@@ -147,3 +147,8 @@ class PermissionException(BusinessException):
             status_code=403,
             details={"user": user, "permission": permission, "resource": resource}
         )
+        
+             
+class MemberNotFoundException(BusinessException):
+    def __init__(self, message:str ='Member not found ', details: Dict = None, cause = None):
+        super().__init__(message = message, details = details)

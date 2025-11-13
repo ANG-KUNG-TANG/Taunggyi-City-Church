@@ -1,14 +1,21 @@
-from schemas.donations import DonationCreateSchema, FundTypeCreateSchema
 import html
 from decimal import Decimal
 from typing import Dict
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from apps.core.schemas.donations import DonationCreateSchema
 from models.base.enums import DonationStatus, PaymentMethod
 
-
-class DonationEntity(DonationCreateSchema):
+class DonationEntity:
+    def __init__(self, donation_data: DonationCreateSchema):
+        self.amount = donation_data.amount
+        self.transaction_id = donation_data.transaction_id
+        self.receipt_number = donation_data.receipt_number
+        self.notes = donation_data.notes
+        self.is_recurring = donation_data.is_recurring
+        self.recurring_frequency = donation_data.recurring_frequency
+        self.donation_date = donation_data.donation_date or datetime.now()
+        self.payment_method = donation_data.payment_method
+    
     def sanitize_inputs(self):
         """Sanitize donation content"""
         if self.transaction_id:
@@ -18,54 +25,35 @@ class DonationEntity(DonationCreateSchema):
         if self.notes:
             self.notes = html.escape(self.notes.strip())
     
-    def validate_business_rules(self):
-        """Donation-specific business rules"""
-        # Minimum donation amount
-        if self.amount < Decimal('1.00'):
-            raise ValueError("Donation amount must be at least $1.00")
-        
-        # Maximum single donation amount
-        if self.amount > Decimal('10000.00'):
-            raise ValueError("Donation amount cannot exceed $10,000")
-        
-        # Recurring donations require frequency
-        if self.is_recurring and not self.recurring_frequency:
-            raise ValueError("Recurring donations require frequency")
-    
     def prepare_for_persistence(self):
         self.sanitize_inputs()
-        self.validate_business_rules()
+        # Business rules are now in schema validation
     
     def generate_receipt(self) -> Dict[str, str]:
         return {
-            'receipt_number': self.receipt_number,
+            'receipt_number': self.receipt_number or 'N/A',
             'amount': str(self.amount),
-            'date': self.donation_date.strftime('%Y-%m-%d %H:%M') if self.donation_date else 'N/A',
+            'date': self.donation_date.strftime('%Y-%m-%d %H:%M'),
             'payment_method': self.payment_method.value,
             'transaction_id': self.transaction_id or 'N/A'
         }
 
-
-class FundTypeEntity(FundTypeCreateSchema):
+class FundTypeEntity:
+    def __init__(self, fund_data: FundTypeCreateSchema):
+        self.name = fund_data.name
+        self.description = fund_data.description
+        self.target_amount = fund_data.target_amount
+        self.current_balance = fund_data.current_balance
+    
     def sanitize_inputs(self):
         """Sanitize fund type content"""
         self.name = html.escape(self.name.strip())
         if self.description:
             self.description = html.escape(self.description.strip())
     
-    def validate_business_rules(self):
-        """Fund type business rules"""
-        # Target amount validation
-        if self.target_amount and self.target_amount < Decimal('0.00'):
-            raise ValueError("Target amount cannot be negative")
-        
-        # Current balance validation
-        if self.current_balance < Decimal('0.00'):
-            raise ValueError("Current balance cannot be negative")
-    
     def prepare_for_persistence(self):
         self.sanitize_inputs()
-        self.validate_business_rules()
+        # Business rules are now in schema validation
     
     @property
     def total_raised(self) -> Decimal:

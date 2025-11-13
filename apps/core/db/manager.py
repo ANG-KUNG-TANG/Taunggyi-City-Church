@@ -2,11 +2,11 @@ from django.db import models
 from django.core.exceptions import ObjectDoesNotExist, ValidationError, MultipleObjectsReturned
 from typing import List, Any, Dict, Optional
 
-from domain.django_exceptions import (
+from apps.core.core_exceptions.domain_exceptions import MemberNotFoundException
+from core_exceptions.django_exceptions import (
     ObjectNotFoundException, ObjectValidationException,
     BulkOperationException
 )
-from helpers.exceptions.domain.domain_exceptions import MemberNotFoundException
 from .db_handler import db_error_handler
 from .decorators import with_retry
 

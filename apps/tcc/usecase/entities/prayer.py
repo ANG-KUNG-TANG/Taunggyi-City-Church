@@ -1,12 +1,17 @@
 from datetime import datetime
-from apps.tcc.models.base.enums import PrayerPrivacy, UserRole
+from apps.core.schemas.prayer import PrayerRequestCreateSchema
 from apps.tcc.usecase.entities.users import UserEntity
-from schemas.prayer import PrayerRequestCreateSchema
+from models.base.enums import PrayerPrivacy, UserRole
 import html
 
-
-class PrayerRequestEntity(PrayerRequestCreateSchema):
-    """Prayer request entity with security"""
+class PrayerRequestEntity:
+    def __init__(self, prayer_data: PrayerRequestCreateSchema):
+        self.title = prayer_data.title
+        self.content = prayer_data.content
+        self.privacy = prayer_data.privacy
+        self.expires_at = prayer_data.expires_at
+        self.answer_notes = prayer_data.answer_notes
+        self.user_id = prayer_data.user_id
     
     def sanitize_inputs(self):
         """Sanitize prayer content"""
@@ -15,30 +20,10 @@ class PrayerRequestEntity(PrayerRequestCreateSchema):
         if self.answer_notes:
             self.answer_notes = html.escape(self.answer_notes.strip())
     
-    def validate_business_rules(self):
-        """Prayer-specific business rules"""
-        # Prevent extremely long prayer requests
-        if len(self.content) > 10000:
-            raise ValueError("Prayer request too long")
-        
-        # Validate expiration makes sense
-        from datetime import datetime, timedelta
-        if self.expires_at:
-            max_expiry = datetime.now() + timedelta(days=365)  # 1 year max
-            if self.expires_at > max_expiry:
-                raise ValueError("Prayer request expiration too far in future")
-    
     def prepare_for_persistence(self):
         self.sanitize_inputs()
-        self.validate_business_rules()
+        # Business rules are now in schema validation
     
-    # Your existing methods
-    @property
-    def is_expired(self) -> bool:
-        from datetime import datetime
-        if not self.expires_at:
-            return False
-        return datetime.now() > self.expires_at
     @property
     def is_expired(self) -> bool:
         if not self.expires_at:
@@ -73,7 +58,3 @@ class PrayerRequestEntity(PrayerRequestCreateSchema):
     
     def __str__(self):
         return f"{self.title} - User {self.user_id}"
-
-    
-
-    
