@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 
 # from core.exception_deal.exception_handler.portal_exception import DomainException
-from usecase.exceptions.u_exceptions import DomainException, UnauthorizedActionException
+from usecase.domain_exception.u_exceptions import DomainException, UnauthorizedActionException
 from usecase.repo.users.user_repo import UserRepository
 from usecase.entities.users import UserEntity
 

@@ -137,7 +137,7 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # REST Framework
 # ──────────────────────────────
 REST_FRAMEWORK = {
-    'EXCEPTION_HANDLER': 'helpers.exceptions.handlers.drf_exception_handler',
+    'EXCEPTION_HANDLER': 'core.core_exceptions.handlers.django_handler',
     'DEFAULT_RENDERER_CLASSES': ('rest_framework.renderers.JSONRenderer',),
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',

@@ -1,6 +1,6 @@
 from typing import Dict, Any
 from usecases.base.base_uc  import OperationPortalUseCase
-from usecase.exceptions.u_exceptions import (
+from usecase.domain_exception.u_exceptions import (
     InvalidUserInputError,
 )
 from entities.users import UserEntity

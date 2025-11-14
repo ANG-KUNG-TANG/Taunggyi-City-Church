@@ -3,7 +3,7 @@ from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .base_uc import OperationPortalUseCase
-from usecase.exceptions.u_exceptions import (
+from usecase.domain_exception.u_exceptions import (
     UserAuthenticationError,
     InvalidUserInputError,
     UserNotFoundException

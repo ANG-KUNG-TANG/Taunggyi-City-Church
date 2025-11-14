@@ -1,6 +1,6 @@
 # event_exceptions.py
 from typing import Dict, List
-from helpers.exceptions.domain.base_exception import BusinessException
+from core.caching.base import BusinessException
 from helpers.exceptions.domain.domain_exceptions import ObjectNotFoundException
 from .error_codes import ErrorCode, Domain
 
