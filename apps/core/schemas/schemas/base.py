@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
+from decimal import Decimal
 
 class BaseSchema(BaseModel):
     """Base schema with common configuration."""
@@ -10,7 +11,11 @@ class BaseSchema(BaseModel):
         str_strip_whitespace=True,
         use_enum_values=True,
         validate_assignment=True,
-        arbitrary_types_allowed=True
+        arbitrary_types_allowed=True,
+        json_encoders={
+            datetime: lambda v: v.isoformat(),
+            Decimal: lambda v: str(v),
+        }
     )
 
 class BaseResponseSchema(BaseSchema):
@@ -21,9 +26,3 @@ class BaseResponseSchema(BaseSchema):
     updated_at: datetime
     created_by: Optional[int] = None
     updated_by: Optional[int] = None
-    
-    model_config = ConfigDict(
-        json_encoders={
-            datetime: lambda v: v.isoformat(),
-        }
-    )

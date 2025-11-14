@@ -1,11 +1,11 @@
 from datetime import datetime
-from apps.core.schemas.prayer import PrayerRequestCreateSchema
+from apps.core.schemas.schemas.prayer import PrayerRequestCreate
 from apps.tcc.usecase.entities.users import UserEntity
 from models.base.enums import PrayerPrivacy, UserRole
 import html
 
 class PrayerRequestEntity:
-    def __init__(self, prayer_data: PrayerRequestCreateSchema):
+    def __init__(self, prayer_data: PrayerRequestCreate):
         self.title = prayer_data.title
         self.content = prayer_data.content
         self.privacy = prayer_data.privacy

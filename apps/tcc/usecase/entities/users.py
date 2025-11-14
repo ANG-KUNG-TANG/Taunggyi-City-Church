@@ -1,4 +1,4 @@
-from apps.core.schemas.base import UserCreateSchema
+from apps.core.schemas.schemas.users import UserCreateSchema
 from models.base.enums import UserRole, UserStatus
 import html
 from typing import Dict

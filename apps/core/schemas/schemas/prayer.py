@@ -2,7 +2,7 @@ from pydantic import BaseModel, field_validator, ConfigDict
 from datetime import datetime
 from typing import Optional
 
-from apps.core.schemas.base import BaseResponseSchema, BaseSchema
+from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
 from apps.tcc.models.base.enums import PrayerPrivacy
 
 

@@ -2,11 +2,11 @@ import html
 from decimal import Decimal
 from typing import Dict
 from datetime import datetime
-from apps.core.schemas.donations import DonationCreateSchema
+from apps.core.schemas.schemas.donations import DonationCreate, FundTypeCreate
 from models.base.enums import DonationStatus, PaymentMethod
 
 class DonationEntity:
-    def __init__(self, donation_data: DonationCreateSchema):
+    def __init__(self, donation_data: DonationCreate):
         self.amount = donation_data.amount
         self.transaction_id = donation_data.transaction_id
         self.receipt_number = donation_data.receipt_number
@@ -39,7 +39,7 @@ class DonationEntity:
         }
 
 class FundTypeEntity:
-    def __init__(self, fund_data: FundTypeCreateSchema):
+    def __init__(self, fund_data: FundTypeCreate):
         self.name = fund_data.name
         self.description = fund_data.description
         self.target_amount = fund_data.target_amount

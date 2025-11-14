@@ -1,7 +1,7 @@
 import html
 import re
 
-from apps.core.schemas.sermons import SermonCreateSchema
+from apps.core.schemas.schemas.sermons import SermonCreateSchema
 
 class SermonEntity:
     def __init__(self, sermon_data: SermonCreateSchema):

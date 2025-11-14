@@ -1,10 +1,11 @@
 import html
 from datetime import datetime
 
-from apps.core.schemas.events import EventCreateSchema, EventRegistrationCreateSchema
+from apps.core.schemas.schemas.events import EventCreate, EventRegistrationCreate
+
 
 class EventEntity:
-    def __init__(self, event_data: EventCreateSchema):
+    def __init__(self, event_data: EventCreate):
         self.title = event_data.title
         self.description = event_data.description
         self.location = event_data.location
@@ -26,7 +27,7 @@ class EventEntity:
         # Business rules are now in schema validation
 
 class EventRegistrationEntity:
-    def __init__(self, registration_data: EventRegistrationCreateSchema):
+    def __init__(self, registration_data: EventRegistrationCreate):
         self.event_id = registration_data.event_id
         self.user_id = registration_data.user_id
         self.status = registration_data.status
