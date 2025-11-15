@@ -1,0 +1,1 @@
+default_app_config = 'core.jwt_auth.apps.JwtAuthConfig'

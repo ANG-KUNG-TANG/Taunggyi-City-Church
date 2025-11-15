@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from usecases.base.base_uc  import OperationPortalUseCase
 from usecase.domain_exception.u_exceptions import (
-    InvalidUserInputError,
+    InvalidUserInputException,
 )
 from entities.users import UserEntity
 
@@ -17,14 +17,14 @@ class CreateUserUseCase(OperationPortalUseCase):
         missing_fields = [field for field in required_fields if not input_data.get(field)]
         
         if missing_fields:
-            raise InvalidUserInputError(details={
+            raise InvalidUserInputException(details={
                 "message": "Missing required fields",
                 "fields": missing_fields
             })
         
         # Check if email already exists
         if self.user_repository.email_exists(input_data['email']):
-            raise InvalidUserInputError(details={
+            raise InvalidUserInputException(details={
                 "message": "Email already exists",
                 "field": "email"
             })

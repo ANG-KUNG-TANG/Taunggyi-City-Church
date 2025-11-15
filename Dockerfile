@@ -24,7 +24,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Stage 2: Production
-FROM python:3.11-slim as production
+FROM python:3.12-slim as production
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1

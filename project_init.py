@@ -10,7 +10,7 @@ class ProjectInitializer:
     def __init__(self):
         self.project_root = Path(__file__).parent
         self.venv_path = self.project_root / "viro"
-        self.requirements_file = self.project_root / "requirements" / "requirements.txt"
+        self.requirements_file = self.project_root / "requirements.txt"
         self.is_windows = platform.system() == "Windows"
         self.python_executable = None
         self.pip_executable = None

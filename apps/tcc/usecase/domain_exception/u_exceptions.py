@@ -184,8 +184,23 @@ class SuspendedAccountException(UserAuthenticationException):
             context=context,
             cause=cause
         )
-
-
+        
+class InvalidUserInputException(ValidationException):
+    def __init__(
+        self,
+        message: str = "User input validation failed",
+        field_errors: Optional[Dict[str, str]] = None,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None
+    ):
+        super().__init__(
+            message=message,
+            field_errors=field_errors or {},
+            details=details,
+            context=context,
+            cause=cause
+        )
 # Permission & Role Exceptions
 class UserPermissionException(BusinessRuleException):
     """Base permission exception for user operations."""
@@ -814,7 +829,8 @@ class BaptismRecordException(ValidationException):
             cause=cause
         )
 
-
+   
+    
 class FamilyRelationshipException(ValidationException):
     def __init__(
         self,

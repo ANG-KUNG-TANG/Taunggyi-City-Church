@@ -190,8 +190,8 @@ else:
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": "unique-snowflake",
-            "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
-
+            # REMOVE the CLIENT_CLASS option for locmem cache
+            "TIMEOUT": CACHE_DEFAULT_EXPIRE,
         }
     }
 
