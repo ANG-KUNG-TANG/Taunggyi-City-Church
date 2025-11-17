@@ -15,7 +15,8 @@ class DomainException(BaseAppException):
         status_code: int = 400,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         super().__init__(
             message=message,
@@ -23,7 +24,8 @@ class DomainException(BaseAppException):
             status_code=status_code,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -40,7 +42,8 @@ class BusinessRuleException(DomainException):
         rule_description: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -48,13 +51,17 @@ class BusinessRuleException(DomainException):
             'rule_description': rule_description or message,
         })
             
+        if not user_message:
+            user_message = "A business rule violation occurred."
+            
         super().__init__(
             message=message,
             error_code="BUSINESS_RULE_VIOLATION",
             status_code=422,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -70,11 +77,17 @@ class EntityNotFoundException(DomainException):
         lookup_params: Optional[Dict[str, Any]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         message = f"{entity_name} not found"
         if entity_id:
             message = f"{entity_name} with ID '{entity_id}' not found"
+            
+        if not user_message:
+            user_message = f"{entity_name} not found"
+            if entity_id:
+                user_message = f"{entity_name} with ID '{entity_id}' not found"
             
         details = details or {}
         details.update({
@@ -89,11 +102,12 @@ class EntityNotFoundException(DomainException):
             status_code=404,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
-class ValidationException(DomainException):
+class DomainValidationException(DomainException):  # Renamed from ValidationException
     """
     Exception for domain validation errors.
     """
@@ -104,11 +118,15 @@ class ValidationException(DomainException):
         field_errors: Optional[Dict[str, List[str]]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         if field_errors:
             details['field_errors'] = field_errors
+            
+        if not user_message:
+            user_message = "Validation failed. Please check your input."
             
         super().__init__(
             message=message,
@@ -116,7 +134,8 @@ class ValidationException(DomainException):
             status_code=422,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -133,9 +152,14 @@ class ConcurrencyException(DomainException):
         actual_version: Optional[int] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         message = f"Concurrency conflict for {entity_name} with ID '{entity_id}'"
+        
+        if not user_message:
+            user_message = "The data has been modified by another user. Please refresh and try again."
+            
         details = details or {}
         details.update({
             'entity_name': entity_name,
@@ -150,7 +174,8 @@ class ConcurrencyException(DomainException):
             status_code=409,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -166,9 +191,14 @@ class DomainOperationException(DomainException):
         reason: str,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         message = f"Operation '{operation}' failed for {entity_name}: {reason}"
+        
+        if not user_message:
+            user_message = f"Failed to {operation} {entity_name}."
+            
         details = details or {}
         details.update({
             'operation': operation,
@@ -182,5 +212,6 @@ class DomainOperationException(DomainException):
             status_code=400,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )

@@ -11,7 +11,7 @@ from models.base.permission import PermissionDenied
 from core.db.decorators import with_db_error_handling, with_retry
 
 
-class PrayerRequestRepository(DomainRepository):
+class PrayerRepository(DomainRepository):
     
     def __init__(self):
         super().__init__(PrayerRequest)
@@ -233,7 +233,7 @@ class PrayerResponseRepository(DomainRepository):
     @with_retry(max_retries=3)
     async def get_responses_for_prayer(self, prayer_id: int, user) -> List[PrayerResponseEntity]:
         """Get responses for a prayer request with privacy filtering"""
-        prayer_repo = PrayerRequestRepository()
+        prayer_repo = PrayerRepository()
         prayer = await prayer_repo.get_by_id(prayer_id, user)
         
         if not prayer:

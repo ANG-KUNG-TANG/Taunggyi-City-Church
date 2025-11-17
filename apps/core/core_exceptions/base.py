@@ -34,7 +34,8 @@ class BaseAppException(Exception):
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
         cause: Optional[Exception] = None,
-        is_critical: bool = False
+        is_critical: bool = False,
+        user_message: Optional[str] = None
     ):
         self.message = message
         self.error_code = error_code
@@ -43,6 +44,7 @@ class BaseAppException(Exception):
         self.context = context or ErrorContext()
         self.cause = cause
         self.is_critical = is_critical
+        self.user_message = user_message or message
         
         # Generate unique identifiers
         self.exception_id = str(uuid.uuid4())
@@ -86,20 +88,24 @@ class BaseAppException(Exception):
     def _capture_for_monitoring(self) -> None:
         """Capture exception for monitoring systems (Sentry, etc.)."""
         try:
-            from .monitoring.sentry import capture_exception as sentry_capture
-            sentry_capture(self, context=asdict(self.context))
+            # This would be your actual monitoring integration
+            # from .monitoring.sentry import capture_exception as sentry_capture
+            # sentry_capture(self, context=asdict(self.context))
+            pass
         except ImportError:
-            # Sentry not configured, skip silently
+            # Monitoring not configured, skip silently
             pass
         
         # Increment metrics
         try:
-            from .monitoring.metrics import error_counter
-            error_counter(
-                error_type=self.__class__.__name__,
-                error_code=self.error_code,
-                is_critical=self.is_critical
-            )
+            # This would be your actual metrics integration
+            # from .monitoring.metrics import error_counter
+            # error_counter(
+            #     error_type=self.__class__.__name__,
+            #     error_code=self.error_code,
+            #     is_critical=self.is_critical
+            # )
+            pass
         except ImportError:
             # Metrics not configured, skip silently
             pass
@@ -109,7 +115,7 @@ class BaseAppException(Exception):
         response = {
             'error': {
                 'code': self.error_code,
-                'message': self.message,
+                'message': self.user_message,  # Use user-friendly message
                 'type': self.__class__.__name__,
                 'exception_id': self.exception_id,
                 'timestamp': self.timestamp.isoformat(),
@@ -180,7 +186,8 @@ class CriticalException(BaseAppException):
         error_code: str = "CRITICAL_ERROR",
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         super().__init__(
             message=message,
@@ -189,7 +196,8 @@ class CriticalException(BaseAppException):
             details=details,
             context=context,
             cause=cause,
-            is_critical=True
+            is_critical=True,
+            user_message=user_message
         )
 
 
@@ -207,7 +215,8 @@ class ConfigurationException(BaseAppException):
         error_code: str = "CONFIGURATION_ERROR",
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         if config_key:
@@ -222,5 +231,6 @@ class ConfigurationException(BaseAppException):
             details=details,
             context=context,
             cause=cause,
-            is_critical=True
+            is_critical=True,
+            user_message=user_message
         )

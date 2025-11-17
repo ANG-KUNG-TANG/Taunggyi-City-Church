@@ -15,7 +15,8 @@ class HTTPException(BaseAppException):
         status_code: int = 500,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         super().__init__(
             message=message,
@@ -23,7 +24,8 @@ class HTTPException(BaseAppException):
             status_code=status_code,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -38,8 +40,14 @@ class NotFoundException(HTTPException):
         resource_id: Optional[Union[str, int]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
+        if not user_message:
+            user_message = f"{resource} not found"
+            if resource_id:
+                user_message = f"{resource} with ID '{resource_id}' not found"
+                
         message = f"{resource} not found"
         if resource_id:
             message = f"{resource} with ID '{resource_id}' not found"
@@ -56,11 +64,12 @@ class NotFoundException(HTTPException):
             status_code=404,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
-class ValidationException(HTTPException):
+class RequestValidationException(HTTPException):  # Renamed from ValidationException
     """
     Exception for request validation errors (400).
     """
@@ -71,11 +80,15 @@ class ValidationException(HTTPException):
         errors: Optional[Dict[str, List[str]]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         if errors:
             details['validation_errors'] = errors
+            
+        if not user_message:
+            user_message = "The request contains invalid data. Please check your input and try again."
             
         super().__init__(
             message=message,
@@ -83,7 +96,8 @@ class ValidationException(HTTPException):
             status_code=400,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -98,11 +112,15 @@ class AuthenticationException(HTTPException):
         auth_type: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         if auth_type:
             details['auth_type'] = auth_type
+            
+        if not user_message:
+            user_message = "Please log in to access this resource."
             
         super().__init__(
             message=message,
@@ -110,7 +128,8 @@ class AuthenticationException(HTTPException):
             status_code=401,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -126,7 +145,8 @@ class AuthorizationException(HTTPException):
         user_permissions: Optional[List[str]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         if required_permissions:
@@ -134,13 +154,17 @@ class AuthorizationException(HTTPException):
         if user_permissions:
             details['user_permissions'] = user_permissions
             
+        if not user_message:
+            user_message = "You don't have permission to access this resource."
+            
         super().__init__(
             message=message,
             error_code="AUTHORIZATION_FAILED",
             status_code=403,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -157,7 +181,8 @@ class ConflictException(HTTPException):
         conflict_type: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -166,13 +191,17 @@ class ConflictException(HTTPException):
             'conflict_type': conflict_type,
         })
             
+        if not user_message:
+            user_message = "The resource has been modified by another user. Please refresh and try again."
+            
         super().__init__(
             message=message,
             error_code="RESOURCE_CONFLICT",
             status_code=409,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -189,7 +218,8 @@ class RateLimitException(HTTPException):
         window: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -198,13 +228,19 @@ class RateLimitException(HTTPException):
             'window': window,
         })
             
+        if not user_message:
+            user_message = "Too many requests. Please try again later."
+            if retry_after:
+                user_message = f"Too many requests. Please try again in {retry_after} seconds."
+            
         super().__init__(
             message=message,
             error_code="RATE_LIMIT_EXCEEDED",
             status_code=429,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -219,9 +255,14 @@ class MethodNotAllowedException(HTTPException):
         allowed_methods: Optional[List[str]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         message = f"Method {method} not allowed"
+        
+        if not user_message:
+            user_message = f"The {method} method is not allowed for this endpoint."
+            
         details = details or {}
         if allowed_methods:
             details['allowed_methods'] = allowed_methods
@@ -232,7 +273,8 @@ class MethodNotAllowedException(HTTPException):
             status_code=405,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
@@ -247,9 +289,16 @@ class UnsupportedMediaTypeException(HTTPException):
         supported_types: Optional[List[str]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         message = f"Unsupported media type: {content_type}"
+        
+        if not user_message:
+            user_message = f"The content type '{content_type}' is not supported."
+            if supported_types:
+                user_message = f"Supported content types: {', '.join(supported_types)}"
+                
         details = details or {}
         if supported_types:
             details['supported_types'] = supported_types
@@ -260,5 +309,6 @@ class UnsupportedMediaTypeException(HTTPException):
             status_code=415,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )

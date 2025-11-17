@@ -1,190 +1,225 @@
-# event_exceptions.py
-from typing import Dict, List
-from core.caching.base import BusinessException
-from helpers.exceptions.domain.domain_exceptions import ObjectNotFoundException
-from .error_codes import ErrorCode, Domain
+from typing import Dict, List, Optional, Any
+from apps.core.core_exceptions.base import BaseAppException, ErrorContext
+from apps.core.core_exceptions.domain import BusinessRuleException, EntityNotFoundException
 
-class EventException(BusinessException):
-    def __init__(self, message: str, error_code: ErrorCode, details: Dict = None, user_message: str = None):
+
+class EventException(BaseAppException):
+    """Base exception for event-related errors."""
+    
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "EVENT_ERROR",
+        status_code: int = 400,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
         super().__init__(
             message=message,
             error_code=error_code,
-            domain=Domain.EVENT,
-            status_code=400,
+            status_code=status_code,
             details=details,
+            context=context,
+            cause=cause,
             user_message=user_message
         )
 
-class EventNotFoundException(ObjectNotFoundException):
-    def __init__(self, event_id: str = "", cause: Exception = None):
+
+class EventNotFoundException(EntityNotFoundException):
+    """Exception when event is not found."""
+    
+    def __init__(
+        self,
+        event_id: Optional[str] = None,
+        lookup_params: Optional[Dict[str, Any]] = None,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
+        if not user_message:
+            user_message = "Event not found."
+            
         super().__init__(
-            model="Event",
-            lookup_params={"id": event_id} if event_id else {},
-            domain=Domain.EVENT,
-            cause=cause
+            entity_name="Event",
+            entity_id=event_id,
+            lookup_params=lookup_params or ({"id": event_id} if event_id else {}),
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message
         )
 
+
 class EventRegistrationException(EventException):
-    def __init__(self, message: str, error_code: ErrorCode, event_id: str, user_id: str, details: Dict = None):
-        base_details = {"event_id": event_id, "user_id": user_id}
-        if details: base_details.update(details)
-        
+    """Base exception for event registration errors."""
+    
+    def __init__(
+        self,
+        message: str,
+        event_id: str,
+        user_id: str,
+        error_code: str = "EVENT_REGISTRATION_ERROR",
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
+        details = details or {}
+        details.update({
+            "event_id": event_id,
+            "user_id": user_id
+        })
+            
         super().__init__(
             message=message,
             error_code=error_code,
-            details=base_details
+            status_code=400,
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message
         )
+
 
 class EventFullException(EventRegistrationException):
-    def __init__(self, event_id: str, user_id: str, event_title: str, max_attendees: int):
+    """Exception when event is at full capacity."""
+    
+    def __init__(
+        self,
+        event_id: str,
+        user_id: str,
+        event_title: str,
+        max_attendees: int,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
+        details = details or {}
+        details.update({
+            "event_title": event_title,
+            "max_attendees": max_attendees,
+            "reason": "Maximum attendee limit reached"
+        })
+        
+        if not user_message:
+            user_message = f"Event '{event_title}' is full. Maximum capacity is {max_attendees} attendees."
+            
         super().__init__(
             message=f"Event {event_title} is full",
-            error_code=ErrorCode.EVENT_FULL,
+            error_code="EVENT_FULL",
             event_id=event_id,
             user_id=user_id,
-            details={
-                "event_title": event_title,
-                "max_attendees": max_attendees,
-                "reason": "Maximum attendee limit reached"
-            },
-            user_message="This event is currently full. Please try another event."
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message
         )
+
 
 class AlreadyRegisteredException(EventRegistrationException):
-    def __init__(self, event_id: str, user_id: str, event_title: str):
+    """Exception when user is already registered for event."""
+    
+    def __init__(
+        self,
+        event_id: str,
+        user_id: str,
+        event_title: str,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
+        details = details or {}
+        details.update({
+            "event_title": event_title,
+            "reason": "User already registered for this event"
+        })
+        
+        if not user_message:
+            user_message = f"You are already registered for '{event_title}'."
+            
         super().__init__(
             message=f"User {user_id} already registered for event {event_title}",
-            error_code=ErrorCode.ALREADY_REGISTERED,
+            error_code="ALREADY_REGISTERED",
             event_id=event_id,
             user_id=user_id,
-            details={
-                "event_title": event_title,
-                "reason": "User already registered for this event"
-            },
-            user_message="You are already registered for this event."
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message
         )
 
-class NotRegisteredException(EventRegistrationException):
-    def __init__(self, event_id: str, user_id: str, event_title: str):
-        super().__init__(
-            message=f"User {user_id} not registered for event {event_title}",
-            error_code=ErrorCode.NOT_REGISTERED,
-            event_id=event_id,
-            user_id=user_id,
-            details={
-                "event_title": event_title,
-                "reason": "User not registered for this event"
-            },
-            user_message="You are not registered for this event."
-        )
 
 class EventRegistrationClosedException(EventRegistrationException):
-    def __init__(self, event_id: str, user_id: str, event_title: str, registration_deadline: str):
+    """Exception when event registration is closed."""
+    
+    def __init__(
+        self,
+        event_id: str,
+        user_id: str,
+        event_title: str,
+        registration_deadline: str,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
+        details = details or {}
+        details.update({
+            "event_title": event_title,
+            "registration_deadline": registration_deadline,
+            "reason": "Registration period has ended"
+        })
+        
+        if not user_message:
+            user_message = f"Registration for '{event_title}' has closed."
+            
         super().__init__(
             message=f"Registration closed for event {event_title}",
-            error_code=ErrorCode.EVENT_REGISTRATION_CLOSED,
+            error_code="EVENT_REGISTRATION_CLOSED",
             event_id=event_id,
             user_id=user_id,
-            details={
-                "event_title": event_title,
-                "registration_deadline": registration_deadline,
-                "reason": "Registration period has ended"
-            },
-            user_message="Registration for this event has closed."
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message
         )
 
-class EventScheduleConflictException(EventException):
-    def __init__(self, event_id: str, conflicting_event_id: str, event_titles: List[str]):
+
+class EventScheduleConflictException(BusinessRuleException):
+    """Exception when events have scheduling conflicts."""
+    
+    def __init__(
+        self,
+        event_id: str,
+        conflicting_event_id: str,
+        event_titles: List[str],
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
+        details = details or {}
+        details.update({
+            "event_id": event_id,
+            "conflicting_event_id": conflicting_event_id,
+            "event_titles": event_titles,
+            "reason": "Events have overlapping schedules"
+        })
+        
+        if not user_message:
+            user_message = "This event conflicts with another event in your schedule."
+            
         super().__init__(
+            rule_name="EVENT_SCHEDULING",
             message=f"Schedule conflict between events",
-            error_code=ErrorCode.EVENT_SCHEDULE_CONFLICT,
-            details={
-                "event_id": event_id,
-                "conflicting_event_id": conflicting_event_id,
-                "event_titles": event_titles,
-                "reason": "Events have overlapping schedules"
-            },
-            user_message="This event conflicts with another event in your schedule."
-        )
-
-class EventPublishException(EventException):
-    def __init__(self, event_id: str, event_title: str, reason: str):
-        super().__init__(
-            message=f"Cannot publish event {event_title}",
-            error_code=ErrorCode.EVENT_PUBLISH_ERROR,
-            details={
-                "event_id": event_id,
-                "event_title": event_title,
-                "reason": reason
-            },
-            user_message="Unable to publish event. Please check event details."
-        )
-
-class EventCancelException(EventException):
-    def __init__(self, event_id: str, event_title: str, reason: str):
-        super().__init__(
-            message=f"Cannot cancel event {event_title}",
-            error_code=ErrorCode.EVENT_CANCEL_ERROR,
-            details={
-                "event_id": event_id,
-                "event_title": event_title,
-                "reason": reason
-            },
-            user_message="Unable to cancel event. Event may have already started or been completed."
-        )
-
-class CheckinExpiredException(EventRegistrationException):
-    def __init__(self, event_id: str, user_id: str, event_title: str, checkin_deadline: str):
-        super().__init__(
-            message=f"Check-in expired for event {event_title}",
-            error_code=ErrorCode.CHECKIN_EXPIRED,
-            event_id=event_id,
-            user_id=user_id,
-            details={
-                "event_title": event_title,
-                "checkin_deadline": checkin_deadline,
-                "reason": "Check-in period has ended"
-            },
-            user_message="Check-in for this event has expired."
-        )
-
-class EventCancelledException(EventException):
-    def __init__(self, event_id: str, event_title: str):
-        super().__init__(
-            message=f"Event {event_title} is cancelled",
-            error_code=ErrorCode.EVENT_CANCELLED,
-            details={
-                "event_id": event_id,
-                "event_title": event_title,
-                "reason": "Event has been cancelled"
-            },
-            user_message="This event has been cancelled."
-        )
-
-class EventNotStartedException(EventException):
-    def __init__(self, event_id: str, event_title: str, start_time: str):
-        super().__init__(
-            message=f"Event {event_title} has not started",
-            error_code=ErrorCode.EVENT_NOT_STARTED,
-            details={
-                "event_id": event_id,
-                "event_title": event_title,
-                "start_time": start_time,
-                "reason": "Event has not started yet"
-            },
-            user_message="This event has not started yet."
-        )
-
-class EventEndedException(EventException):
-    def __init__(self, event_id: str, event_title: str, end_time: str):
-        super().__init__(
-            message=f"Event {event_title} has ended",
-            error_code=ErrorCode.EVENT_ENDED,
-            details={
-                "event_id": event_id,
-                "event_title": event_title,
-                "end_time": end_time,
-                "reason": "Event has already ended"
-            },
-            user_message="This event has already ended."
+            rule_description="Events cannot have overlapping schedules for the same venue/resources",
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message
         )

@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional, Any
 from apps.core.core_exceptions.base import BaseAppException, ErrorContext
-from apps.core.core_exceptions.domain import DomainOperationException, EntityNotFoundException, ValidationException
+from apps.core.core_exceptions.domain import BusinessRuleException, EntityNotFoundException, DomainValidationException, DomainOperationException
 from apps.core.core_exceptions.integration import StorageException
 
 
@@ -14,7 +14,8 @@ class SermonException(BaseAppException):
         status_code: int = 400,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         super().__init__(
             message=message,
@@ -22,53 +23,83 @@ class SermonException(BaseAppException):
             status_code=status_code,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
+class InvalidInputException(DomainValidationException):
+    """Generic validation exception for invalid input payloads."""
+
+    def __init__(
+        self,
+        message: str = "Invalid input",
+        field_errors: Optional[Dict[str, List[str]]] = None,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+    ):
+        details = details or {}
+        # There was no call to super???
 
 class SermonNotFoundException(EntityNotFoundException):
+    """Exception when sermon is not found."""
+    
     def __init__(
         self,
         sermon_id: Optional[str] = None,
         lookup_params: Optional[Dict[str, Any]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
+        if not user_message:
+            user_message = "Sermon not found."
+            
         super().__init__(
             entity_name="Sermon",
             entity_id=sermon_id,
             lookup_params=lookup_params or ({"id": sermon_id} if sermon_id else {}),
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
 class SermonMediaNotFoundException(EntityNotFoundException):
+    """Exception when sermon media is not found."""
+    
     def __init__(
         self,
         media_id: str,
         sermon_id: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({"media_id": media_id})
         if sermon_id:
             details["sermon_id"] = sermon_id
             
+        if not user_message:
+            user_message = "Sermon media not found."
+            
         super().__init__(
             entity_name="SermonMedia",
             entity_id=media_id,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
 class MediaUploadFailedException(StorageException):
+    """Exception when media upload fails."""
+    
     def __init__(
         self,
         sermon_id: str,
@@ -76,7 +107,8 @@ class MediaUploadFailedException(StorageException):
         reason: str,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -84,6 +116,9 @@ class MediaUploadFailedException(StorageException):
             "file_name": file_name,
             "reason": reason
         })
+        
+        if not user_message:
+            user_message = "Failed to upload media file. Please try again."
             
         super().__init__(
             message=f"Media upload failed for sermon {sermon_id}",
@@ -92,11 +127,14 @@ class MediaUploadFailedException(StorageException):
             file_path=file_name,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
-class InvalidMediaTypeException(ValidationException):
+class InvalidMediaTypeException(DomainValidationException):
+    """Exception when media type is not supported."""
+    
     def __init__(
         self,
         file_name: str,
@@ -104,7 +142,8 @@ class InvalidMediaTypeException(ValidationException):
         actual_type: str,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -117,24 +156,31 @@ class InvalidMediaTypeException(ValidationException):
         field_errors = {
             "media_file": [f"File type not supported. Allowed types: {', '.join(allowed_types)}"]
         }
+        
+        if not user_message:
+            user_message = f"File type '{actual_type}' is not supported. Please use: {', '.join(allowed_types)}"
             
         super().__init__(
             message=f"Invalid media type for file {file_name}",
             field_errors=field_errors,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
-class BibleReferenceInvalidException(ValidationException):
+class BibleReferenceInvalidException(DomainValidationException):
+    """Exception when Bible reference is invalid."""
+    
     def __init__(
         self,
         bible_reference: str,
         reason: str,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -145,17 +191,23 @@ class BibleReferenceInvalidException(ValidationException):
         field_errors = {
             "bible_reference": ["Invalid Bible reference format"]
         }
+        
+        if not user_message:
+            user_message = f"Invalid Bible reference: {bible_reference}"
             
         super().__init__(
             message=f"Invalid Bible reference: {bible_reference}",
             field_errors=field_errors,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
 class SermonPublishException(DomainOperationException):
+    """Exception when sermon publishing fails."""
+    
     def __init__(
         self,
         sermon_id: str,
@@ -163,7 +215,8 @@ class SermonPublishException(DomainOperationException):
         reason: str,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -171,6 +224,9 @@ class SermonPublishException(DomainOperationException):
             "sermon_title": sermon_title,
             "reason": reason
         })
+        
+        if not user_message:
+            user_message = f"Failed to publish sermon '{sermon_title}'."
             
         super().__init__(
             operation="publish",
@@ -178,105 +234,22 @@ class SermonPublishException(DomainOperationException):
             reason=reason,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
-class SermonArchiveException(DomainOperationException):
-    def __init__(
-        self,
-        sermon_id: str,
-        sermon_title: str,
-        reason: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "sermon_id": sermon_id,
-            "sermon_title": sermon_title,
-            "reason": reason
-        })
-            
-        super().__init__(
-            operation="archive",
-            entity_name="Sermon",
-            reason=reason,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class MediaProcessingException(SermonException):
-    def __init__(
-        self,
-        sermon_id: str,
-        file_name: str,
-        processing_step: str,
-        reason: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "sermon_id": sermon_id,
-            "file_name": file_name,
-            "processing_step": processing_step,
-            "reason": reason
-        })
-            
-        super().__init__(
-            message=f"Media processing failed for {file_name}",
-            error_code="MEDIA_PROCESSING_ERROR",
-            status_code=500,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class MediaDurationInvalidException(ValidationException):
-    def __init__(
-        self,
-        file_name: str,
-        duration: int,
-        max_duration: int,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "file_name": file_name,
-            "duration": duration,
-            "max_duration": max_duration,
-            "reason": "Media file too long"
-        })
-        
-        field_errors = {
-            "media_file": [f"Media file is too long. Maximum duration is {max_duration} seconds."]
-        }
-            
-        super().__init__(
-            message=f"Media duration {duration}s exceeds maximum {max_duration}s",
-            field_errors=field_errors,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class SermonAlreadyPublishedException(DomainOperationException):
+class SermonAlreadyPublishedException(BusinessRuleException):
+    """Exception when trying to modify a published sermon."""
+    
     def __init__(
         self,
         sermon_id: str,
         sermon_title: str,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -284,42 +257,16 @@ class SermonAlreadyPublishedException(DomainOperationException):
             "sermon_title": sermon_title,
             "reason": "Cannot modify published sermon"
         })
+        
+        if not user_message:
+            user_message = "Published sermons cannot be modified. Please create a new version."
             
         super().__init__(
-            operation="modify",
-            entity_name="Sermon",
-            reason="Sermon is already published",
+            rule_name="SERMON_MODIFICATION",
+            message=f"Sermon {sermon_title} is already published",
+            rule_description="Published sermons are immutable",
             details=details,
             context=context,
-            cause=cause
-        )
-
-
-class MediaStorageException(StorageException):
-    def __init__(
-        self,
-        sermon_id: str,
-        file_name: str,
-        operation: str,
-        reason: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "sermon_id": sermon_id,
-            "file_name": file_name,
-            "operation": operation,
-            "reason": reason
-        })
-            
-        super().__init__(
-            message=f"Media storage error for {file_name}",
-            storage_service="file_storage",
-            operation=operation,
-            file_path=file_name,
-            details=details,
-            context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )

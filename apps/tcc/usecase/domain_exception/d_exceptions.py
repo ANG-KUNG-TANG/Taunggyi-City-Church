@@ -1,7 +1,7 @@
-from typing import Any, Dict, List, Optional
-
+from typing import Dict, List, Optional, Any
 from apps.core.core_exceptions.base import BaseAppException, ErrorContext
-from apps.core.core_exceptions.domain import BusinessRuleException, EntityNotFoundException, ValidationException
+from apps.core.core_exceptions.domain import BusinessRuleException, EntityNotFoundException, DomainValidationException
+
 
 class DonationException(BaseAppException):
     """Base exception for donation-related errors."""
@@ -13,7 +13,8 @@ class DonationException(BaseAppException):
         status_code: int = 400,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         super().__init__(
             message=message,
@@ -21,30 +22,40 @@ class DonationException(BaseAppException):
             status_code=status_code,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
 class DonationNotFoundException(EntityNotFoundException):
+    """Exception when donation is not found."""
+    
     def __init__(
         self,
         donation_id: Optional[str] = None,
         lookup_params: Optional[Dict[str, Any]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
+        if not user_message:
+            user_message = "Donation record not found."
+            
         super().__init__(
             entity_name="Donation",
             entity_id=donation_id,
             lookup_params=lookup_params or ({"id": donation_id} if donation_id else {}),
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
-class DonationAmountInvalidException(ValidationException):
+class DonationAmountInvalidException(DomainValidationException):
+    """Exception when donation amount is invalid."""
+    
     def __init__(
         self,
         amount: float,
@@ -52,7 +63,8 @@ class DonationAmountInvalidException(ValidationException):
         max_amount: float = 100000,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -63,19 +75,25 @@ class DonationAmountInvalidException(ValidationException):
         })
         
         field_errors = {
-            "amount": [f"Amount must be between ${min_amount} and ${max_amount}"]
+            "amount": [f"Amount must be between ${min_amount:.2f} and ${max_amount:.2f}"]
         }
         
+        if not user_message:
+            user_message = f"Donation amount must be between ${min_amount:.2f} and ${max_amount:.2f}."
+            
         super().__init__(
             message=f"Invalid donation amount: {amount}",
             field_errors=field_errors,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
 class DonationPaymentFailedException(DonationException):
+    """Exception when donation payment fails."""
+    
     def __init__(
         self,
         donation_id: str,
@@ -84,7 +102,8 @@ class DonationPaymentFailedException(DonationException):
         gateway_response: Optional[Dict[str, Any]] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -95,24 +114,31 @@ class DonationPaymentFailedException(DonationException):
         if gateway_response:
             details["gateway_response"] = gateway_response
             
+        if not user_message:
+            user_message = "Payment processing failed. Please try again or use a different payment method."
+            
         super().__init__(
             message=f"Payment failed for donation {donation_id}",
             error_code="DONATION_PAYMENT_FAILED",
             status_code=402,
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
 class FundInactiveException(BusinessRuleException):
+    """Exception when trying to donate to inactive fund."""
+    
     def __init__(
         self,
         fund_id: str,
         fund_name: str,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -120,6 +146,9 @@ class FundInactiveException(BusinessRuleException):
             "fund_name": fund_name,
             "reason": "Cannot donate to inactive fund"
         })
+        
+        if not user_message:
+            user_message = f"Fund '{fund_name}' is not currently accepting donations."
             
         super().__init__(
             rule_name="FUND_ACTIVE_REQUIRED",
@@ -127,11 +156,14 @@ class FundInactiveException(BusinessRuleException):
             rule_description="Donations can only be made to active funds",
             details=details,
             context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )
 
 
 class TransactionDeclinedException(DonationException):
+    """Exception when transaction is declined by payment processor."""
+    
     def __init__(
         self,
         donation_id: str,
@@ -139,7 +171,8 @@ class TransactionDeclinedException(DonationException):
         gateway_code: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
     ):
         details = details or {}
         details.update({
@@ -149,173 +182,15 @@ class TransactionDeclinedException(DonationException):
         if gateway_code:
             details["gateway_code"] = gateway_code
             
+        if not user_message:
+            user_message = "Your transaction was declined. Please check your payment information and try again."
+            
         super().__init__(
             message=f"Transaction declined for donation {donation_id}",
             error_code="TRANSACTION_DECLINED",
             status_code=402,
             details=details,
             context=context,
-            cause=cause
-        )
-
-
-class RecurringDonationException(DonationException):
-    def __init__(
-        self,
-        donation_id: str,
-        operation: str,
-        reason: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "donation_id": donation_id,
-            "operation": operation,
-            "reason": reason
-        })
-            
-        super().__init__(
-            message=f"Recurring donation {operation} failed for {donation_id}",
-            error_code="RECURRING_DONATION_ERROR",
-            status_code=400,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class DonationRefundException(DonationException):
-    def __init__(
-        self,
-        donation_id: str,
-        reason: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "donation_id": donation_id,
-            "reason": reason
-        })
-            
-        super().__init__(
-            message=f"Cannot refund donation {donation_id}",
-            error_code="DONATION_REFUND_ERROR",
-            status_code=400,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class ReceiptGenerationException(DonationException):
-    def __init__(
-        self,
-        donation_id: str,
-        reason: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "donation_id": donation_id,
-            "reason": reason
-        })
-            
-        super().__init__(
-            message=f"Receipt generation failed for donation {donation_id}",
-            error_code="RECEIPT_GENERATION_FAILED",
-            status_code=400,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class PaymentMethodInvalidException(ValidationException):
-    def __init__(
-        self,
-        payment_method: str,
-        allowed_methods: List[str],
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "payment_method": payment_method,
-            "allowed_methods": allowed_methods,
-            "reason": "Payment method not supported"
-        })
-        
-        field_errors = {
-            "payment_method": [f"Payment method not supported. Allowed methods: {', '.join(allowed_methods)}"]
-        }
-            
-        super().__init__(
-            message=f"Invalid payment method: {payment_method}",
-            field_errors=field_errors,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class FundTargetReachedException(BusinessRuleException):
-    def __init__(
-        self,
-        fund_id: str,
-        fund_name: str,
-        target_amount: float,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "fund_id": fund_id,
-            "fund_name": fund_name,
-            "target_amount": target_amount,
-            "reason": "Fund has reached its target amount"
-        })
-            
-        super().__init__(
-            rule_name="FUND_TARGET_NOT_REACHED",
-            message=f"Fund {fund_name} target reached",
-            rule_description="Donations cannot be made to funds that have reached their target amount",
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class InsufficientFundsException(DonationException):
-    def __init__(
-        self,
-        donation_id: str,
-        payment_method: str,
-        available_balance: float,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "donation_id": donation_id,
-            "payment_method": payment_method,
-            "available_balance": available_balance,
-            "reason": "Account has insufficient funds"
-        })
-            
-        super().__init__(
-            message=f"Insufficient funds for donation {donation_id}",
-            error_code="INSUFFICIENT_FUNDS",
-            status_code=402,
-            details=details,
-            context=context,
-            cause=cause
+            cause=cause,
+            user_message=user_message
         )

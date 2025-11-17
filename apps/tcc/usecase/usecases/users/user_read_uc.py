@@ -1,121 +1,126 @@
 from typing import Dict, Any, List, Optional
-from usecases.base.base_uc  import OperationPortalUseCase
+from usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.u_exceptions import (
-    InvalidUserInputError,
+    InvalidUserInputException,
     UserNotFoundException
 )
 from apps.tcc.models.base.enums import UserRole, UserStatus
 
-class GetUserByIdUseCase(OperationPortalUseCase):
+class GetUserByIdUseCase(BaseUseCase):
     """Use case for getting user by ID"""
     
     def _setup_configuration(self):
         self.config.require_authentication = True
 
-    def _validate_input(self, input_data: Dict[str, Any], context):
+    async def _validate_input(self, input_data: Dict[str, Any], context):
         user_id = input_data.get('user_id')
         if not user_id:
-            raise InvalidUserInputError(details={
+            raise InvalidUserInputException(details={
                 "message": "User ID is required",
                 "field": "user_id"
             })
 
-    def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         user_id = input_data['user_id']
-        user_entity = self.user_repository.get_by_id(user_id, user)
+        user_entity = await self.user_repository.get_by_id(user_id, user)
         
         if not user_entity:
             raise UserNotFoundException(user_id=user_id)
         
         return self._format_user_response(user_entity)
 
-class GetUserByEmailUseCase(OperationPortalUseCase):
+class GetUserByEmailUseCase(BaseUseCase):
     """Use case for getting user by email"""
     
     def _setup_configuration(self):
         self.config.require_authentication = True
 
-    def _validate_input(self, input_data: Dict[str, Any], context):
+    async def _validate_input(self, input_data: Dict[str, Any], context):
         email = input_data.get('email')
         if not email:
-            raise InvalidUserInputError(details={
+            raise InvalidUserInputException(details={
                 "message": "Email is required",
                 "field": "email"
             })
 
-    def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         email = input_data['email']
-        user_entity = self.user_repository.get_by_email(email, user)
+        user_entity = await self.user_repository.get_by_email(email, user)
         
         if not user_entity:
             raise UserNotFoundException(message=f"User with email {email} not found")
         
         return self._format_user_response(user_entity)
 
-class GetAllUsersUseCase(OperationPortalUseCase):
+class GetAllUsersUseCase(BaseUseCase):
     """Use case for getting all users with optional filtering"""
     
     def _setup_configuration(self):
         self.config.require_authentication = True
 
-    def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         filters = input_data.get('filters', {})
-        users = self.user_repository.get_all(user, filters)
+        users = await self.user_repository.get_all(user, filters)
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
             "total_count": len(users)
         }
 
-class GetUsersByRoleUseCase(OperationPortalUseCase):
+class GetUsersByRoleUseCase(BaseUseCase):
     """Use case for getting users by role"""
     
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_users']
 
-    def _validate_input(self, input_data: Dict[str, Any], context):
+    async def _validate_input(self, input_data: Dict[str, Any], context):
         role = input_data.get('role')
         if not role:
-            raise InvalidUserInputError(details={
+            raise InvalidUserInputException(details={
                 "message": "Role is required",
                 "field": "role"
             })
         
-        if role not in [role.value for role in UserRole]:
-            raise InvalidUserInputError(details={
-                "message": "Invalid role",
-                "field": "role",
-                "valid_roles": [role.value for role in UserRole]
-            })
+        # Convert string to enum if needed
+        if isinstance(role, str):
+            try:
+                role = UserRole(role)
+            except ValueError:
+                valid_roles = [role.value for role in UserRole]
+                raise InvalidUserInputException(details={
+                    "message": "Invalid role",
+                    "field": "role",
+                    "valid_roles": valid_roles
+                })
 
-    def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         role = input_data['role']
-        users = self.user_repository.get_by_role(role, user)
+        users = await self.user_repository.get_by_role(role, user)
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
-            "role": role,
+            "role": role.value if hasattr(role, 'value') else role,
             "total_count": len(users)
         }
 
-class SearchUsersUseCase(OperationPortalUseCase):
+class SearchUsersUseCase(BaseUseCase):
     """Use case for searching users"""
     
     def _setup_configuration(self):
         self.config.require_authentication = True
 
-    def _validate_input(self, input_data: Dict[str, Any], context):
+    async def _validate_input(self, input_data: Dict[str, Any], context):
         search_term = input_data.get('search_term')
         if not search_term:
-            raise InvalidUserInputError(details={
+            raise InvalidUserInputException(details={
                 "message": "Search term is required",
                 "field": "search_term"
             })
 
-    def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         search_term = input_data['search_term']
-        users = self.user_repository.search_users(search_term, user)
+        users = await self.user_repository.search_users(search_term, user)
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
@@ -123,62 +128,67 @@ class SearchUsersUseCase(OperationPortalUseCase):
             "total_count": len(users)
         }
 
-class GetMinistryLeadersUseCase(OperationPortalUseCase):
+class GetMinistryLeadersUseCase(BaseUseCase):
     """Use case for getting all ministry leaders"""
     
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_users']
 
-    def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        users = self.user_repository.get_ministry_leaders(user)
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+        users = await self.user_repository.get_ministry_leaders(user)
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
             "total_count": len(users)
         }
 
-class GetUsersByStatusUseCase(OperationPortalUseCase):
+class GetUsersByStatusUseCase(BaseUseCase):
     """Use case for getting users by status"""
     
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_users']
 
-    def _validate_input(self, input_data: Dict[str, Any], context):
+    async def _validate_input(self, input_data: Dict[str, Any], context):
         status = input_data.get('status')
         if not status:
-            raise InvalidUserInputError(details={
+            raise InvalidUserInputException(details={
                 "message": "Status is required",
                 "field": "status"
             })
         
-        if status not in [status.value for status in UserStatus]:
-            raise InvalidUserInputError(details={
-                "message": "Invalid status",
-                "field": "status",
-                "valid_statuses": [status.value for status in UserStatus]
-            })
+        # Convert string to enum if needed
+        if isinstance(status, str):
+            try:
+                status = UserStatus(status)
+            except ValueError:
+                valid_statuses = [status.value for status in UserStatus]
+                raise InvalidUserInputException(details={
+                    "message": "Invalid status",
+                    "field": "status",
+                    "valid_statuses": valid_statuses
+                })
 
-    def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         status = input_data['status']
-        users = self.user_repository.get_users_by_status(status, user)
+        users = await self.user_repository.get_users_by_status(status, user)
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
-            "status": status,
+            "status": status.value if hasattr(status, 'value') else status,
             "total_count": len(users)
         }
 
-class GetActiveUsersCountUseCase(OperationPortalUseCase):
+class GetActiveUsersCountUseCase(BaseUseCase):
     """Use case for getting active users count"""
     
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_users']
 
-    def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        count = self.user_repository.get_active_users_count()
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+        count = await self.user_repository.get_active_users_count()
         
         return {
             "active_users_count": count
@@ -196,8 +206,8 @@ def _format_user_response(user_entity):
         'gender': user_entity.gender,
         'marital_status': user_entity.marital_status,
         'date_of_birth': user_entity.date_of_birth,
-        'role': user_entity.role,
-        'status': user_entity.status,
+        'role': user_entity.role.value if hasattr(user_entity.role, 'value') else user_entity.role,
+        'status': user_entity.status.value if hasattr(user_entity.status, 'value') else user_entity.status,
         'is_active': user_entity.is_active,
         'email_notifications': user_entity.email_notifications,
         'sms_notifications': user_entity.sms_notifications,

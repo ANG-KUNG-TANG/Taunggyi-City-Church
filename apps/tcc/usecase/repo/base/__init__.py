@@ -1,9 +1,9 @@
 
-from users.user_repo import UserRepository
-from event.events import EventRepository, EventRegistrationRepository
-from sermons.sermons import SermonRepository, SermonMediaRepository
-from prayers.prayer import PrayerRequestRepository, PrayerResponseRepository
-from donations.donations import DonationRepository, FundTypeRepository
+from apps.tcc.usecase.repo.domain_repo.prayer import PrayerRequestRepository, PrayerResponseRepository
+from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
+from apps.tcc.usecase.repo.domain_repo.events import EventRepository, EventRegistrationRepository
+from apps.tcc.usecase.repo.domain_repo.sermons import SermonRepository, SermonMediaRepository
+from domain_repo.donations import DonationRepository, FundTypeRepository
 
 class RepositoryFactory:
     """
