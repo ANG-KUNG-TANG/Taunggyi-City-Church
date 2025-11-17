@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 from django.db.models import Q
-from repo.base.modelrepo import ModelRepository
+from repo.base.modelrepo import DomainRepository
 from apps.tcc.models.users.users import User
 from apps.tcc.models.base.enums import UserRole, UserStatus
 from models.base.permission import PermissionDenied
@@ -8,7 +8,7 @@ from entities.users import UserEntity
 from core.db.decorators import with_db_error_handling, with_retry
 
 
-class UserRepository(ModelRepository[User]):
+class UserRepository(DomainRepository):
     
     def __init__(self):
         super().__init__(User)
