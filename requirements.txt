@@ -5,12 +5,14 @@ billiard==4.2.2
 black==25.9.0
 celery==5.5.3
 certifi==2025.11.12
+cffi==2.0.0
 click==8.3.0
 click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
 colorama==0.4.6
 crispy-bootstrap5==2025.6
+cryptography==46.0.3
 Django==5.2.8
 django-cleanup==9.0.0
 django-cors-headers==4.9.0
@@ -19,7 +21,7 @@ django-debug-toolbar==6.1.0
 django-environ==0.12.0
 django-extensions==4.1
 django-filter==25.1
-django-redis==6.0.0
+django-redis==5.4.0
 django-request-id==1.0.0
 djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
@@ -39,6 +41,7 @@ platformdirs==4.5.0
 prompt_toolkit==3.0.52
 psycopg2-binary==2.9.11
 pycodestyle==2.14.0
+pycparser==2.23
 pydantic==2.12.4
 pydantic_core==2.41.5
 pyflakes==3.4.0
@@ -50,7 +53,7 @@ python-memcached==1.62
 pytokens==0.3.0
 pytz==2025.2
 PyYAML==6.0.3
-redis==7.0.1
+redis==5.0.1
 sentry-sdk==2.44.0
 six==1.17.0
 sqlparse==0.5.3

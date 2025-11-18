@@ -157,12 +157,23 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {'anon': '100/day', 'user': '1000/day'}
 }
 
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'UPDATE_LAST_LOGIN': True,
+# Enhanced JWT settings
+JWT = {
+    "SECRET": env("JWT_SECRET"),  # Remove fallback to SECRET_KEY
+    "ALGORITHM": env("JWT_ALGORITHM", "HS256"),
+    "ISSUER": env("JWT_ISSUER", "myapp"),
+    "AUDIENCE": env("JWT_AUDIENCE", "myapp-client"),
+    "ACCESS_LIFETIME": timedelta(minutes=int(env("JWT_ACCESS_MINUTES", 15))),
+    "REFRESH_LIFETIME": timedelta(days=int(env("JWT_REFRESH_DAYS", 7))),
+    "BLACKLIST_ENABLED": env.bool("JWT_BLACKLIST_ENABLED", True),
+    "BLACKLIST_REDIS_DB": int(env("JWT_BLACKLIST_DB", 3)),
+    "CHECK_ACCESS_REVOCATION": env.bool("JWT_CHECK_ACCESS_REVOCATION", True),
+    "REDIS": {
+        "HOST": env("REDIS_HOST", "localhost"),
+        "PORT": env.int("REDIS_PORT", 6379),
+        "PASSWORD": env("REDIS_PASSWORD", None),
+        "SSL": env.bool("REDIS_SSL", False),
+    },
 }
 
 # ──────────────────────────────
