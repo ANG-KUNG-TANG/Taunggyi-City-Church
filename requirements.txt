@@ -1,6 +1,7 @@
 amqp==5.3.1
 annotated-types==0.7.0
 asgiref==3.10.0
+bcrypt==5.0.0
 billiard==4.2.2
 black==25.9.0
 celery==5.5.3
@@ -30,6 +31,7 @@ environ==1.0
 flake8==7.3.0
 gunicorn==23.0.0
 inflection==0.5.1
+iniconfig==2.3.0
 kombu==5.5.4
 mccabe==0.7.0
 mypy_extensions==1.1.0
@@ -38,6 +40,7 @@ packaging==25.0
 pathspec==0.12.1
 pillow==12.0.0
 platformdirs==4.5.0
+pluggy==1.6.0
 prompt_toolkit==3.0.52
 psycopg2-binary==2.9.11
 pycodestyle==2.14.0
@@ -45,8 +48,10 @@ pycparser==2.23
 pydantic==2.12.4
 pydantic_core==2.41.5
 pyflakes==3.4.0
+Pygments==2.19.2
 PyJWT==2.10.1
 PyMySQL==1.1.2
+pytest==9.0.1
 python-dateutil==2.9.0.post0
 python-decouple==3.8
 python-memcached==1.62

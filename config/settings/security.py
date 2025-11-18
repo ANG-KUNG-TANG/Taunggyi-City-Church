@@ -58,3 +58,64 @@ def generate_rsa_key_pair():
     )
     
     return private_pem.decode('utf-8'), public_pem.decode('utf-8')
+
+"""
+Production Security Configuration
+Security Level: CRITICAL
+"""
+import os
+from datetime import timedelta
+from typing import List
+
+# JWT Configuration
+JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'RS256')
+JWT_ACCESS_EXPIRY = int(os.getenv('JWT_ACCESS_EXPIRY', 900))  # 15 minutes
+JWT_REFRESH_EXPIRY = int(os.getenv('JWT_REFRESH_EXPIRY', 604800))  # 7 days
+JWT_RESET_EXPIRY = int(os.getenv('JWT_RESET_EXPIRY', 1800))  # 30 minutes
+JWT_ISSUER = os.getenv('JWT_ISSUER', 'auth-service')
+JWT_AUDIENCE = os.getenv('JWT_AUDIENCE', 'api').split(',')
+JWT_LEEWAY_SECONDS = int(os.getenv('JWT_LEEWAY_SECONDS', 30))
+
+# Security Settings
+BCRYPT_ROUNDS = int(os.getenv('BCRYPT_ROUNDS', 12))
+RATE_LIMIT_ENABLED = os.getenv('RATE_LIMIT_ENABLED', 'True').lower() == 'true'
+MAX_LOGIN_ATTEMPTS = int(os.getenv('MAX_LOGIN_ATTEMPTS', 5))
+LOGIN_TIMEOUT_MINUTES = int(os.getenv('LOGIN_TIMEOUT_MINUTES', 15))
+
+# CORS Settings
+CORS_ALLOWED_ORIGINS = [
+    origin.strip() for origin in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') 
+    if origin.strip()
+]
+
+# Security Headers
+SECURITY_HEADERS = {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'X-XSS-Protection': '1; mode=block',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+    'Referrer-Policy': 'strict-origin-when-cross-origin'
+}
+
+# Key Rotation
+KEY_ROTATION_INTERVAL = int(os.getenv('KEY_ROTATION_INTERVAL', 86400))  # 24 hours
+KEY_CACHE_EXPIRY = int(os.getenv('KEY_CACHE_EXPIRY', 172800))  # 48 hours
+
+# Rate Limiting
+RATE_LIMIT_CONFIGS = {
+    'login': {
+        'max_requests': 5,
+        'window_seconds': 300,  # 5 minutes
+        'strategy': 'sliding_window'
+    },
+    'api': {
+        'max_requests': 100,
+        'window_seconds': 3600,  # 1 hour
+        'strategy': 'sliding_window'
+    },
+    'password_reset': {
+        'max_requests': 3,
+        'window_seconds': 900,  # 15 minutes
+        'strategy': 'sliding_window'
+    }
+}

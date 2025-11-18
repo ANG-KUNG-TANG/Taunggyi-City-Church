@@ -1,105 +1,135 @@
 import functools
 import inspect
-from typing import Any, Optional, Callable
-from .keys import key_generator
-from .sync_cache import sync_cache
-from .async_cache import async_cache
+from typing import Any, Callable, Optional
+import logging
+from .cache_keys import CacheKeyBuilder
+from .async_cache import AsyncCache
 
+logger = logging.getLogger(__name__)
 
 def cached(
-    timeout: Optional[int] = None,
-    key_prefix: str = None,
-    cache_instance = None
+    key_template: str = None,
+    ttl: int = 300,
+    namespace: str = "default",
+    version: str = "1"
 ):
     """
-    Decorator to cache function results
+    Decorator for caching async function results
     
     Args:
-        timeout: Cache timeout in seconds
-        key_prefix: Custom key prefix
-        cache_instance: Cache instance to use (sync or async)
+        key_template: String template for cache key (uses function args)
+        ttl: Time to live in seconds
+        namespace: Cache namespace
+        version: Cache version
     """
-    def decorator(func):
-        if cache_instance is None:
-            # Auto-detect sync/async and use appropriate cache
-            _cache = async_cache if inspect.iscoroutinefunction(func) else sync_cache
-        else:
-            _cache = cache_instance
-        
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            # Generate cache key
-            prefix = key_prefix or f"func:{func.__module__}:{func.__name__}"
-            key = key_generator.function_key(prefix, args, kwargs)
+        async def wrapper(*args, **kwargs) -> Any:
+            # Get cache instance (assuming it's the first arg after self)
+            cache = None
+            if args and hasattr(args[0], 'cache'):
+                cache = args[0].cache
+            elif 'cache' in kwargs:
+                cache = kwargs['cache']
+            
+            if not cache or not isinstance(cache, AsyncCache):
+                logger.warning("Cache not available, skipping cache")
+                return await func(*args, **kwargs)
+            
+            # Build cache key
+            cache_key = _build_cache_key(
+                func, args, kwargs, key_template, namespace, version
+            )
             
             # Try to get from cache
-            cached_result = await _cache.get(key)
-            if cached_result is not None:
-                return cached_result
+            try:
+                cached_result = await cache.get(cache_key)
+                if cached_result is not None:
+                    logger.debug(f"Cache hit for {cache_key}")
+                    return cached_result
+            except Exception as e:
+                logger.warning(f"Cache get failed: {e}")
             
             # Execute function and cache result
             result = await func(*args, **kwargs)
-            await _cache.set(key, result, timeout)
+            
+            try:
+                await cache.set(cache_key, result, ttl)
+                logger.debug(f"Cached result for {cache_key}")
+            except Exception as e:
+                logger.warning(f"Cache set failed: {e}")
+            
             return result
         
-        @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            # Generate cache key
-            prefix = key_prefix or f"func:{func.__module__}:{func.__name__}"
-            key = key_generator.function_key(prefix, args, kwargs)
-            
-            # Try to get from cache
-            cached_result = _cache.get(key)
-            if cached_result is not None:
-                return cached_result
-            
-            # Execute function and cache result
-            result = func(*args, **kwargs)
-            _cache.set(key, result, timeout)
-            return result
-        
-        return async_wrapper if inspect.iscoroutinefunction(func) else sync_wrapper
-    
+        return wrapper
     return decorator
 
-
-def cache_key(pattern: str):
+def cache_invalidate(
+    key_templates: list[str],
+    namespace: str = "default",
+    version: str = "1"
+):
     """
-    Decorator to specify custom cache key pattern
+    Decorator to invalidate cache entries after function execution
     """
-    def decorator(func):
-        func.cache_key_pattern = pattern
-        return func
-    return decorator
-
-
-def invalidate_cache(key_pattern: str, cache_instance = None):
-    """
-    Decorator to invalidate cache after function execution
-    """
-    def decorator(func):
-        if cache_instance is None:
-            _cache = async_cache if inspect.iscoroutinefunction(func) else sync_cache
-        else:
-            _cache = cache_instance
-        
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
+        async def wrapper(*args, **kwargs) -> Any:
             result = await func(*args, **kwargs)
             
-            # Invalidate cache based on pattern
-            # This is a simple implementation - you might want to use Redis SCAN for pattern matching
-            await _cache.delete(key_pattern)
-            return result
-        
-        @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
+            # Get cache instance
+            cache = None
+            if args and hasattr(args[0], 'cache'):
+                cache = args[0].cache
+            elif 'cache' in kwargs:
+                cache = kwargs['cache']
             
-            # Invalidate cache based on pattern
-            _cache.delete(key_pattern)
+            if not cache or not isinstance(cache, AsyncCache):
+                return result
+            
+            # Build and delete cache keys
+            for key_template in key_templates:
+                cache_key = _build_cache_key(
+                    func, args, kwargs, key_template, namespace, version
+                )
+                try:
+                    await cache.delete(cache_key)
+                    logger.debug(f"Invalidated cache key: {cache_key}")
+                except Exception as e:
+                    logger.warning(f"Cache deletion failed: {e}")
+            
             return result
         
-        return async_wrapper if inspect.iscoroutinefunction(func) else sync_wrapper
-    
+        return wrapper
     return decorator
+
+def _build_cache_key(
+    func: Callable,
+    args: tuple,
+    kwargs: dict,
+    key_template: Optional[str],
+    namespace: str,
+    version: str
+) -> str:
+    """Build cache key from template and function arguments"""
+    if not key_template:
+        # Default key: function_name:args:kwargs
+        key_template = f"{func.__name__}:{args}:{kwargs}"
+    
+    # Get function signature
+    sig = inspect.signature(func)
+    bound_args = sig.bind(*args, **kwargs)
+    bound_args.apply_defaults()
+    
+    # Format key template with arguments
+    try:
+        formatted_key = key_template.format(**bound_args.arguments)
+    except KeyError as e:
+        logger.warning(f"Key template error: {e}, using default")
+        formatted_key = f"{func.__name__}:{str(bound_args.arguments)}"
+    
+    return CacheKeyBuilder.build_key(
+        namespace, 
+        formatted_key, 
+        version=version
+    )
