@@ -84,9 +84,6 @@ TEMPLATES = [
 # ──────────────────────────────
 # Database
 # ──────────────────────────────
-# DATABASES = {
-#     "default": env.db("DATABASE_URL", default="sqlite:///db.sqlite3")
-# }
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
@@ -102,7 +99,6 @@ DATABASES = {
     }
 }
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
-DATABASES["default"]["OPTIONS"] = {"charset": "utf8mb4"}
 
 # ──────────────────────────────
 # Auth & Password
@@ -157,23 +153,13 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {'anon': '100/day', 'user': '1000/day'}
 }
 
-# Enhanced JWT settings
-JWT = {
-    "SECRET": env("JWT_SECRET"),  # Remove fallback to SECRET_KEY
-    "ALGORITHM": env("JWT_ALGORITHM", "HS256"),
-    "ISSUER": env("JWT_ISSUER", "myapp"),
-    "AUDIENCE": env("JWT_AUDIENCE", "myapp-client"),
-    "ACCESS_LIFETIME": timedelta(minutes=int(env("JWT_ACCESS_MINUTES", 15))),
-    "REFRESH_LIFETIME": timedelta(days=int(env("JWT_REFRESH_DAYS", 7))),
-    "BLACKLIST_ENABLED": env.bool("JWT_BLACKLIST_ENABLED", True),
-    "BLACKLIST_REDIS_DB": int(env("JWT_BLACKLIST_DB", 3)),
-    "CHECK_ACCESS_REVOCATION": env.bool("JWT_CHECK_ACCESS_REVOCATION", True),
-    "REDIS": {
-        "HOST": env("REDIS_HOST", "localhost"),
-        "PORT": env.int("REDIS_PORT", 6379),
-        "PASSWORD": env("REDIS_PASSWORD", None),
-        "SSL": env.bool("REDIS_SSL", False),
-    },
+# Enhanced JWT settings - FIXED: Use proper env calls
+SIMPLE_JWT = {
+    'SIGNING_KEY': env('JWT_SECRET'),
+    'ALGORITHM': env('JWT_ALGORITHM', default='HS256'),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=env.int('JWT_ACCESS_MINUTES', default=15)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=env.int('JWT_REFRESH_DAYS', default=7)),
+    'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
 # ──────────────────────────────
@@ -190,31 +176,40 @@ if CACHE_BACKEND == "redis":
             "LOCATION": REDIS_URL,
             "OPTIONS": {
                 "CLIENT_CLASS": "django_redis.client.DefaultClient",
-                "CONNECTION_POOL_KWARGS": {"max_connections": 50, "encoding": "utf-8"},
+                "CONNECTION_POOL_KWARGS": {
+                    "max_connections": env.int("REDIS_MAX_CONNECTIONS", 50),
+                    "encoding": "utf-8"
+                },
+                "SOCKET_CONNECT_TIMEOUT": env.int("REDIS_CONNECT_TIMEOUT", 5),
+                "SOCKET_TIMEOUT": env.int("REDIS_SOCKET_TIMEOUT", 5),
+                "RETRY_ON_TIMEOUT": True,
             },
             "TIMEOUT": CACHE_DEFAULT_EXPIRE,
         }
     }
+    
+    # Use cache for sessions when Redis is available
+    SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+    SESSION_CACHE_ALIAS = "default"
+    
 else:
     # fallback local memory cache (useful for development)
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": "unique-snowflake",
-            # REMOVE the CLIENT_CLASS option for locmem cache
             "TIMEOUT": CACHE_DEFAULT_EXPIRE,
         }
     }
-
-SESSION_ENGINE = "django.contrib.sessions.backends.cache"
-SESSION_CACHE_ALIAS = "default"
-
-
+    
+    # Use database for sessions when using locmem cache
+    SESSION_ENGINE = "django.contrib.sessions.backends.db"
+    
 # ──────────────────────────────
 # CORS
 # ──────────────────────────────
-CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL", default=False)
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+CORS_ALLOW_ALL_ORIGINS = env.bool('CORS_ALLOW_ALL', default=False)
+CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])
 CORS_ALLOW_CREDENTIALS = True
 CORS_EXPOSE_HEADERS = ['X-Request-ID']
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
@@ -228,13 +223,13 @@ CRISPY_TEMPLATE_PACK = "bootstrap5"
 # ──────────────────────────────
 # Email
 # ──────────────────────────────
-EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
-EMAIL_HOST = env("EMAIL_HOST", default="localhost")
-EMAIL_PORT = env.int("EMAIL_PORT", default=587)
-EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
-EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
+EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = env('EMAIL_HOST', default='localhost')
+EMAIL_PORT = env.int('EMAIL_PORT', default=587)
+EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='webmaster@localhost')
 
 # ──────────────────────────────
 # Logging (Enhanced)
@@ -303,38 +298,33 @@ LOGGING = {
 # ──────────────────────────────
 # Async and Event Loop Configuration
 # ──────────────────────────────
-ASYNC_MODE = env.bool("ASYNC_MODE", default=True)
-ASYNC_DB_BACKEND = env.str("ASYNC_DB_BACKEND", default="aiomysql")  # or asyncpg, aiosqlite, etc.
-ASYNC_POOL_SIZE = env.int("ASYNC_POOL_SIZE", default=10)
-ASYNC_TIMEOUT = env.int("ASYNC_TIMEOUT", default=30)
+ASYNC_MODE = env.bool('ASYNC_MODE', default=True)
+ASYNC_DB_BACKEND = env.str('ASYNC_DB_BACKEND', default='aiomysql')
+ASYNC_POOL_SIZE = env.int('ASYNC_POOL_SIZE', default=10)
+ASYNC_TIMEOUT = env.int('ASYNC_TIMEOUT', default=30)
 
 # ──────────────────────────────
 # Snowflake ID Configuration
 # ──────────────────────────────
-SNOWFLAKE_DATACENTER_ID = env.int("SNOWFLAKE_DATACENTER_ID", default=1)
-SNOWFLAKE_MACHINE_ID = env.int("SNOWFLAKE_MACHINE_ID", default=1)
-SNOWFLAKE_EPOCH = env.int("SNOWFLAKE_EPOCH", default=1672531200000)  # Jan 1, 2023
+SNOWFLAKE_DATACENTER_ID = env.int('SNOWFLAKE_DATACENTER_ID', default=1)
+SNOWFLAKE_MACHINE_ID = env.int('SNOWFLAKE_MACHINE_ID', default=1)
+SNOWFLAKE_EPOCH = env.int('SNOWFLAKE_EPOCH', default=1672531200000)
 
 # ──────────────────────────────
 # Application Constants
 # ──────────────────────────────
-MAX_FILE_UPLOAD_SIZE = env.int("MAX_FILE_UPLOAD_SIZE", default=10)  # MB
-DEFAULT_PAGE_SIZE = env.int("DEFAULT_PAGE_SIZE", default=20)
+MAX_FILE_UPLOAD_SIZE = env.int('MAX_FILE_UPLOAD_SIZE', default=10)
+DEFAULT_PAGE_SIZE = env.int('DEFAULT_PAGE_SIZE', default=20)
 
 # ──────────────────────────────
 # Security Settings
 # ──────────────────────────────
-# HSTS Settings
-SECURE_HSTS_SECONDS = env.int('SECURE_HSTS_SECONDS', default=0)  # Disabled by default for dev
+SECURE_HSTS_SECONDS = env.int('SECURE_HSTS_SECONDS', default=0)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=False)
 SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=False)
-
-# SSL Settings (will be overridden in dev.py)
 SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=False)
 SESSION_COOKIE_SECURE = env.bool('SESSION_COOKIE_SECURE', default=False)
 CSRF_COOKIE_SECURE = env.bool('CSRF_COOKIE_SECURE', default=False)
-
-# Other Security Headers
 SECURE_BROWSER_XSS_FILTER = env.bool('SECURE_BROWSER_XSS_FILTER', default=True)
 SECURE_CONTENT_TYPE_NOSNIFF = env.bool('SECURE_CONTENT_TYPE_NOSNIFF', default=True)
 X_FRAME_OPTIONS = env('X_FRAME_OPTIONS', default='DENY')

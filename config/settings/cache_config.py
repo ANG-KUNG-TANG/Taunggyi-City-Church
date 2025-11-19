@@ -1,17 +1,16 @@
 """
-Production Cache Configuration
-Reliability Level: HIGH
+Cache Configuration for Custom Cache Operations
 """
 import os
 from typing import Dict, Any
 
-# Cache Configuration
-CACHE_DEFAULT_TTL = int(os.getenv('CACHE_DEFAULT_TTL', 300))  # 5 minutes
-CACHE_USER_TTL = int(os.getenv('CACHE_USER_TTL', 1800))  # 30 minutes
-CACHE_SESSION_TTL = int(os.getenv('CACHE_SESSION_TTL', 3600))  # 1 hour
-CACHE_BLACKLIST_TTL = int(os.getenv('CACHE_BLACKLIST_TTL', 86400))  # 24 hours
+# Cache TTL Configuration
+CACHE_DEFAULT_TTL = int(os.getenv('CACHE_DEFAULT_TTL', 300))
+CACHE_USER_TTL = int(os.getenv('CACHE_USER_TTL', 1800))
+CACHE_SESSION_TTL = int(os.getenv('CACHE_SESSION_TTL', 3600))
+CACHE_BLACKLIST_TTL = int(os.getenv('CACHE_BLACKLIST_TTL', 86400))
 
-# Redis Configuration
+# Redis Configuration for custom cache operations
 REDIS_CONFIG = {
     'host': os.getenv('REDIS_HOST', 'localhost'),
     'port': int(os.getenv('REDIS_PORT', 6379)),

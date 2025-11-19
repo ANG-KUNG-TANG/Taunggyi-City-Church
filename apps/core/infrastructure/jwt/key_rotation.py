@@ -11,8 +11,6 @@ import logging
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
-from core.cache.async_cache import AsyncCache
-from apps.core.cache.cache_keys import CacheKeyBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -23,24 +21,22 @@ class KeyRotationManager:
     Responsibilities: Key generation, rotation, lifecycle management
     """
     
-    def __init__(self, cache: AsyncCache, rotation_interval: int = 86400):  # 24 hours
+    def __init__(self, cache=None, rotation_interval: int = 86400):
         self.cache = cache
         self.rotation_interval = rotation_interval
         self.current_key_id = None
-        self.key_pairs: Dict[str, Tuple[str, str]] = {}  # key_id -> (private_pem, public_pem)
-        self.key_metadata: Dict[str, Dict] = {}  # key_id -> metadata
+        self.key_pairs: Dict[str, Tuple[str, str]] = {}
+        self.key_metadata: Dict[str, Dict] = {}
         self._initialized = False
 
     async def initialize(self):
-        """
-        Initialize key rotation system
-        Security Level: CRITICAL
-        """
+        """Initialize key rotation system"""
         if self._initialized:
             return
             
         try:
-            await self._load_keys_from_cache()
+            if self.cache:
+                await self._load_keys_from_cache()
             
             if not self.current_key_id:
                 await self._generate_new_key_pair()
@@ -50,15 +46,15 @@ class KeyRotationManager:
             
         except Exception as e:
             logger.critical(f"KeyRotationManager initialization failed: {e}")
-            raise
+            # Generate initial key pair even if cache fails
+            await self._generate_new_key_pair()
+            self._initialized = True
 
     async def _load_keys_from_cache(self):
-        """
-        Load keys from cache storage
-        Security Level: CRITICAL
-        """
+        """Load keys from cache storage"""
         try:
-            keys_data = await self.cache.get(CacheKeyBuilder.config_jwt_keys())
+            # Simple cache key since CacheKeyBuilder is not available
+            keys_data = await self.cache.get("jwt:keys")
             if keys_data:
                 self.key_pairs = keys_data.get('key_pairs', {})
                 self.key_metadata = keys_data.get('key_metadata', {})
@@ -68,30 +64,25 @@ class KeyRotationManager:
             logger.error(f"Failed to load keys from cache: {e}")
 
     async def _save_keys_to_cache(self):
-        """
-        Save keys to cache storage
-        Security Level: CRITICAL
-        """
+        """Save keys to cache storage"""
         try:
-            keys_data = {
-                'key_pairs': self.key_pairs,
-                'key_metadata': self.key_metadata,
-                'current_key_id': self.current_key_id,
-                'last_updated': datetime.utcnow().isoformat()
-            }
-            await self.cache.set(
-                CacheKeyBuilder.config_jwt_keys(),
-                keys_data,
-                self.rotation_interval * 2  # Keep keys longer than rotation interval
-            )
+            if self.cache:
+                keys_data = {
+                    'key_pairs': self.key_pairs,
+                    'key_metadata': self.key_metadata,
+                    'current_key_id': self.current_key_id,
+                    'last_updated': datetime.utcnow().isoformat()
+                }
+                await self.cache.set(
+                    "jwt:keys",
+                    keys_data,
+                    self.rotation_interval * 2
+                )
         except Exception as e:
             logger.error(f"Failed to save keys to cache: {e}")
 
     def _generate_rsa_key_pair(self, key_size: int = 2048) -> Tuple[str, str]:
-        """
-        Generate RSA key pair
-        Security Level: CRITICAL
-        """
+        """Generate RSA key pair"""
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=key_size,
@@ -112,10 +103,7 @@ class KeyRotationManager:
         return private_pem, public_pem
 
     async def _generate_new_key_pair(self, key_size: int = 2048) -> str:
-        """
-        Generate new RSA key pair and store
-        Security Level: CRITICAL
-        """
+        """Generate new RSA key pair and store"""
         private_pem, public_pem = self._generate_rsa_key_pair(key_size)
         key_id = secrets.token_urlsafe(16)
         

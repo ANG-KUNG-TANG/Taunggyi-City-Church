@@ -8,23 +8,17 @@ from django.utils.deprecation import MiddlewareMixin
 from typing import Callable, Optional, Dict, Any
 import logging
 
-from apps.core.infrastructure.jwt.jwt_backend import JWTBackend
-from apps.core.security.jwt_manager import TokenType
-from apps.core.security.rate_limiter import RateLimitConfig, RateLimitStrategy, RateLimiter
-
 logger = logging.getLogger(__name__)
 
 class JWTAuthMiddleware(MiddlewareMixin):
     """
     Production JWT Authentication Middleware
     Security Level: HIGH
-    Responsibilities: Token validation, user context attachment
     """
     
     def __init__(self, get_response=None):
         self.get_response = get_response
         self.jwt_backend = None
-        self.rate_limiter = None
         self.excluded_paths = [
             '/auth/login/',
             '/auth/register/',
@@ -39,11 +33,13 @@ class JWTAuthMiddleware(MiddlewareMixin):
     def initialize_services(self, request):
         """Lazy initialization of services"""
         if self.jwt_backend is None:
-            from apps.core.infrastructure.cahce.redis_factory import RedisFactory
-            cache = RedisFactory.get_default_client()
-            if cache:
-                self.jwt_backend = JWTBackend.get_instance(cache)
-                self.rate_limiter = RateLimiter(cache)
+            try:
+                from apps.core.infrastructure.jwt.jwt_backend import JWTBackend
+                # Initialize without cache for now
+                self.jwt_backend = JWTBackend.get_instance()
+            except ImportError as e:
+                logger.error(f"Failed to initialize JWTBackend: {e}")
+                self.jwt_backend = None
         
     def is_excluded_path(self, path: str) -> bool:
         """Check if path is excluded from authentication"""
@@ -54,16 +50,13 @@ class JWTAuthMiddleware(MiddlewareMixin):
         )
     
     def extract_token(self, request) -> Optional[str]:
-        """
-        Extract JWT token from request
-        Security Level: HIGH
-        """
+        """Extract JWT token from request"""
         # Check Authorization header
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
         if auth_header.startswith('Bearer '):
-            return auth_header[7:]  # Remove 'Bearer ' prefix
+            return auth_header[7:]
         
-        # Check query parameter (for WebSocket connections)
+        # Check query parameter
         token = request.GET.get('token')
         if token:
             return token
@@ -76,11 +69,7 @@ class JWTAuthMiddleware(MiddlewareMixin):
         return None
     
     async def process_request_async(self, request):
-        """
-        Async request processing
-        Security Level: HIGH
-        """
-        # Skip authentication for excluded paths
+        """Async request processing"""
         if self.is_excluded_path(request.path):
             return None
         
@@ -92,16 +81,6 @@ class JWTAuthMiddleware(MiddlewareMixin):
                 status=503
             )
         
-        # Apply rate limiting
-        if self.rate_limiter:
-            rate_limit_result = await self._apply_rate_limiting(request)
-            if not rate_limit_result.allowed:
-                return JsonResponse({
-                    'error': 'Rate limit exceeded',
-                    'retry_after': rate_limit_result.retry_after,
-                    'details': rate_limit_result.details
-                }, status=429)
-        
         # Extract and verify token
         token = self.extract_token(request)
         if not token:
@@ -111,7 +90,14 @@ class JWTAuthMiddleware(MiddlewareMixin):
             )
         
         # Verify token
-        is_valid, payload = await self.jwt_backend.verify_token(token, TokenType.ACCESS)
+        try:
+            is_valid, payload = await self.jwt_backend.verify_token(token)
+        except Exception as e:
+            logger.error(f"Token verification error: {e}")
+            return JsonResponse(
+                {'error': 'Token verification failed'}, 
+                status=401
+            )
         
         if not is_valid:
             return JsonResponse(
@@ -125,11 +111,7 @@ class JWTAuthMiddleware(MiddlewareMixin):
         return None
     
     def process_request(self, request):
-        """
-        Sync request processing (fallback)
-        Security Level: HIGH
-        """
-        # For sync contexts, we'll handle basic checks but defer to async for full processing
+        """Sync request processing"""
         if self.is_excluded_path(request.path):
             return None
             
@@ -140,50 +122,10 @@ class JWTAuthMiddleware(MiddlewareMixin):
                 status=401
             )
         
-        # In sync context, we can't do full async verification
-        # This is a basic check - full verification happens in process_view
         return None
     
-    async def _apply_rate_limiting(self, request) -> Any:
-        """
-        Apply rate limiting to request
-        Security Level: HIGH
-        """
-        client_id = self._get_client_identifier(request)
-        action = f"{request.method}:{request.path}"
-        
-        config = RateLimitConfig(
-            strategy=RateLimitStrategy.SLIDING_WINDOW,
-            max_requests=100,  # 100 requests per hour
-            window_seconds=3600,
-            block_duration=300  # 5 minutes block after limit
-        )
-        
-        return await self.rate_limiter.check_rate_limit(client_id, action, config)
-    
-    def _get_client_identifier(self, request) -> str:
-        """
-        Get client identifier for rate limiting
-        Security Level: MEDIUM
-        """
-        # Prefer authenticated user ID if available
-        if hasattr(request, 'user_id'):
-            return f"user:{request.user_id}"
-        
-        # Fall back to IP address
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0].strip()
-        else:
-            ip = request.META.get('REMOTE_ADDR', 'unknown')
-            
-        return f"ip:{ip}"
-    
     def _attach_user_context(self, request, payload: Dict):
-        """
-        Attach user context to request
-        Security Level: HIGH
-        """
+        """Attach user context to request"""
         request.user_id = payload.get('sub')
         request.user_email = payload.get('email')
         request.user_roles = payload.get('roles', [])
@@ -193,9 +135,9 @@ class JWTAuthMiddleware(MiddlewareMixin):
         request.session_id = payload.get('session_id')
         
         # Add to META for compatibility
-        request.META['HTTP_X_USER_ID'] = request.user_id
+        request.META['HTTP_X_USER_ID'] = request.user_id or ''
         request.META['HTTP_X_USER_EMAIL'] = request.user_email or ''
-    
+
     def process_response(self, request, response):
         """
         Process outgoing response

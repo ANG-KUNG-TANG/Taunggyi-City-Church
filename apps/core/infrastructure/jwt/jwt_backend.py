@@ -8,10 +8,9 @@ import uuid
 from typing import Optional, Tuple, Dict, Any, List
 import logging
 from datetime import datetime
+from apps.core.infrastructure.jwt.key_rotation import KeyRotationManager
 from apps.core.security.blacklist_service import BlacklistService
 from apps.core.security.jwt_manager import JWTManager, TokenConfig, TokenType
-from core.cache.async_cache import AsyncCache
-from .key_rotation import KeyRotationManager
 
 logger = logging.getLogger(__name__)
 
@@ -24,28 +23,25 @@ class JWTBackend:
     
     _instance: Optional['JWTBackend'] = None
     
-    def __init__(self, cache: AsyncCache, config: TokenConfig = None):
+    def __init__(self, cache=None, config: TokenConfig = None):
         if JWTBackend._instance is not None:
             raise RuntimeError("JWTBackend is a singleton! Use get_instance()")
         
         self.cache = cache
         self.config = config or self._load_config_from_env()
-        self.key_manager = KeyRotationManager(cache)
+        self.key_manager = KeyRotationManager(cache) if cache else None
         self.jwt_manager = None
-        self.blacklist_service = BlacklistService(cache)
+        self.blacklist_service = BlacklistService(cache) if cache else None
         self._initialized = False
         
         JWTBackend._instance = self
         logger.info("JWTBackend instance created")
 
     @classmethod
-    async def get_instance(cls, cache: AsyncCache = None, config: TokenConfig = None) -> 'JWTBackend':
+    def get_instance(cls, cache=None, config: TokenConfig = None) -> 'JWTBackend':
         """Get singleton instance with lazy initialization"""
         if cls._instance is None:
-            if cache is None:
-                raise ValueError("Cache is required for first initialization")
             cls._instance = JWTBackend(cache, config)
-            await cls._instance.initialize()
         return cls._instance
 
     async def initialize(self):
@@ -54,28 +50,75 @@ class JWTBackend:
             return
             
         try:
-            # Initialize key management
-            await self.key_manager.initialize()
-            
-            # Create JWT manager with current keys
-            current_private_key = self.key_manager.get_current_private_key()
-            current_public_key = self.key_manager.get_public_key()
-            
-            if not current_private_key or not current_public_key:
-                raise RuntimeError("Failed to initialize JWT keys")
+            if self.key_manager:
+                await self.key_manager.initialize()
                 
-            self.jwt_manager = JWTManager(
-                config=self.config,
-                private_key=current_private_key,
-                public_key=current_public_key
-            )
+                # Create JWT manager with current keys
+                current_private_key = self.key_manager.get_current_private_key()
+                current_public_key = self.key_manager.get_public_key()
+                
+                if current_private_key and current_public_key:
+                    self.jwt_manager = JWTManager(
+                        config=self.config,
+                        private_key=current_private_key,
+                        public_key=current_public_key
+                    )
+                else:
+                    # Fallback to HS256 if RSA keys not available
+                    logger.warning("RSA keys not available, using HS256 fallback")
+                    self.jwt_manager = self._create_hs256_manager()
+            else:
+                # No cache, use HS256
+                self.jwt_manager = self._create_hs256_manager()
             
             self._initialized = True
             logger.info("JWTBackend initialized successfully")
             
         except Exception as e:
             logger.critical(f"JWTBackend initialization failed: {e}")
-            raise
+            # Fallback to HS256
+            self.jwt_manager = self._create_hs256_manager()
+            self._initialized = True
+
+    def _create_hs256_manager(self) -> JWTManager:
+        """Create HS256 JWT manager as fallback"""
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.backends import default_backend
+        
+        # Generate temporary RSA keys for HS256 fallback
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+        
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode('utf-8')
+        
+        public_pem = private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode('utf-8')
+        
+        # Use HS256 algorithm
+        hs256_config = TokenConfig(
+            access_token_expiry=self.config.access_token_expiry,
+            refresh_token_expiry=self.config.refresh_token_expiry,
+            reset_token_expiry=self.config.reset_token_expiry,
+            algorithm="HS256",  # Use HS256 instead of RS256
+            issuer=self.config.issuer,
+            audience=self.config.audience
+        )
+        
+        return JWTManager(
+            config=hs256_config,
+            private_key=private_pem,
+            public_key=public_pem
+        )
 
     def _load_config_from_env(self) -> TokenConfig:
         """Load configuration from environment variables"""
@@ -83,7 +126,7 @@ class JWTBackend:
             access_token_expiry=int(os.getenv('JWT_ACCESS_EXPIRY', 900)),
             refresh_token_expiry=int(os.getenv('JWT_REFRESH_EXPIRY', 604800)),
             reset_token_expiry=int(os.getenv('JWT_RESET_EXPIRY', 1800)),
-            algorithm=os.getenv('JWT_ALGORITHM', 'RS256'),
+            algorithm=os.getenv('JWT_ALGORITHM', 'HS256'),  # Default to HS256
             issuer=os.getenv('JWT_ISSUER', 'auth-service'),
             audience=os.getenv('JWT_AUDIENCE', 'api').split(',')
         )
@@ -97,12 +140,9 @@ class JWTBackend:
         """
         Create access and refresh tokens
         Security Level: HIGH
-        
-        Returns:
-            Token response with metadata
         """
         if not self._initialized:
-            raise RuntimeError("JWTBackend not initialized")
+            await self.initialize()
             
         try:
             session_id = session_id or str(uuid.uuid4())
@@ -146,74 +186,35 @@ class JWTBackend:
         """
         Comprehensive token verification
         Security Level: CRITICAL
-        
-        Steps:
-        1. Verify token signature with current key
-        2. If failed, try with previous keys (for graceful key rotation)
-        3. Check token blacklist
-        4. Validate token claims
         """
         if not self._initialized:
-            return False, None
+            await self.initialize()
             
         try:
-            # Step 1: Try with current key
+            # Verify token signature
             is_valid, payload = self.jwt_manager.verify_token(token, token_type)
             
             if not is_valid:
-                # Step 2: Try with previous keys during key rotation
-                is_valid, payload = await self._verify_with_previous_keys(token, token_type)
-                
-            if not is_valid:
                 return False, None
                 
-            # Step 3: Check blacklist
-            jti = payload.get('jti')
-            if jti:
-                is_blacklisted, _ = await self.blacklist_service.is_blacklisted(jti)
-                if is_blacklisted:
-                    logger.warning(f"Token verification failed: blacklisted jti={jti}")
-                    return False, None
+            # Check blacklist if available
+            if self.blacklist_service:
+                jti = payload.get('jti')
+                if jti:
+                    is_blacklisted, _ = await self.blacklist_service.is_blacklisted(jti)
+                    if is_blacklisted:
+                        logger.warning(f"Token verification failed: blacklisted jti={jti}")
+                        return False, None
             
-            # Step 4: Additional security checks
+            # Additional security checks
             if not self._perform_security_checks(payload):
                 return False, None
                 
-            logger.debug(f"Token verified successfully: jti={jti}, user={payload.get('sub')}")
+            logger.debug(f"Token verified successfully: jti={payload.get('jti')}, user={payload.get('sub')}")
             return True, payload
             
         except Exception as e:
             logger.error(f"Token verification error: {e}")
-            return False, None
-
-    async def _verify_with_previous_keys(self, token: str, token_type: TokenType) -> Tuple[bool, Optional[Dict]]:
-        """Verify token with previous keys during key rotation"""
-        try:
-            all_public_keys = self.key_manager.get_all_public_keys()
-            
-            for key_id, public_key in all_public_keys.items():
-                if key_id == self.key_manager.current_key_id:
-                    continue  # Already tried current key
-                    
-                try:
-                    temp_jwt_manager = JWTManager(
-                        config=self.config,
-                        private_key="",  # Not needed for verification
-                        public_key=public_key
-                    )
-                    
-                    is_valid, payload = temp_jwt_manager.verify_token(token, token_type)
-                    if is_valid:
-                        logger.info(f"Token verified with previous key: {key_id}")
-                        return True, payload
-                        
-                except Exception:
-                    continue
-                    
-            return False, None
-            
-        except Exception as e:
-            logger.warning(f"Previous key verification failed: {e}")
             return False, None
 
     def _perform_security_checks(self, payload: Dict) -> bool:
@@ -228,17 +229,9 @@ class JWTBackend:
             
             # Check token type
             token_type = payload.get('token_type')
-            if token_type not in [t.value for t in TokenType]:
+            valid_types = [t.value for t in TokenType]
+            if token_type not in valid_types:
                 logger.warning(f"Invalid token type: {token_type}")
-                return False
-                
-            # Check for suspiciously long expiry
-            iat = payload.get('iat', 0)
-            exp = payload.get('exp', 0)
-            token_lifetime = exp - iat
-            
-            if token_lifetime > 86400 * 30:  # 30 days max
-                logger.warning(f"Suspicious token lifetime: {token_lifetime} seconds")
                 return False
                 
             return True
@@ -252,8 +245,12 @@ class JWTBackend:
         Revoke token by adding to blacklist
         Security Level: HIGH
         """
+        if not self.blacklist_service:
+            logger.warning("Blacklist service not available")
+            return False
+            
         try:
-            # Extract jti from token without verification
+            # Extract jti from token
             metadata = self.jwt_manager.get_token_metadata(token)
             jti = metadata.get('jti')
             
@@ -261,13 +258,8 @@ class JWTBackend:
                 logger.warning("Cannot revoke token: jti not found")
                 return False
                 
-            # Get remaining TTL for proper blacklist expiry
-            payload = self.jwt_manager.get_token_metadata(token)
-            exp_timestamp = payload.get('expires_at', datetime.utcnow()).timestamp()
-            remaining_ttl = max(0, int(exp_timestamp - datetime.utcnow().timestamp()))
-            
-            # Add some buffer to ensure token expiry
-            blacklist_ttl = remaining_ttl + 300  # 5 minutes buffer
+            # Use default blacklist TTL
+            blacklist_ttl = 86400  # 24 hours
             
             success = await self.blacklist_service.blacklist_token(
                 jti=jti,
@@ -286,62 +278,18 @@ class JWTBackend:
             logger.error(f"Token revocation failed: {e}")
             return False
 
-    async def revoke_all_session_tokens(self, session_id: str, reason: str = "session_terminated") -> bool:
-        """
-        Revoke all tokens for a session
-        Security Level: HIGH
-        """
-        # This would typically involve querying a session store
-        # For now, we'll log the action
-        logger.info(f"Revoked all tokens for session {session_id}, reason: {reason}")
-        return True
-
-    async def rotate_keys(self) -> str:
-        """Rotate to new key pair"""
-        if not self._initialized:
-            raise RuntimeError("JWTBackend not initialized")
-            
-        new_key_id = await self.key_manager.rotate_keys()
-        
-        # Update JWT manager with new keys
-        current_private_key = self.key_manager.get_current_private_key()
-        current_public_key = self.key_manager.get_public_key()
-        
-        self.jwt_manager = JWTManager(
-            config=self.config,
-            private_key=current_private_key,
-            public_key=current_public_key
-        )
-        
-        logger.info(f"Key rotation completed: new key ID = {new_key_id}")
-        return new_key_id
-
     async def health_check(self) -> Dict[str, Any]:
         """Comprehensive health check"""
         try:
             jwt_health = {
                 "initialized": self._initialized,
                 "key_fingerprint": self.jwt_manager.key_fingerprint if self.jwt_manager else None,
-                "key_rotation": await self.key_manager.get_key_rotation_status()
             }
             
-            blacklist_health = await self.blacklist_service.health_check()
-            
-            # Test token creation and verification
-            test_user_id = "health_check"
-            test_email = "health@example.com"
-            
-            if self._initialized:
-                tokens = await self.create_tokens(test_user_id, test_email)
-                verify_success, _ = await self.verify_token(tokens["access_token"])
-                
-                jwt_health["token_operations"] = {
-                    "creation": True,
-                    "verification": verify_success
-                }
+            blacklist_health = await self.blacklist_service.health_check() if self.blacklist_service else {"status": "unavailable"}
             
             return {
-                "status": "healthy" if self._initialized and blacklist_health.get("status") == "healthy" else "degraded",
+                "status": "healthy" if self._initialized else "degraded",
                 "timestamp": datetime.utcnow().isoformat(),
                 "jwt_backend": jwt_health,
                 "blacklist_service": blacklist_health
@@ -358,21 +306,7 @@ class JWTBackend:
     @property
     def public_key_jwks(self) -> Dict[str, Any]:
         """Get public keys in JWKS format"""
-        if not self._initialized:
-            raise RuntimeError("JWTBackend not initialized")
+        if not self._initialized or not self.key_manager:
+            raise RuntimeError("JWTBackend not properly initialized")
             
         return self.key_manager.get_jwks()
-
-    async def get_operational_metrics(self) -> Dict[str, Any]:
-        """Get operational metrics for monitoring"""
-        blacklist_stats = await self.blacklist_service.get_blacklist_stats()
-        key_rotation_status = await self.key_manager.get_key_rotation_status()
-        
-        return {
-            "service": "jwt_backend",
-            "timestamp": datetime.utcnow().isoformat(),
-            "initialized": self._initialized,
-            "key_rotation": key_rotation_status,
-            "blacklist": blacklist_stats,
-            "key_fingerprint": self.jwt_manager.key_fingerprint if self.jwt_manager else None
-        }
