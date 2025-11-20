@@ -1,4 +1,6 @@
+# sermon_create.py
 from typing import Dict, Any
+from apps.tcc.usecase.repo.domain_repo.sermons import SermonRepository
 from usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.s_exceptions import (
     InvalidInputException,
@@ -9,6 +11,10 @@ from apps.tcc.models.base.enums import SermonStatus
 
 class CreateSermonUseCase(BaseUseCase):
     """Use case for creating new sermons"""
+    
+    def __init__(self):
+        super().__init__()
+        self.sermon_repository = SermonRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -39,22 +45,8 @@ class CreateSermonUseCase(BaseUseCase):
             status=input_data.get('status', SermonStatus.DRAFT)
         )
         
-        # Prepare data for repository
-        sermon_data = {
-            'title': sermon_entity.title,
-            'preacher': sermon_entity.preacher,
-            'sermon_date': sermon_entity.sermon_date,
-            'bible_passage': sermon_entity.bible_passage,
-            'description': sermon_entity.description,
-            'content': sermon_entity.content,
-            'duration_minutes': sermon_entity.duration_minutes,
-            'audio_url': sermon_entity.audio_url,
-            'video_url': sermon_entity.video_url,
-            'status': sermon_entity.status,
-        }
-        
-        # Create sermon
-        created_sermon = await self.sermon_repository.create(sermon_data, user)
+        # Create sermon using repository
+        created_sermon = await self.sermon_repository.create(sermon_entity)
         
         return {
             "message": "Sermon created successfully",

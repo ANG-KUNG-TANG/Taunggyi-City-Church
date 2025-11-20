@@ -1,4 +1,6 @@
+# sermon_delete.py
 from typing import Dict, Any
+from apps.tcc.usecase.repo.domain_repo.sermons import SermonRepository
 from usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.s_exceptions import (
     InvalidInputException,
@@ -7,6 +9,10 @@ from usecase.domain_exception.s_exceptions import (
 
 class DeleteSermonUseCase(BaseUseCase):
     """Use case for soft deleting sermons"""
+    
+    def __init__(self):
+        super().__init__()
+        self.sermon_repository = SermonRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -24,12 +30,12 @@ class DeleteSermonUseCase(BaseUseCase):
         sermon_id = input_data['sermon_id']
         
         # Check if sermon exists before deletion
-        existing_sermon = await self.sermon_repository.get_by_id(sermon_id, user)
+        existing_sermon = await self.sermon_repository.get_by_id(sermon_id)
         if not existing_sermon:
             raise SermonNotFoundException(sermon_id=sermon_id)
         
         # Soft delete sermon
-        success = await self.sermon_repository.delete(sermon_id, user)
+        success = await self.sermon_repository.delete(sermon_id)
         
         if not success:
             raise SermonNotFoundException(sermon_id=sermon_id)
