@@ -3,6 +3,44 @@ from apps.core.core_exceptions.base import BaseAppException, ErrorContext
 from apps.core.core_exceptions.domain import BusinessRuleException, EntityNotFoundException, DomainValidationException
 
 
+class InvalidUserInputError(BaseAppException):
+    """Backward-compatible alias for InvalidUserInputException."""
+    def __init__(
+        self,
+        field_errors: Dict[str, List[str]],
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
+        super().__init__(
+            field_errors=field_errors,
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message
+        )
+
+
+class UserAuthenticationError(BaseAppException):
+    """Backward-compatible alias for InvalidCredentialsException."""
+    def __init__(
+        self,
+        email: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
+        super().__init__(
+            email=email,
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message
+        )
+
+
 class UserException(BaseAppException):
     """Base exception for user-related errors."""
     

@@ -1,112 +1,200 @@
 from typing import List, Optional, Dict, Any
 from django.db.models import Q
+from apps.core.cache.async_cache import AsyncCache
 from repo.base.modelrepo import DomainRepository
 from apps.tcc.models.users.users import User
 from apps.tcc.models.base.enums import UserRole, UserStatus
-from models.base.permission import PermissionDenied
 from entities.users import UserEntity
 from core.db.decorators import with_db_error_handling, with_retry
+from utils.audit_logging import AuditLogger
+from core.cache.decorator import cached, cache_invalidate
+import logging
 
+logger = logging.getLogger(__name__)
 
 class UserRepository(DomainRepository):
     
-    def __init__(self):
+    def __init__(self, cache: AsyncCache = None):
         super().__init__(User)
+        self.cache = cache
     
     # ============ CRUD OPERATIONS ============
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def create(self, user_entity: UserEntity, requesting_user: UserEntity) -> UserEntity:
-        """Create new user - only admins can create users"""
-        if not requesting_user.can_manage_users:
-            raise PermissionDenied("Only administrators can create users")
-        
+    @cache_invalidate(
+        key_templates=[
+            "user:{id}",
+            "user:email:{user_entity.email}",
+            "users:list:*"
+        ],
+        namespace="users",
+        version="1"
+    )
+    async def create(self, user_entity: UserEntity) -> UserEntity:
+        """Create new user with audit logging and cache invalidation"""
         # Convert entity to model data
         user_data = self._entity_to_model_data(user_entity)
         
         # Create user model asynchronously
         user_model = await self.model_class.objects.acreate(**user_data)
+        user_entity_result = await self._model_to_entity(user_model)
         
-        # Return as entity
-        return await self._model_to_entity(user_model)
+        # Audit logging
+        await AuditLogger.log_create(
+            user=None,
+            obj=user_model,
+            notes=f"Created user: {user_entity_result.email}",
+            ip_address="system",
+            user_agent="system"
+        )
+        
+        logger.info(f"User created successfully: {user_entity_result.email}")
+        return user_entity_result
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def get_by_id(self, id: int, requesting_user: UserEntity) -> Optional[UserEntity]:
-        """Get user by ID with permission check"""
+    @cached(
+        key_template="user:{id}",
+        ttl=3600,  # 1 hour
+        namespace="users",
+        version="1"
+    )
+    async def get_by_id(self, id: int) -> Optional[UserEntity]:
+        """Get user by ID with caching"""
         try:
             user_model = await self.model_class.objects.aget(id=id, is_active=True)
-            
-            # Permission check
-            if requesting_user.id != user_model.id and not requesting_user.can_manage_users:
-                raise PermissionDenied("You can only view your own profile")
-            
             return await self._model_to_entity(user_model)
         except User.DoesNotExist:
+            logger.debug(f"User not found with ID: {id}")
             return None
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def get_by_email(self, email: str, requesting_user: UserEntity) -> Optional[UserEntity]:
-        """Get user by email with permission check"""
+    @cached(
+        key_template="user:email:{email}",
+        ttl=3600,  # 1 hour
+        namespace="users",
+        version="1"
+    )
+    async def get_by_email(self, email: str) -> Optional[UserEntity]:
+        """Get user by email with caching"""
         try:
             user_model = await self.model_class.objects.aget(email=email, is_active=True)
-            
-            # Users can only see their own profile by email, admins can see all
-            if requesting_user.email != email and not requesting_user.can_manage_users:
-                raise PermissionDenied("You can only view your own profile")
-            
             return await self._model_to_entity(user_model)
         except User.DoesNotExist:
+            logger.debug(f"User not found with email: {email}")
             return None
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def update(self, id: int, user_entity: UserEntity, requesting_user: UserEntity) -> Optional[UserEntity]:
-        """Update user - users can update their own profile, admins can update any"""
-        target_user = await self.get_by_id(id, requesting_user)
+    @cache_invalidate(
+        key_templates=[
+            "user:{id}",
+            "user:email:{user_entity.email}",
+            "user:email:{old_email}",  # This will be formatted in the method
+            "users:list:*"
+        ],
+        namespace="users",
+        version="1"
+    )
+    async def update(self, id: int, user_entity: UserEntity) -> Optional[UserEntity]:
+        """Update user with audit logging and cache invalidation"""
+        target_user = await self._get_by_id_uncached(id)
         if not target_user:
             return None
         
-        # Users can only update their own profile unless they're admins
-        if requesting_user.id != target_user.id and not requesting_user.can_manage_users:
-            raise PermissionDenied("You can only update your own profile")
+        # Store old email for cache invalidation
+        old_email = target_user.email
         
-        # Get update data (filter fields based on permissions)
-        update_data = self._get_filtered_update_data(user_entity, requesting_user)
+        # Get update data
+        update_data = self._entity_to_model_data(user_entity)
         
         # Update model asynchronously
         updated_count = await self.model_class.objects.filter(id=id).aupdate(**update_data)
         if updated_count:
-            return await self.get_by_id(id, requesting_user)
+            updated_user = await self._get_by_id_uncached(id)
+            
+            # Audit logging
+            changes = {
+                'email': {'old': old_email, 'new': updated_user.email},
+                'name': {'old': target_user.name, 'new': updated_user.name}
+            }
+            await AuditLogger.log_update(
+                user=None,
+                obj=updated_user,
+                changes=changes,
+                notes=f"Updated user: {updated_user.email}",
+                ip_address="system",
+                user_agent="system"
+            )
+            
+            # Add old_email to the instance for decorator formatting
+            setattr(self, 'old_email', old_email)
+            
+            logger.info(f"User updated successfully: {updated_user.email}")
+            return updated_user
         return None
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def delete(self, id: int, requesting_user: UserEntity) -> bool:
-        """Soft delete user - only admins can delete users"""
-        if not requesting_user.can_manage_users:
-            raise PermissionDenied("Only administrators can delete users")
+    @cache_invalidate(
+        key_templates=[
+            "user:{id}",
+            "user:email:{target_user.email}",
+            "users:list:*"
+        ],
+        namespace="users",
+        version="1"
+    )
+    async def delete(self, id: int) -> bool:
+        """Soft delete user with audit logging and cache invalidation"""
+        target_user = await self._get_by_id_uncached(id)
+        if not target_user:
+            return False
+        
+        # Store target_user for decorator
+        setattr(self, 'target_user', target_user)
         
         # Soft delete (set is_active=False) asynchronously
         updated_count = await self.model_class.objects.filter(id=id).aupdate(is_active=False)
-        return updated_count > 0
+        
+        if updated_count:
+            # Audit logging
+            await AuditLogger.log_delete(
+                user=None,
+                obj=target_user,
+                notes=f"Deleted user: {target_user.email}",
+                ip_address="system",
+                user_agent="system"
+            )
+            
+            logger.info(f"User deleted successfully: {target_user.email}")
+            return True
+        
+        return False
     
-    # ============ SYSTEM REQUIREMENTS ============
+    # ============ QUERY OPERATIONS ============
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def get_all(self, requesting_user: UserEntity, filters: Dict = None) -> List[UserEntity]:
-        """Get all users with permission filtering"""
-        if not requesting_user.can_manage_users:
-            # Regular users only see their own profile
-            return [requesting_user]
-        
+    @cached(
+        key_template="users:list:{filters_hash}",
+        ttl=1800,  # 30 minutes
+        namespace="users",
+        version="1"
+    )
+    async def get_all(self, filters: Dict = None) -> List[UserEntity]:
+        """Get all users with caching"""
         queryset = User.objects.filter(is_active=True)
         
         if filters:
-            queryset = queryset.filter(**filters)
+            for key, value in filters.items():
+                queryset = queryset.filter(**{key: value})
+        
+        # Add filters_hash for decorator key formatting
+        filters_hash = hash(str(filters)) if filters else "all"
+        setattr(self, 'filters_hash', filters_hash)
         
         # Convert queryset to list asynchronously
         users = []
@@ -116,11 +204,14 @@ class UserRepository(DomainRepository):
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def get_by_role(self, role: UserRole, requesting_user: UserEntity) -> List[UserEntity]:
-        """Get users by role - admin only"""
-        if not requesting_user.can_manage_users:
-            raise PermissionDenied("Only administrators can filter users by role")
-        
+    @cached(
+        key_template="users:role:{role}",
+        ttl=3600,  # 1 hour
+        namespace="users",
+        version="1"
+    )
+    async def get_by_role(self, role: UserRole) -> List[UserEntity]:
+        """Get users by role with caching"""
         users = []
         async for user in User.objects.filter(role=role, is_active=True):
             users.append(await self._model_to_entity(user))
@@ -128,14 +219,14 @@ class UserRepository(DomainRepository):
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def search_users(self, search_term: str, requesting_user: UserEntity) -> List[UserEntity]:
-        """Search users by name or email"""
-        if not requesting_user.can_manage_users:
-            # Regular users can only search for themselves
-            if search_term.lower() in [requesting_user.name.lower(), requesting_user.email.lower()]:
-                return [requesting_user]
-            return []
-        
+    @cached(
+        key_template="users:search:{search_term}",
+        ttl=900,  # 15 minutes
+        namespace="users",
+        version="1"
+    )
+    async def search_users(self, search_term: str) -> List[UserEntity]:
+        """Search users by name or email with caching"""
         queryset = User.objects.filter(
             Q(is_active=True) &
             (Q(name__icontains=search_term) | Q(email__icontains=search_term))
@@ -148,48 +239,62 @@ class UserRepository(DomainRepository):
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def get_ministry_leaders(self, requesting_user: UserEntity) -> List[UserEntity]:
-        """Get all ministry leaders"""
-        return await self.get_by_role(UserRole.MINISTRY_LEADER, requesting_user)
-    
-    @with_db_error_handling
-    @with_retry(max_retries=3)
-    async def change_user_status(self, user_id: int, status: UserStatus, admin_user: UserEntity) -> Optional[UserEntity]:
-        """Change user status - admin only"""
-        if not admin_user.can_manage_users:
-            raise PermissionDenied("Only administrators can change user status")
-        
-        user = await self.get_by_id(user_id, admin_user)
-        if not user:
-            return None
-        
-        # Update status asynchronously
-        await self.model_class.objects.filter(id=user_id).aupdate(status=status)
-        return await self.get_by_id(user_id, admin_user)
-    
-    @with_db_error_handling
-    @with_retry(max_retries=3)
     async def email_exists(self, email: str) -> bool:
-        """Check if email already exists (for validation)"""
+        """Check if email already exists"""
         return await User.objects.filter(email=email, is_active=True).aexists()
     
     @with_db_error_handling
     @with_retry(max_retries=3)
+    @cached(
+        key_template="users:count:active",
+        ttl=300,  # 5 minutes
+        namespace="users",
+        version="1"
+    )
     async def get_active_users_count(self) -> int:
-        """Get count of active users (for reporting)"""
+        """Get count of active users with caching"""
         return await User.objects.filter(is_active=True).acount()
+    
+    # ============ BATCH OPERATIONS ============
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    async def get_users_by_status(self, status: UserStatus, requesting_user: UserEntity) -> List[UserEntity]:
-        """Get users by status - admin only"""
-        if not requesting_user.can_manage_users:
-            raise PermissionDenied("Only administrators can filter by status")
+    @cache_invalidate(
+        key_templates=["users:list:*"],
+        namespace="users",
+        version="1"
+    )
+    async def bulk_create(self, user_entities: List[UserEntity]) -> List[UserEntity]:
+        """Bulk create users with audit logging and cache invalidation"""
+        user_data_list = [self._entity_to_model_data(user_entity) for user_entity in user_entities]
         
-        users = []
-        async for user in User.objects.filter(status=status, is_active=True):
-            users.append(await self._model_to_entity(user))
-        return users
+        created_users = []
+        for user_data in user_data_list:
+            user_model = await self.model_class.objects.acreate(**user_data)
+            user_entity = await self._model_to_entity(user_model)
+            created_users.append(user_entity)
+            
+            # Audit logging for each user
+            await AuditLogger.log_create(
+                user=None,
+                obj=user_model,
+                notes=f"Bulk created user: {user_entity.email}",
+                ip_address="system",
+                user_agent="system"
+            )
+        
+        logger.info(f"Bulk created {len(created_users)} users")
+        return created_users
+    
+    # ============ INTERNAL METHODS ============
+    
+    async def _get_by_id_uncached(self, id: int) -> Optional[UserEntity]:
+        """Internal method to get user by ID without cache (for update operations)"""
+        try:
+            user_model = await self.model_class.objects.aget(id=id, is_active=True)
+            return await self._model_to_entity(user_model)
+        except User.DoesNotExist:
+            return None
     
     # ============ CONVERSION METHODS ============
     
@@ -239,15 +344,3 @@ class UserRepository(DomainRepository):
             'email_notifications': user_entity.email_notifications,
             'sms_notifications': user_entity.sms_notifications,
         }
-    
-    def _get_filtered_update_data(self, user_entity: UserEntity, requesting_user: UserEntity) -> Dict[str, Any]:
-        """Get filtered update data based on user permissions"""
-        update_data = self._entity_to_model_data(user_entity)
-        
-        # Non-admins cannot change role, status, or system fields
-        if not requesting_user.can_manage_users:
-            restricted_fields = ['role', 'status', 'is_staff', 'is_superuser']
-            for field in restricted_fields:
-                update_data.pop(field, None)
-        
-        return update_data

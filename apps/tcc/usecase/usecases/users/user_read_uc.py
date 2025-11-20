@@ -1,4 +1,5 @@
 from typing import Dict, Any, List, Optional
+from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.u_exceptions import (
     InvalidUserInputException,
@@ -8,6 +9,10 @@ from apps.tcc.models.base.enums import UserRole, UserStatus
 
 class GetUserByIdUseCase(BaseUseCase):
     """Use case for getting user by ID"""
+    
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -22,7 +27,7 @@ class GetUserByIdUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         user_id = input_data['user_id']
-        user_entity = await self.user_repository.get_by_id(user_id, user)
+        user_entity = await self.user_repository.get_by_id(user_id)
         
         if not user_entity:
             raise UserNotFoundException(user_id=user_id)
@@ -31,6 +36,10 @@ class GetUserByIdUseCase(BaseUseCase):
 
 class GetUserByEmailUseCase(BaseUseCase):
     """Use case for getting user by email"""
+    
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -45,7 +54,7 @@ class GetUserByEmailUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         email = input_data['email']
-        user_entity = await self.user_repository.get_by_email(email, user)
+        user_entity = await self.user_repository.get_by_email(email)
         
         if not user_entity:
             raise UserNotFoundException(message=f"User with email {email} not found")
@@ -55,12 +64,16 @@ class GetUserByEmailUseCase(BaseUseCase):
 class GetAllUsersUseCase(BaseUseCase):
     """Use case for getting all users with optional filtering"""
     
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         filters = input_data.get('filters', {})
-        users = await self.user_repository.get_all(user, filters)
+        users = await self.user_repository.get_all(filters)
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
@@ -69,6 +82,10 @@ class GetAllUsersUseCase(BaseUseCase):
 
 class GetUsersByRoleUseCase(BaseUseCase):
     """Use case for getting users by role"""
+    
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -96,7 +113,7 @@ class GetUsersByRoleUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         role = input_data['role']
-        users = await self.user_repository.get_by_role(role, user)
+        users = await self.user_repository.get_by_role(role)
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
@@ -106,6 +123,10 @@ class GetUsersByRoleUseCase(BaseUseCase):
 
 class SearchUsersUseCase(BaseUseCase):
     """Use case for searching users"""
+    
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -120,7 +141,7 @@ class SearchUsersUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         search_term = input_data['search_term']
-        users = await self.user_repository.search_users(search_term, user)
+        users = await self.user_repository.search_users(search_term)
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
@@ -131,12 +152,16 @@ class SearchUsersUseCase(BaseUseCase):
 class GetMinistryLeadersUseCase(BaseUseCase):
     """Use case for getting all ministry leaders"""
     
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_users']
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        users = await self.user_repository.get_ministry_leaders(user)
+        users = await self.user_repository.get_by_role(UserRole.MINISTRY_LEADER)
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
@@ -145,6 +170,10 @@ class GetMinistryLeadersUseCase(BaseUseCase):
 
 class GetUsersByStatusUseCase(BaseUseCase):
     """Use case for getting users by status"""
+    
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -172,7 +201,7 @@ class GetUsersByStatusUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         status = input_data['status']
-        users = await self.user_repository.get_users_by_status(status, user)
+        users = await self.user_repository.get_all(filters={'status': status})
         
         return {
             "users": [self._format_user_response(user_entity) for user_entity in users],
@@ -182,6 +211,10 @@ class GetUsersByStatusUseCase(BaseUseCase):
 
 class GetActiveUsersCountUseCase(BaseUseCase):
     """Use case for getting active users count"""
+    
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True

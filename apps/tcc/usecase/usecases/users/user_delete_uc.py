@@ -1,5 +1,5 @@
-# user_delete_uc.py (Fixed)
 from typing import Dict, Any
+from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.u_exceptions import (
     InvalidUserInputException,
@@ -8,6 +8,10 @@ from usecase.domain_exception.u_exceptions import (
 
 class DeleteUserUseCase(BaseUseCase):
     """Use case for soft deleting users"""
+    
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -25,12 +29,12 @@ class DeleteUserUseCase(BaseUseCase):
         user_id = input_data['user_id']
         
         # Check if user exists before deletion
-        existing_user = await self.user_repository.get_by_id(user_id, user)
+        existing_user = await self.user_repository.get_by_id(user_id)
         if not existing_user:
             raise UserNotFoundException(user_id=user_id)
         
         # Soft delete user
-        success = await self.user_repository.delete(user_id, user)
+        success = await self.user_repository.delete(user_id)
         
         if not success:
             raise UserNotFoundException(user_id=user_id)

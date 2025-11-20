@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.u_exceptions import (
     InvalidUserInputException,
@@ -9,6 +10,10 @@ from apps.tcc.models.base.enums import UserRole, UserStatus
 
 class CreateUserUseCase(BaseUseCase):
     """Use case for creating new users"""
+    
+    def __init__(self):
+        super().__init__()
+        self.user_repository = UserRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -50,26 +55,8 @@ class CreateUserUseCase(BaseUseCase):
             sms_notifications=input_data.get('sms_notifications', False)
         )
         
-        # Create user using repository's create method (which expects dict data)
-        user_data = {
-            'name': user_entity.name,
-            'email': user_entity.email,
-            'phone_number': user_entity.phone_number,
-            'age': user_entity.age,
-            'gender': user_entity.gender,
-            'marital_status': user_entity.marital_status,
-            'date_of_birth': user_entity.date_of_birth,
-            'testimony': user_entity.testimony,
-            'baptism_date': user_entity.baptism_date,
-            'membership_date': user_entity.membership_date,
-            'role': user_entity.role,
-            'status': user_entity.status,
-            'email_notifications': user_entity.email_notifications,
-            'sms_notifications': user_entity.sms_notifications,
-        }
-        
-        # Create user - using the repository's create method signature
-        created_user = await self.user_repository.create(user_data, user)
+        # Create user using repository's create method
+        created_user = await self.user_repository.create(user_entity)
         
         return {
             "message": "User created successfully",
