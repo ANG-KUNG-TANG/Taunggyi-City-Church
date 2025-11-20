@@ -1,4 +1,6 @@
+# prayer_delete.py
 from typing import Dict, Any
+from apps.tcc.usecase.repo.domain_repo.prayer import PrayerRepository, PrayerResponseRepository
 from usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.p_exceptions import (
     PrayerException,
@@ -10,6 +12,9 @@ from usecase.domain_exception.p_exceptions import (
 class DeletePrayerRequestUseCase(BaseUseCase):
     """Use case for soft deleting prayer requests"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_repository = PrayerRepository()  
     def _setup_configuration(self):
         self.config.require_authentication = True
 
@@ -26,15 +31,24 @@ class DeletePrayerRequestUseCase(BaseUseCase):
         prayer_id = input_data['prayer_id']
         
         # Verify prayer exists and user has permission
-        existing_prayer = await self.prayer_request_repository.get_by_id(prayer_id, user)
+        existing_prayer = await self.prayer_repository.get_by_id(prayer_id)
         if not existing_prayer:
             raise PrayerRequestNotFoundException(
                 prayer_id=str(prayer_id),
                 user_message="Prayer request not found."
             )
         
+        # Check if user owns the prayer or has admin permissions
+        if existing_prayer.user_id != user.id and not getattr(user, 'can_manage_prayers', False):
+            raise PrayerResponseNotAllowedException(
+                prayer_id=str(prayer_id),
+                user_id=str(user.id),
+                reason="User is not the owner of this prayer request",
+                user_message="You can only delete your own prayer requests."
+            )
+        
         # Soft delete prayer request
-        result = await self.prayer_request_repository.delete(prayer_id, user)
+        result = await self.prayer_repository.delete(prayer_id)
         
         if not result:
             raise PrayerRequestNotFoundException(
@@ -50,6 +64,10 @@ class DeletePrayerRequestUseCase(BaseUseCase):
 
 class DeletePrayerResponseUseCase(BaseUseCase):
     """Use case for deleting prayer responses"""
+    
+    def __init__(self):
+        super().__init__()
+        self.prayer_response_repository = PrayerResponseRepository() 
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -67,7 +85,7 @@ class DeletePrayerResponseUseCase(BaseUseCase):
         response_id = input_data['response_id']
         
         # Get existing response to verify ownership
-        existing_response = await self.prayer_response_repository.get_by_id(response_id, user)
+        existing_response = await self.prayer_response_repository.get_by_id(response_id)
         if not existing_response:
             raise PrayerException(
                 message=f"Prayer response {response_id} not found",
@@ -84,7 +102,7 @@ class DeletePrayerResponseUseCase(BaseUseCase):
                 user_message="You can only delete your own prayer responses."
             )
         
-        result = await self.prayer_response_repository.delete(response_id, user)
+        result = await self.prayer_response_repository.delete(response_id)
         
         if not result:
             raise PrayerException(

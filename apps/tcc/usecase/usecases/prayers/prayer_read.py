@@ -1,4 +1,6 @@
+
 from typing import Dict, Any, List, Optional
+from apps.tcc.usecase.repo.domain_repo.prayer import PrayerRepository, PrayerResponseRepository
 from usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.entities.prayer import PrayerRequestEntity, PrayerResponseEntity
 from apps.tcc.models.base.enums import PrayerCategory
@@ -11,6 +13,10 @@ from usecase.domain_exception.p_exceptions import (
 
 class GetPrayerRequestByIdUseCase(BaseUseCase):
     """Use case for getting prayer request by ID"""
+    
+    def __init__(self):
+        super().__init__()
+        self.prayer_repository = PrayerRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -26,7 +32,7 @@ class GetPrayerRequestByIdUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         prayer_id = input_data['prayer_id']
-        prayer_entity = await self.prayer_request_repository.get_by_id(prayer_id, user)
+        prayer_entity = await self.prayer_repository.get_by_id(prayer_id)
         
         if not prayer_entity:
             raise PrayerRequestNotFoundException(
@@ -61,12 +67,16 @@ class GetPrayerRequestByIdUseCase(BaseUseCase):
 class GetAllPrayerRequestsUseCase(BaseUseCase):
     """Use case for getting all prayer requests with optional filtering"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_repository = PrayerRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         filters = input_data.get('filters', {})
-        prayers = await self.prayer_request_repository.get_all(user, filters)
+        prayers = await self.prayer_repository.get_all(filters)
         
         return {
             "prayers": [self._format_prayer_response(prayer) for prayer in prayers],
@@ -96,12 +106,16 @@ class GetAllPrayerRequestsUseCase(BaseUseCase):
 class GetPublicPrayerRequestsUseCase(BaseUseCase):
     """Use case for getting public prayer requests"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_repository = PrayerRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = False  # Public prayers can be viewed without auth
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         limit = input_data.get('limit')
-        prayers = await self.prayer_request_repository.get_public_prayers(user, limit)
+        prayers = await self.prayer_repository.get_public_prayers(limit)
         
         return {
             "prayers": [self._format_prayer_response(prayer) for prayer in prayers],
@@ -131,11 +145,15 @@ class GetPublicPrayerRequestsUseCase(BaseUseCase):
 class GetUserPrayerRequestsUseCase(BaseUseCase):
     """Use case for getting all prayer requests by a user"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_repository = PrayerRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        prayers = await self.prayer_request_repository.get_user_prayers(user)
+        prayers = await self.prayer_repository.get_user_prayers(user.id)
         
         return {
             "prayers": [self._format_prayer_response(prayer) for prayer in prayers],
@@ -165,6 +183,10 @@ class GetUserPrayerRequestsUseCase(BaseUseCase):
 class GetPrayerRequestsByCategoryUseCase(BaseUseCase):
     """Use case for getting prayers by category"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_repository = PrayerRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
@@ -181,7 +203,7 @@ class GetPrayerRequestsByCategoryUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         category = input_data['category']
-        prayers = await self.prayer_request_repository.get_prayers_by_category(category, user)
+        prayers = await self.prayer_repository.get_prayers_by_category(category)
         
         return {
             "prayers": [self._format_prayer_response(prayer) for prayer in prayers],
@@ -223,6 +245,10 @@ class GetPrayerRequestsByCategoryUseCase(BaseUseCase):
 class GetPrayerResponseByIdUseCase(BaseUseCase):
     """Use case for getting prayer response by ID"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_response_repository = PrayerResponseRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
@@ -237,7 +263,7 @@ class GetPrayerResponseByIdUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         response_id = input_data['response_id']
-        response_entity = await self.prayer_response_repository.get_by_id(response_id, user)
+        response_entity = await self.prayer_response_repository.get_by_id(response_id)
         
         if not response_entity:
             raise PrayerException(
@@ -268,6 +294,10 @@ class GetPrayerResponseByIdUseCase(BaseUseCase):
 class GetPrayerResponsesForPrayerUseCase(BaseUseCase):
     """Use case for getting all responses for a prayer request"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_response_repository = PrayerResponseRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
@@ -283,15 +313,7 @@ class GetPrayerResponsesForPrayerUseCase(BaseUseCase):
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         prayer_id = input_data['prayer_id']
         
-        # Verify prayer exists and user can access it
-        prayer_entity = await self.prayer_request_repository.get_by_id(prayer_id, user)
-        if not prayer_entity:
-            raise PrayerRequestNotFoundException(
-                prayer_id=str(prayer_id),
-                user_message="Prayer request not found."
-            )
-        
-        responses = await self.prayer_response_repository.get_responses_for_prayer(prayer_id, user)
+        responses = await self.prayer_response_repository.get_responses_for_prayer(prayer_id)
         
         return {
             "prayer_id": prayer_id,

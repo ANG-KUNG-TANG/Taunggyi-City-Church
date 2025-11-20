@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from apps.tcc.usecase.repo.domain_repo.prayer import PrayerRepository, PrayerResponseRepository
 from usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.entities.prayer import PrayerRequestEntity, PrayerResponseEntity
 from apps.tcc.models.base.enums import PrayerCategory
@@ -13,6 +14,10 @@ from usecase.domain_exception.p_exceptions import (
 
 class UpdatePrayerRequestUseCase(BaseUseCase):
     """Use case for updating prayer requests"""
+    
+    def __init__(self):
+        super().__init__()
+        self.prayer_repository = PrayerRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -30,11 +35,20 @@ class UpdatePrayerRequestUseCase(BaseUseCase):
         prayer_id = input_data['prayer_id']
         
         # Check if prayer exists and user has permission
-        existing_prayer = await self.prayer_request_repository.get_by_id(prayer_id, user)
+        existing_prayer = await self.prayer_repository.get_by_id(prayer_id)
         if not existing_prayer:
             raise PrayerRequestNotFoundException(
                 prayer_id=str(prayer_id),
                 user_message="Prayer request not found."
+            )
+        
+        # Check if user owns the prayer
+        if existing_prayer.user_id != user.id:
+            raise PrayerResponseNotAllowedException(
+                prayer_id=str(prayer_id),
+                user_id=str(user.id),
+                reason="User is not the owner of this prayer request",
+                user_message="You can only update your own prayer requests."
             )
         
         # Check if prayer is already answered
@@ -49,17 +63,25 @@ class UpdatePrayerRequestUseCase(BaseUseCase):
         if 'category' in input_data:
             self._validate_category(input_data['category'])
         
-        # Prepare update data
-        update_data = {
-            'title': input_data.get('title', existing_prayer.title),
-            'content': input_data.get('content', existing_prayer.content),
-            'category': input_data.get('category', existing_prayer.category),
-            'privacy': input_data.get('privacy', existing_prayer.privacy),
-            'status': input_data.get('status', existing_prayer.status)
-        }
+        # Create updated PrayerRequestEntity
+        updated_prayer_entity = PrayerRequestEntity(
+            id=prayer_id,
+            user_id=existing_prayer.user_id,
+            title=input_data.get('title', existing_prayer.title),
+            content=input_data.get('content', existing_prayer.content),
+            category=input_data.get('category', existing_prayer.category),
+            privacy=input_data.get('privacy', existing_prayer.privacy),
+            status=input_data.get('status', existing_prayer.status),
+            is_answered=existing_prayer.is_answered,
+            answer_notes=existing_prayer.answer_notes,
+            is_active=existing_prayer.is_active,
+            created_at=existing_prayer.created_at,
+            updated_at=existing_prayer.updated_at,
+            expires_at=existing_prayer.expires_at
+        )
         
-        # Update prayer request
-        updated_prayer = await self.prayer_request_repository.update(prayer_id, update_data, user)
+        # Update prayer request using repository
+        updated_prayer = await self.prayer_repository.update(prayer_id, updated_prayer_entity)
         
         if not updated_prayer:
             raise PrayerRequestNotFoundException(
@@ -106,6 +128,10 @@ class UpdatePrayerRequestUseCase(BaseUseCase):
 class UpdatePrayerResponseUseCase(BaseUseCase):
     """Use case for updating prayer responses"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_response_repository = PrayerResponseRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
@@ -132,7 +158,7 @@ class UpdatePrayerResponseUseCase(BaseUseCase):
         content = input_data['content']
         
         # Get existing response to verify ownership
-        existing_response = await self.prayer_response_repository.get_by_id(response_id, user)
+        existing_response = await self.prayer_response_repository.get_by_id(response_id)
         if not existing_response:
             raise PrayerException(
                 message=f"Prayer response {response_id} not found",
@@ -149,8 +175,20 @@ class UpdatePrayerResponseUseCase(BaseUseCase):
                 user_message="You can only update your own prayer responses."
             )
         
-        update_data = {'content': content}
-        updated_response = await self.prayer_response_repository.update(response_id, update_data, user)
+        # Create updated PrayerResponseEntity
+        updated_response_entity = PrayerResponseEntity(
+            id=response_id,
+            prayer_request_id=existing_response.prayer_request_id,
+            user_id=existing_response.user_id,
+            content=content,
+            is_private=existing_response.is_private,
+            is_active=existing_response.is_active,
+            created_at=existing_response.created_at,
+            updated_at=existing_response.updated_at
+        )
+        
+        # Update response using repository
+        updated_response = await self.prayer_response_repository.update(response_id, updated_response_entity)
         
         if not updated_response:
             raise PrayerException(
@@ -182,6 +220,10 @@ class UpdatePrayerResponseUseCase(BaseUseCase):
 class MarkPrayerRequestAnsweredUseCase(BaseUseCase):
     """Use case for marking prayer requests as answered"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_repository = PrayerRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
@@ -198,9 +240,8 @@ class MarkPrayerRequestAnsweredUseCase(BaseUseCase):
         prayer_id = input_data['prayer_id']
         answer_notes = input_data.get('answer_notes', '')
         
-        prayer_entity = await self.prayer_request_repository.mark_as_answered(
-            prayer_id, user, answer_notes
-        )
+        # Mark prayer as answered using repository
+        prayer_entity = await self.prayer_repository.mark_as_answered(prayer_id, user.id, answer_notes)
         
         if not prayer_entity:
             raise PrayerRequestNotFoundException(

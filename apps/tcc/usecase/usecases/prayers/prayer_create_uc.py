@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from apps.tcc.usecase.repo.domain_repo.prayer import PrayerRepository, PrayerResponseRepository
 from usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.entities.prayer import PrayerRequestEntity, PrayerResponseEntity
 from apps.tcc.models.base.enums import PrayerPrivacy, PrayerCategory, PrayerStatus
@@ -11,6 +12,10 @@ from usecase.domain_exception.p_exceptions import (
 
 class CreatePrayerUseCase(BaseUseCase):
     """Use case for creating new prayer requests"""
+    
+    def __init__(self):
+        super().__init__()
+        self.prayer_repository = PrayerRepository() 
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -33,23 +38,24 @@ class CreatePrayerUseCase(BaseUseCase):
             self._validate_category(category)
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        # Set default values
-        prayer_data = {
-            'title': input_data['title'],
-            'content': input_data['content'],
-            'category': input_data.get('category', PrayerCategory.GENERAL),
-            'privacy': input_data.get('privacy', PrayerPrivacy.PUBLIC),
-            'status': input_data.get('status', PrayerStatus.ACTIVE),
-            'is_answered': False,
-            'answer_notes': input_data.get('answer_notes', '')
-        }
+        # Create PrayerRequestEntity
+        prayer_entity = PrayerRequestEntity(
+            title=input_data['title'],
+            content=input_data['content'],
+            category=input_data.get('category', PrayerCategory.GENERAL),
+            privacy=input_data.get('privacy', PrayerPrivacy.PUBLIC),
+            status=input_data.get('status', PrayerStatus.ACTIVE),
+            is_answered=False,
+            answer_notes=input_data.get('answer_notes', ''),
+            user_id=user.id
+        )
         
         # Create prayer request using repository
-        prayer_entity = await self.prayer_request_repository.create(prayer_data, user)
+        created_prayer = await self.prayer_repository.create(prayer_entity)
         
         return {
             "message": "Prayer request created successfully",
-            "prayer": self._format_prayer_response(prayer_entity)
+            "prayer": self._format_prayer_response(created_prayer)
         }
 
     def _validate_category(self, category: str) -> None:
@@ -86,6 +92,10 @@ class CreatePrayerUseCase(BaseUseCase):
 class CreatePrayerResponseUseCase(BaseUseCase):
     """Use case for creating prayer responses"""
     
+    def __init__(self):
+        super().__init__()
+        self.prayer_response_repository = PrayerResponseRepository()  
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
@@ -112,15 +122,20 @@ class CreatePrayerResponseUseCase(BaseUseCase):
         content = input_data['content']
         is_private = input_data.get('is_private', False)
         
-        response_entity = await self.prayer_response_repository.create({
-            'prayer_request_id': prayer_id,
-            'content': content,
-            'is_private': is_private
-        }, user)
+        # Create PrayerResponseEntity
+        response_entity = PrayerResponseEntity(
+            prayer_request_id=prayer_id,
+            user_id=user.id,
+            content=content,
+            is_private=is_private
+        )
+        
+        # Create response using repository
+        created_response = await self.prayer_response_repository.create(response_entity)
         
         return {
             "message": "Prayer response created successfully",
-            "response": self._format_response_response(response_entity)
+            "response": self._format_response_response(created_response)
         }
 
     @staticmethod
