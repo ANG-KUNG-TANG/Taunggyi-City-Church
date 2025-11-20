@@ -1,5 +1,6 @@
 from typing import Dict, Any
 from decimal import Decimal
+from apps.tcc.usecase.repo.domain_repo.donations import DonationRepository, FundRepository
 from usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.entities.donations import DonationEntity, FundTypeEntity
 from apps.tcc.models.base.enums import DonationStatus, PaymentMethod
@@ -13,6 +14,11 @@ from apps.tcc.usecase.domain_exception.d_exceptions import (
 
 class CreateDonationUseCase(BaseUseCase):
     """Use case for creating new donations"""
+    
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()
+        self.fund_repository = FundRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -40,36 +46,38 @@ class CreateDonationUseCase(BaseUseCase):
             await self._validate_payment_method(payment_method)
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        # Set default values
-        donation_data = {
-            'donor': user.id,
-            'amount': input_data['amount'],
-            'payment_method': input_data['payment_method'],
-            'status': DonationStatus.PENDING,
-            'donation_date': input_data.get('donation_date'),
-            'is_recurring': input_data.get('is_recurring', False),
-            'fund_id': input_data.get('fund_id'),
-            'notes': input_data.get('notes', '')
-        }
-        
         # Validate fund if provided
-        if donation_data.get('fund_id'):
-            await self._validate_fund(donation_data['fund_id'], user)
+        if input_data.get('fund_id'):
+            await self._validate_fund(input_data['fund_id'])
+        
+        # Convert input to DonationEntity
+        donation_entity = DonationEntity(
+            donor_id=user.id,
+            fund_id=input_data.get('fund_id'),
+            amount=Decimal(str(input_data['amount'])),
+            payment_method=input_data['payment_method'],
+            status=DonationStatus.PENDING,
+            donation_date=input_data.get('donation_date'),
+            transaction_id=input_data.get('transaction_id'),
+            is_recurring=input_data.get('is_recurring', False),
+            is_active=True
+        )
         
         # Create donation using repository
-        donation_entity = await self.donation_repository.create(donation_data, user)
+        created_donation = await self.donation_repository.create(donation_entity)
         
         return {
             "message": "Donation created successfully",
-            "donation": self._format_donation_response(donation_entity)
+            "donation": self._format_donation_response(created_donation)
         }
 
     async def _validate_amount(self, amount: float) -> None:
         """Validate donation amount"""
         min_amount = Decimal('0.01')
         max_amount = Decimal('100000.00')
+        amount_decimal = Decimal(str(amount))
         
-        if amount < min_amount or amount > max_amount:
+        if amount_decimal < min_amount or amount_decimal > max_amount:
             raise DonationAmountInvalidException(
                 amount=amount,
                 min_amount=float(min_amount),
@@ -89,9 +97,9 @@ class CreateDonationUseCase(BaseUseCase):
                 user_message=f"Payment method '{payment_method}' is not supported. Valid methods: {', '.join(valid_methods)}"
             )
 
-    async def _validate_fund(self, fund_id: int, user: Any) -> None:
+    async def _validate_fund(self, fund_id: int) -> None:
         """Validate fund is active"""
-        fund_entity = await self.fund_repository.get_by_id(fund_id, user)
+        fund_entity = await self.fund_repository.get_by_id(fund_id)
         if not fund_entity:
             raise DonationException(
                 message=f"Fund {fund_id} not found",
@@ -128,6 +136,10 @@ class CreateDonationUseCase(BaseUseCase):
 class CreateFundTypeUseCase(BaseUseCase):
     """Use case for creating new fund types"""
     
+    def __init__(self):
+        super().__init__()
+        self.fund_repository = FundRepository()
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_donations']
@@ -145,21 +157,21 @@ class CreateFundTypeUseCase(BaseUseCase):
             )
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        # Set default values
-        fund_data = {
-            'name': input_data['name'],
-            'description': input_data['description'],
-            'target_amount': input_data.get('target_amount'),
-            'current_amount': input_data.get('current_amount', 0),
-            'is_active': input_data.get('is_active', True)
-        }
+        # Convert input to FundTypeEntity
+        fund_entity = FundTypeEntity(
+            name=input_data['name'],
+            description=input_data['description'],
+            target_amount=Decimal(str(input_data['target_amount'])) if input_data.get('target_amount') else None,
+            current_amount=Decimal(str(input_data.get('current_amount', 0))),
+            is_active=input_data.get('is_active', True)
+        )
         
         # Create fund type using repository
-        fund_entity = await self.fund_repository.create(fund_data, user)
+        created_fund = await self.fund_repository.create(fund_entity)
         
         return {
             "message": "Fund type created successfully",
-            "fund": self._format_fund_response(fund_entity)
+            "fund": self._format_fund_response(created_fund)
         }
 
     @staticmethod

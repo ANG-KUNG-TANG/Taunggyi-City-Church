@@ -1,4 +1,5 @@
 from typing import Dict, Any, List, Optional
+from apps.tcc.usecase.repo.domain_repo.donations import DonationRepository, FundRepository
 from usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.entities.donations import DonationEntity, FundTypeEntity
 from apps.tcc.models.base.enums import DonationStatus, PaymentMethod
@@ -10,6 +11,10 @@ from apps.tcc.usecase.domain_exception.d_exceptions import (
 
 class GetDonationByIdUseCase(BaseUseCase):
     """Use case for getting donation by ID"""
+    
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -25,7 +30,7 @@ class GetDonationByIdUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         donation_id = input_data['donation_id']
-        donation_entity = await self.donation_repository.get_by_id(donation_id, user)
+        donation_entity = await self.donation_repository.get_by_id(donation_id)
         
         if not donation_entity:
             raise DonationNotFoundException(
@@ -59,13 +64,17 @@ class GetDonationByIdUseCase(BaseUseCase):
 class GetAllDonationsUseCase(BaseUseCase):
     """Use case for getting all donations with optional filtering"""
     
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_donations']
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         filters = input_data.get('filters', {})
-        donations = await self.donation_repository.get_all(user, filters)
+        donations = await self.donation_repository.get_all(filters)
         
         return {
             "donations": [self._format_donation_response(donation) for donation in donations],
@@ -75,30 +84,21 @@ class GetAllDonationsUseCase(BaseUseCase):
     @staticmethod
     def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
         """Format donation entity for response"""
-        return {
-            'id': donation_entity.id,
-            'donor_id': donation_entity.donor_id,
-            'fund_id': donation_entity.fund_id,
-            'amount': float(donation_entity.amount) if donation_entity.amount else None,
-            'payment_method': donation_entity.payment_method.value if hasattr(donation_entity.payment_method, 'value') else donation_entity.payment_method,
-            'status': donation_entity.status.value if hasattr(donation_entity.status, 'value') else donation_entity.status,
-            'donation_date': donation_entity.donation_date,
-            'transaction_id': donation_entity.transaction_id,
-            'is_recurring': donation_entity.is_recurring,
-            'is_active': donation_entity.is_active,
-            'created_at': donation_entity.created_at,
-            'updated_at': donation_entity.updated_at
-        }
+        return GetDonationByIdUseCase._format_donation_response(donation_entity)
 
 
 class GetUserDonationsUseCase(BaseUseCase):
     """Use case for getting all donations by a user"""
     
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        donations = await self.donation_repository.get_user_donations(user)
+        donations = await self.donation_repository.get_user_donations(user.id)
         
         return {
             "donations": [self._format_donation_response(donation) for donation in donations],
@@ -108,24 +108,15 @@ class GetUserDonationsUseCase(BaseUseCase):
     @staticmethod
     def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
         """Format donation entity for response"""
-        return {
-            'id': donation_entity.id,
-            'donor_id': donation_entity.donor_id,
-            'fund_id': donation_entity.fund_id,
-            'amount': float(donation_entity.amount) if donation_entity.amount else None,
-            'payment_method': donation_entity.payment_method.value if hasattr(donation_entity.payment_method, 'value') else donation_entity.payment_method,
-            'status': donation_entity.status.value if hasattr(donation_entity.status, 'value') else donation_entity.status,
-            'donation_date': donation_entity.donation_date,
-            'transaction_id': donation_entity.transaction_id,
-            'is_recurring': donation_entity.is_recurring,
-            'is_active': donation_entity.is_active,
-            'created_at': donation_entity.created_at,
-            'updated_at': donation_entity.updated_at
-        }
+        return GetDonationByIdUseCase._format_donation_response(donation_entity)
 
 
 class GetDonationsByStatusUseCase(BaseUseCase):
     """Use case for getting donations by status"""
+    
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -142,7 +133,7 @@ class GetDonationsByStatusUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         status = input_data['status']
-        donations = await self.donation_repository.get_donations_by_status(status, user)
+        donations = await self.donation_repository.get_donations_by_status(status)
         
         return {
             "donations": [self._format_donation_response(donation) for donation in donations],
@@ -153,24 +144,15 @@ class GetDonationsByStatusUseCase(BaseUseCase):
     @staticmethod
     def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
         """Format donation entity for response"""
-        return {
-            'id': donation_entity.id,
-            'donor_id': donation_entity.donor_id,
-            'fund_id': donation_entity.fund_id,
-            'amount': float(donation_entity.amount) if donation_entity.amount else None,
-            'payment_method': donation_entity.payment_method.value if hasattr(donation_entity.payment_method, 'value') else donation_entity.payment_method,
-            'status': donation_entity.status.value if hasattr(donation_entity.status, 'value') else donation_entity.status,
-            'donation_date': donation_entity.donation_date,
-            'transaction_id': donation_entity.transaction_id,
-            'is_recurring': donation_entity.is_recurring,
-            'is_active': donation_entity.is_active,
-            'created_at': donation_entity.created_at,
-            'updated_at': donation_entity.updated_at
-        }
+        return GetDonationByIdUseCase._format_donation_response(donation_entity)
 
 
 class GetFundTypeByIdUseCase(BaseUseCase):
     """Use case for getting fund type by ID"""
+    
+    def __init__(self):
+        super().__init__()
+        self.fund_repository = FundRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -186,7 +168,7 @@ class GetFundTypeByIdUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         fund_id = input_data['fund_id']
-        fund_entity = await self.fund_repository.get_by_id(fund_id, user)
+        fund_entity = await self.fund_repository.get_by_id(fund_id)
         
         if not fund_entity:
             raise DonationException(
@@ -217,41 +199,16 @@ class GetFundTypeByIdUseCase(BaseUseCase):
 class GetAllFundTypesUseCase(BaseUseCase):
     """Use case for getting all fund types"""
     
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        filters = input_data.get('filters', {})
-        funds = await self.fund_repository.get_all(user, filters)
-        
-        return {
-            "funds": [self._format_fund_response(fund) for fund in funds],
-            "total_count": len(funds)
-        }
-
-    @staticmethod
-    def _format_fund_response(fund_entity: FundTypeEntity) -> Dict[str, Any]:
-        """Format fund entity for response"""
-        return {
-            'id': fund_entity.id,
-            'name': fund_entity.name,
-            'description': fund_entity.description,
-            'target_amount': float(fund_entity.target_amount) if fund_entity.target_amount else None,
-            'current_amount': float(fund_entity.current_amount) if fund_entity.current_amount else None,
-            'is_active': fund_entity.is_active,
-            'created_at': fund_entity.created_at,
-            'updated_at': fund_entity.updated_at
-        }
-
-
-class GetActiveFundTypesUseCase(BaseUseCase):
-    """Use case for getting active fund types"""
+    def __init__(self):
+        super().__init__()
+        self.fund_repository = FundRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        funds = await self.fund_repository.get_active_funds(user)
+        filters = input_data.get('filters', {})
+        funds = await self.fund_repository.get_all(filters)
         
         return {
             "funds": [self._format_fund_response(fund) for fund in funds],
@@ -261,20 +218,39 @@ class GetActiveFundTypesUseCase(BaseUseCase):
     @staticmethod
     def _format_fund_response(fund_entity: FundTypeEntity) -> Dict[str, Any]:
         """Format fund entity for response"""
+        return GetFundTypeByIdUseCase._format_fund_response(fund_entity)
+
+
+class GetActiveFundTypesUseCase(BaseUseCase):
+    """Use case for getting active fund types"""
+    
+    def __init__(self):
+        super().__init__()
+        self.fund_repository = FundRepository()
+    
+    def _setup_configuration(self):
+        self.config.require_authentication = True
+
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+        funds = await self.fund_repository.get_active_funds()
+        
         return {
-            'id': fund_entity.id,
-            'name': fund_entity.name,
-            'description': fund_entity.description,
-            'target_amount': float(fund_entity.target_amount) if fund_entity.target_amount else None,
-            'current_amount': float(fund_entity.current_amount) if fund_entity.current_amount else None,
-            'is_active': fund_entity.is_active,
-            'created_at': fund_entity.created_at,
-            'updated_at': fund_entity.updated_at
+            "funds": [self._format_fund_response(fund) for fund in funds],
+            "total_count": len(funds)
         }
+
+    @staticmethod
+    def _format_fund_response(fund_entity: FundTypeEntity) -> Dict[str, Any]:
+        """Format fund entity for response"""
+        return GetFundTypeByIdUseCase._format_fund_response(fund_entity)
 
 
 class GetDonationsByFundUseCase(BaseUseCase):
     """Use case for getting donations by fund"""
+    
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -291,7 +267,7 @@ class GetDonationsByFundUseCase(BaseUseCase):
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         fund_id = input_data['fund_id']
-        donations = await self.donation_repository.get_donations_by_fund(fund_id, user)
+        donations = await self.donation_repository.get_donations_by_fund(fund_id)
         
         return {
             "fund_id": fund_id,
@@ -302,31 +278,22 @@ class GetDonationsByFundUseCase(BaseUseCase):
     @staticmethod
     def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
         """Format donation entity for response"""
-        return {
-            'id': donation_entity.id,
-            'donor_id': donation_entity.donor_id,
-            'fund_id': donation_entity.fund_id,
-            'amount': float(donation_entity.amount) if donation_entity.amount else None,
-            'payment_method': donation_entity.payment_method.value if hasattr(donation_entity.payment_method, 'value') else donation_entity.payment_method,
-            'status': donation_entity.status.value if hasattr(donation_entity.status, 'value') else donation_entity.status,
-            'donation_date': donation_entity.donation_date,
-            'transaction_id': donation_entity.transaction_id,
-            'is_recurring': donation_entity.is_recurring,
-            'is_active': donation_entity.is_active,
-            'created_at': donation_entity.created_at,
-            'updated_at': donation_entity.updated_at
-        }
+        return GetDonationByIdUseCase._format_donation_response(donation_entity)
 
 
 class GetDonationStatsUseCase(BaseUseCase):
     """Use case for getting donation statistics"""
+    
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_donations']
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        stats = await self.donation_repository.get_donation_stats(user)
+        stats = await self.donation_repository.get_donation_stats()
         
         return {
             "statistics": stats

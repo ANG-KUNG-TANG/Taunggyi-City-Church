@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from apps.tcc.usecase.repo.domain_repo.donations import DonationRepository, FundRepository
 from apps.tcc.models.base.enums import DonationStatus
 from usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.domain_exception.d_exceptions import (
@@ -9,6 +10,10 @@ from apps.tcc.usecase.domain_exception.d_exceptions import (
 
 class DeleteDonationUseCase(BaseUseCase):
     """Use case for soft deleting donations"""
+    
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -27,7 +32,7 @@ class DeleteDonationUseCase(BaseUseCase):
         donation_id = input_data['donation_id']
         
         # Verify donation exists
-        existing_donation = await self.donation_repository.get_by_id(donation_id, user)
+        existing_donation = await self.donation_repository.get_by_id(donation_id)
         if not existing_donation:
             raise DonationNotFoundException(
                 donation_id=str(donation_id),
@@ -35,7 +40,7 @@ class DeleteDonationUseCase(BaseUseCase):
             )
         
         # Soft delete donation
-        result = await self.donation_repository.delete(donation_id, user)
+        result = await self.donation_repository.delete(donation_id)
         
         if not result:
             raise DonationNotFoundException(
@@ -51,6 +56,11 @@ class DeleteDonationUseCase(BaseUseCase):
 
 class DeleteFundTypeUseCase(BaseUseCase):
     """Use case for soft deleting fund types"""
+    
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()
+        self.fund_repository = FundRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -69,7 +79,7 @@ class DeleteFundTypeUseCase(BaseUseCase):
         fund_id = input_data['fund_id']
         
         # Verify fund exists
-        existing_fund = await self.fund_repository.get_by_id(fund_id, user)
+        existing_fund = await self.fund_repository.get_by_id(fund_id)
         if not existing_fund:
             raise DonationException(
                 message=f"Fund {fund_id} not found",
@@ -78,7 +88,7 @@ class DeleteFundTypeUseCase(BaseUseCase):
             )
         
         # Check if fund has donations
-        donations = await self.donation_repository.get_donations_by_fund(fund_id, user)
+        donations = await self.donation_repository.get_donations_by_fund(fund_id)
         if donations:
             raise DonationException(
                 message="Cannot delete fund with existing donations",
@@ -87,7 +97,7 @@ class DeleteFundTypeUseCase(BaseUseCase):
             )
         
         # Soft delete fund type
-        result = await self.fund_repository.delete(fund_id, user)
+        result = await self.fund_repository.delete(fund_id)
         
         if not result:
             raise DonationException(
@@ -99,54 +109,4 @@ class DeleteFundTypeUseCase(BaseUseCase):
         return {
             "message": "Fund type deleted successfully",
             "fund_id": fund_id
-        }
-
-
-class CancelDonationUseCase(BaseUseCase):
-    """Use case for canceling donations"""
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-
-    async def _validate_input(self, input_data: Dict[str, Any], context):
-        donation_id = input_data.get('donation_id')
-        if not donation_id:
-            raise DonationException(
-                message="Donation ID is required",
-                error_code="MISSING_DONATION_ID",
-                user_message="Donation ID is required."
-            )
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        donation_id = input_data['donation_id']
-        
-        # Verify donation exists and belongs to user
-        existing_donation = await self.donation_repository.get_by_id(donation_id, user)
-        if not existing_donation:
-            raise DonationNotFoundException(
-                donation_id=str(donation_id),
-                user_message="Donation not found."
-            )
-        
-        # Check if user owns the donation or has permission
-        if existing_donation.donor_id != user.id and not user.can_manage_donations:
-            raise DonationException(
-                message="You can only cancel your own donations",
-                error_code="PERMISSION_DENIED",
-                user_message="You can only cancel your own donations."
-            )
-        
-        # Update status to cancelled
-        update_data = {'status': DonationStatus.CANCELLED}
-        updated_donation = await self.donation_repository.update(donation_id, update_data, user)
-        
-        if not updated_donation:
-            raise DonationNotFoundException(
-                donation_id=str(donation_id),
-                user_message="Donation not found for cancellation."
-            )
-        
-        return {
-            "message": "Donation cancelled successfully",
-            "donation_id": donation_id
         }

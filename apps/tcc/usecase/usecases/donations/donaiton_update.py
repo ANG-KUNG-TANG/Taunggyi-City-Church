@@ -1,5 +1,6 @@
 from typing import Dict, Any
 from decimal import Decimal
+from apps.tcc.usecase.repo.domain_repo.donations import DonationRepository, FundRepository
 from usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.entities.donations import DonationEntity, FundTypeEntity
 from apps.tcc.models.base.enums import DonationStatus
@@ -13,6 +14,11 @@ from apps.tcc.usecase.domain_exception.d_exceptions import (
 
 class UpdateDonationUseCase(BaseUseCase):
     """Use case for updating donations"""
+    
+    def __init__(self):
+        super().__init__()
+        self.donation_repository = DonationRepository()
+        self.fund_repository = FundRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -36,7 +42,7 @@ class UpdateDonationUseCase(BaseUseCase):
         donation_id = input_data['donation_id']
         
         # Check if donation exists
-        existing_donation = await self.donation_repository.get_by_id(donation_id, user)
+        existing_donation = await self.donation_repository.get_by_id(donation_id)
         if not existing_donation:
             raise DonationNotFoundException(
                 donation_id=str(donation_id),
@@ -45,18 +51,26 @@ class UpdateDonationUseCase(BaseUseCase):
         
         # Validate fund if being updated
         if 'fund_id' in input_data and input_data['fund_id']:
-            await self._validate_fund(input_data['fund_id'], user)
+            await self._validate_fund(input_data['fund_id'])
         
-        # Prepare update data
-        update_data = {
-            'amount': input_data.get('amount', existing_donation.amount),
-            'status': input_data.get('status', existing_donation.status),
-            'fund_id': input_data.get('fund_id', existing_donation.fund_id),
-            'notes': input_data.get('notes', getattr(existing_donation, 'notes', ''))
-        }
+        # Create updated DonationEntity
+        updated_donation_entity = DonationEntity(
+            id=donation_id,
+            donor_id=existing_donation.donor_id,
+            fund_id=input_data.get('fund_id', existing_donation.fund_id),
+            amount=Decimal(str(input_data.get('amount', existing_donation.amount))),
+            payment_method=existing_donation.payment_method,
+            status=input_data.get('status', existing_donation.status),
+            donation_date=input_data.get('donation_date', existing_donation.donation_date),
+            transaction_id=input_data.get('transaction_id', existing_donation.transaction_id),
+            is_recurring=input_data.get('is_recurring', existing_donation.is_recurring),
+            is_active=existing_donation.is_active,
+            created_at=existing_donation.created_at,
+            updated_at=existing_donation.updated_at
+        )
         
         # Update donation
-        updated_donation = await self.donation_repository.update(donation_id, update_data, user)
+        updated_donation = await self.donation_repository.update(donation_id, updated_donation_entity)
         
         if not updated_donation:
             raise DonationNotFoundException(
@@ -73,8 +87,9 @@ class UpdateDonationUseCase(BaseUseCase):
         """Validate donation amount"""
         min_amount = Decimal('0.01')
         max_amount = Decimal('100000.00')
+        amount_decimal = Decimal(str(amount))
         
-        if amount < min_amount or amount > max_amount:
+        if amount_decimal < min_amount or amount_decimal > max_amount:
             raise DonationAmountInvalidException(
                 amount=amount,
                 min_amount=float(min_amount),
@@ -82,9 +97,9 @@ class UpdateDonationUseCase(BaseUseCase):
                 user_message=f"Donation amount must be between ${min_amount:.2f} and ${max_amount:.2f}."
             )
 
-    async def _validate_fund(self, fund_id: int, user: Any) -> None:
+    async def _validate_fund(self, fund_id: int) -> None:
         """Validate fund is active"""
-        fund_entity = await self.fund_repository.get_by_id(fund_id, user)
+        fund_entity = await self.fund_repository.get_by_id(fund_id)
         if not fund_entity:
             raise DonationException(
                 message=f"Fund {fund_id} not found",
@@ -121,6 +136,10 @@ class UpdateDonationUseCase(BaseUseCase):
 class UpdateFundTypeUseCase(BaseUseCase):
     """Use case for updating fund types"""
     
+    def __init__(self):
+        super().__init__()
+        self.fund_repository = FundRepository()
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_donations']
@@ -138,7 +157,7 @@ class UpdateFundTypeUseCase(BaseUseCase):
         fund_id = input_data['fund_id']
         
         # Check if fund exists
-        existing_fund = await self.fund_repository.get_by_id(fund_id, user)
+        existing_fund = await self.fund_repository.get_by_id(fund_id)
         if not existing_fund:
             raise DonationException(
                 message=f"Fund {fund_id} not found",
@@ -146,17 +165,20 @@ class UpdateFundTypeUseCase(BaseUseCase):
                 user_message="Fund not found."
             )
         
-        # Prepare update data
-        update_data = {
-            'name': input_data.get('name', existing_fund.name),
-            'description': input_data.get('description', existing_fund.description),
-            'target_amount': input_data.get('target_amount', existing_fund.target_amount),
-            'current_amount': input_data.get('current_amount', existing_fund.current_amount),
-            'is_active': input_data.get('is_active', existing_fund.is_active)
-        }
+        # Create updated FundTypeEntity
+        updated_fund_entity = FundTypeEntity(
+            id=fund_id,
+            name=input_data.get('name', existing_fund.name),
+            description=input_data.get('description', existing_fund.description),
+            target_amount=Decimal(str(input_data.get('target_amount', existing_fund.target_amount))) if input_data.get('target_amount') else existing_fund.target_amount,
+            current_amount=Decimal(str(input_data.get('current_amount', existing_fund.current_amount))),
+            is_active=input_data.get('is_active', existing_fund.is_active),
+            created_at=existing_fund.created_at,
+            updated_at=existing_fund.updated_at
+        )
         
         # Update fund type
-        updated_fund = await self.fund_repository.update(fund_id, update_data, user)
+        updated_fund = await self.fund_repository.update(fund_id, updated_fund_entity)
         
         if not updated_fund:
             raise DonationException(
@@ -182,153 +204,4 @@ class UpdateFundTypeUseCase(BaseUseCase):
             'is_active': fund_entity.is_active,
             'created_at': fund_entity.created_at,
             'updated_at': fund_entity.updated_at
-        }
-
-
-class UpdateDonationStatusUseCase(BaseUseCase):
-    """Use case for updating donation status"""
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-        self.config.required_permissions = ['can_manage_donations']
-
-    async def _validate_input(self, input_data: Dict[str, Any], context):
-        donation_id = input_data.get('donation_id')
-        status = input_data.get('status')
-        
-        if not donation_id:
-            raise DonationException(
-                message="Donation ID is required",
-                error_code="MISSING_DONATION_ID",
-                user_message="Donation ID is required."
-            )
-        
-        if not status:
-            raise DonationException(
-                message="Status is required",
-                error_code="MISSING_STATUS",
-                user_message="Donation status is required."
-            )
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        donation_id = input_data['donation_id']
-        status = input_data['status']
-        
-        # Check if donation exists
-        existing_donation = await self.donation_repository.get_by_id(donation_id, user)
-        if not existing_donation:
-            raise DonationNotFoundException(
-                donation_id=str(donation_id),
-                user_message="Donation not found."
-            )
-        
-        # Update status
-        update_data = {'status': status}
-        updated_donation = await self.donation_repository.update(donation_id, update_data, user)
-        
-        if not updated_donation:
-            raise DonationNotFoundException(
-                donation_id=str(donation_id),
-                user_message="Donation not found for status update."
-            )
-        
-        return {
-            "message": "Donation status updated successfully",
-            "donation": self._format_donation_response(updated_donation)
-        }
-
-    @staticmethod
-    def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
-        """Format donation entity for response"""
-        return {
-            'id': donation_entity.id,
-            'donor_id': donation_entity.donor_id,
-            'fund_id': donation_entity.fund_id,
-            'amount': float(donation_entity.amount) if donation_entity.amount else None,
-            'payment_method': donation_entity.payment_method.value if hasattr(donation_entity.payment_method, 'value') else donation_entity.payment_method,
-            'status': donation_entity.status.value if hasattr(donation_entity.status, 'value') else donation_entity.status,
-            'donation_date': donation_entity.donation_date,
-            'transaction_id': donation_entity.transaction_id,
-            'is_recurring': donation_entity.is_recurring,
-            'is_active': donation_entity.is_active,
-            'created_at': donation_entity.created_at,
-            'updated_at': donation_entity.updated_at
-        }
-
-
-class ProcessDonationPaymentUseCase(BaseUseCase):
-    """Use case for processing donation payments"""
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-        self.config.required_permissions = ['can_manage_donations']
-
-    async def _validate_input(self, input_data: Dict[str, Any], context):
-        donation_id = input_data.get('donation_id')
-        if not donation_id:
-            raise DonationException(
-                message="Donation ID is required",
-                error_code="MISSING_DONATION_ID",
-                user_message="Donation ID is required."
-            )
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        donation_id = input_data['donation_id']
-        transaction_id = input_data.get('transaction_id')
-        
-        # Check if donation exists
-        existing_donation = await self.donation_repository.get_by_id(donation_id, user)
-        if not existing_donation:
-            raise DonationNotFoundException(
-                donation_id=str(donation_id),
-                user_message="Donation not found."
-            )
-        
-        # Process payment (this would integrate with actual payment gateway)
-        # For now, we'll simulate successful payment
-        update_data = {
-            'status': DonationStatus.COMPLETED,
-            'transaction_id': transaction_id
-        }
-        
-        updated_donation = await self.donation_repository.update(donation_id, update_data, user)
-        
-        if not updated_donation:
-            raise DonationNotFoundException(
-                donation_id=str(donation_id),
-                user_message="Donation not found for payment processing."
-            )
-        
-        # Update fund current amount if fund is specified
-        if updated_donation.fund_id and updated_donation.status == DonationStatus.COMPLETED:
-            await self._update_fund_amount(updated_donation.fund_id, updated_donation.amount, user)
-        
-        return {
-            "message": "Donation payment processed successfully",
-            "donation": self._format_donation_response(updated_donation)
-        }
-
-    async def _update_fund_amount(self, fund_id: int, amount: Decimal, user: Any) -> None:
-        """Update fund current amount"""
-        fund_entity = await self.fund_repository.get_by_id(fund_id, user)
-        if fund_entity:
-            new_amount = (fund_entity.current_amount or Decimal('0')) + amount
-            await self.fund_repository.update(fund_id, {'current_amount': new_amount}, user)
-
-    @staticmethod
-    def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
-        """Format donation entity for response"""
-        return {
-            'id': donation_entity.id,
-            'donor_id': donation_entity.donor_id,
-            'fund_id': donation_entity.fund_id,
-            'amount': float(donation_entity.amount) if donation_entity.amount else None,
-            'payment_method': donation_entity.payment_method.value if hasattr(donation_entity.payment_method, 'value') else donation_entity.payment_method,
-            'status': donation_entity.status.value if hasattr(donation_entity.status, 'value') else donation_entity.status,
-            'donation_date': donation_entity.donation_date,
-            'transaction_id': donation_entity.transaction_id,
-            'is_recurring': donation_entity.is_recurring,
-            'is_active': donation_entity.is_active,
-            'created_at': donation_entity.created_at,
-            'updated_at': donation_entity.updated_at
         }
