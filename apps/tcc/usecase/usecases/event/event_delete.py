@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from apps.tcc.usecase.repo.domain_repo.events import EventRepository
 from usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.e_exceptions import (
     EventException,
@@ -8,6 +9,10 @@ from usecase.domain_exception.e_exceptions import (
 
 class DeleteEventUseCase(BaseUseCase):
     """Use case for soft deleting events"""
+    
+    def __init__(self):
+        super().__init__()
+        self.event_repository = EventRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -26,7 +31,7 @@ class DeleteEventUseCase(BaseUseCase):
         event_id = input_data['event_id']
         
         # Verify event exists
-        existing_event = await self.event_repository.get_by_id(event_id, user)
+        existing_event = await self.event_repository.get_by_id(event_id)
         if not existing_event:
             raise EventNotFoundException(
                 event_id=str(event_id),
@@ -34,7 +39,7 @@ class DeleteEventUseCase(BaseUseCase):
             )
         
         # Soft delete event
-        result = await self.event_repository.delete(event_id, user)
+        result = await self.event_repository.delete(event_id)
         
         if not result:
             raise EventNotFoundException(
@@ -51,6 +56,10 @@ class DeleteEventUseCase(BaseUseCase):
 class CancelRegistrationUseCase(BaseUseCase):
     """Use case for canceling event registration"""
     
+    def __init__(self):
+        super().__init__()
+        self.event_repository = EventRepository()  # Instantiate directly
+    
     def _setup_configuration(self):
         self.config.require_authentication = True
 
@@ -66,16 +75,10 @@ class CancelRegistrationUseCase(BaseUseCase):
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         event_id = input_data['event_id']
         
-        result = await self.event_repository.cancel_registration(event_id, user)
-        
-        if not result:
-            raise EventException(
-                message=f"Registration for event {event_id} not found",
-                error_code="REGISTRATION_NOT_FOUND",
-                user_message="Registration not found for cancellation."
-            )
-        
-        return {
-            "message": "Event registration cancelled successfully",
-            "event_id": event_id
-        }
+        # Note: This method would need to be implemented in EventRepository
+        # For now, we'll raise an exception indicating it's not implemented
+        raise EventException(
+            message="Event registration cancellation not implemented in repository",
+            error_code="NOT_IMPLEMENTED",
+            user_message="Event registration cancellation is currently not available."
+        )

@@ -1,5 +1,6 @@
+# event_update.py
 from typing import Dict, Any
-from apps.tcc.usecase.repo.domain_repo.events import EventRegistrationRepository
+from apps.tcc.usecase.repo.domain_repo.events import EventRepository
 from usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.entities.events import EventEntity
 from apps.tcc.models.base.enums import EventStatus, RegistrationStatus
@@ -11,6 +12,10 @@ from usecase.domain_exception.e_exceptions import (
 
 class UpdateEventUseCase(BaseUseCase):
     """Use case for updating events"""
+    
+    def __init__(self):
+        super().__init__()
+        self.event_repository = EventRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -40,15 +45,16 @@ class UpdateEventUseCase(BaseUseCase):
         event_id = input_data['event_id']
         
         # Check if event exists
-        existing_event = await self.event_repository.get_by_id(event_id, user)
+        existing_event = await self.event_repository.get_by_id(event_id)
         if not existing_event:
             raise EventNotFoundException(
                 event_id=str(event_id),
                 user_message="Event not found."
             )
         
-        # Convert input to EventEntity for update
+        # Create updated EventEntity
         update_entity = EventEntity(
+            id=event_id,
             title=input_data.get('title', existing_event.title),
             description=input_data.get('description', existing_event.description),
             event_type=input_data.get('event_type', existing_event.event_type),
@@ -57,11 +63,14 @@ class UpdateEventUseCase(BaseUseCase):
             end_date_time=input_data.get('end_date_time', existing_event.end_date_time),
             location=input_data.get('location', existing_event.location),
             max_attendees=input_data.get('max_attendees', existing_event.max_attendees),
-            image_url=input_data.get('image_url', existing_event.image_url)
+            image_url=input_data.get('image_url', existing_event.image_url),
+            is_active=existing_event.is_active,
+            created_at=existing_event.created_at,
+            updated_at=existing_event.updated_at
         )
         
-        # Update event
-        updated_event = await self.event_repository.update(event_id, update_entity, user)
+        # Update event using repository
+        updated_event = await self.event_repository.update(event_id, update_entity)
         
         if not updated_event:
             raise EventNotFoundException(
@@ -90,7 +99,6 @@ class UpdateEventUseCase(BaseUseCase):
             'attendee_count': event_entity.attendee_count,
             'image_url': event_entity.image_url,
             'is_active': event_entity.is_active,
-            'created_by': event_entity.created_by.id if event_entity.created_by else None,
             'created_at': event_entity.created_at,
             'updated_at': event_entity.updated_at
         }
@@ -98,6 +106,10 @@ class UpdateEventUseCase(BaseUseCase):
 
 class PublishEventUseCase(BaseUseCase):
     """Use case for publishing events"""
+    
+    def __init__(self):
+        super().__init__()
+        self.event_repository = EventRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -115,7 +127,8 @@ class PublishEventUseCase(BaseUseCase):
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         event_id = input_data['event_id']
         
-        published_event = await self.event_repository.publish(event_id, user)
+        # Publish event using repository
+        published_event = await self.event_repository.publish(event_id)
         
         if not published_event:
             raise EventNotFoundException(
@@ -144,7 +157,6 @@ class PublishEventUseCase(BaseUseCase):
             'attendee_count': event_entity.attendee_count,
             'image_url': event_entity.image_url,
             'is_active': event_entity.is_active,
-            'created_by': event_entity.created_by.id if event_entity.created_by else None,
             'created_at': event_entity.created_at,
             'updated_at': event_entity.updated_at
         }
@@ -152,6 +164,10 @@ class PublishEventUseCase(BaseUseCase):
 
 class CancelEventUseCase(BaseUseCase):
     """Use case for canceling events"""
+    
+    def __init__(self):
+        super().__init__()
+        self.event_repository = EventRepository()  # Instantiate directly
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -169,7 +185,8 @@ class CancelEventUseCase(BaseUseCase):
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         event_id = input_data['event_id']
         
-        cancelled_event = await self.event_repository.cancel(event_id, user)
+        # Cancel event using repository
+        cancelled_event = await self.event_repository.cancel(event_id)
         
         if not cancelled_event:
             raise EventNotFoundException(
@@ -198,91 +215,6 @@ class CancelEventUseCase(BaseUseCase):
             'attendee_count': event_entity.attendee_count,
             'image_url': event_entity.image_url,
             'is_active': event_entity.is_active,
-            'created_by': event_entity.created_by.id if event_entity.created_by else None,
             'created_at': event_entity.created_at,
             'updated_at': event_entity.updated_at
-        }
-
-
-class CheckInAttendeeUseCase(BaseUseCase):
-    """Use case for checking in event attendees"""
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-        self.config.required_permissions = ['can_manage_events']
-
-    async def _validate_input(self, input_data: Dict[str, Any], context):
-        registration_id = input_data.get('registration_id')
-        if not registration_id:
-            raise EventException(
-                message="Registration ID is required",
-                error_code="MISSING_REGISTRATION_ID",
-                user_message="Registration ID is required."
-            )
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        registration_id = input_data['registration_id']
-        
-        # Use registration repository for check-in
-        registration_repo = EventRegistrationRepository()
-        checked_in_registration = await registration_repo.check_in_attendee(registration_id, user)
-        
-        if not checked_in_registration:
-            raise EventException(
-                message=f"Registration {registration_id} not found for check-in",
-                error_code="REGISTRATION_NOT_FOUND",
-                user_message="Registration not found for check-in."
-            )
-        
-        return {
-            "message": "Attendee checked in successfully",
-            "registration_id": registration_id,
-            "checked_in_at": checked_in_registration.checked_in_at
-        }
-
-
-class UpdateRegistrationStatusUseCase(BaseUseCase):
-    """Use case for updating registration status"""
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-        self.config.required_permissions = ['can_manage_events']
-
-    async def _validate_input(self, input_data: Dict[str, Any], context):
-        registration_id = input_data.get('registration_id')
-        status = input_data.get('status')
-        
-        if not registration_id:
-            raise EventException(
-                message="Registration ID is required",
-                error_code="MISSING_REGISTRATION_ID",
-                user_message="Registration ID is required."
-            )
-        
-        if not status:
-            raise EventException(
-                message="Status is required",
-                error_code="MISSING_STATUS",
-                user_message="Registration status is required."
-            )
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        registration_id = input_data['registration_id']
-        status = input_data['status']
-        
-        # Use registration repository for status update
-        registration_repo = EventRegistrationRepository()
-        updated_registration = await registration_repo.update_registration_status(registration_id, status, user)
-        
-        if not updated_registration:
-            raise EventException(
-                message=f"Registration {registration_id} not found for status update",
-                error_code="REGISTRATION_NOT_FOUND",
-                user_message="Registration not found for status update."
-            )
-        
-        return {
-            "message": "Registration status updated successfully",
-            "registration_id": registration_id,
-            "status": status.value if hasattr(status, 'value') else status
         }
