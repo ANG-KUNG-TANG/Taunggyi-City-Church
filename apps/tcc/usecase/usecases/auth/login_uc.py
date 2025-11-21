@@ -1,10 +1,11 @@
 import asyncio
 from django.contrib.auth import authenticate
 from apps.core.helpers.jwt_helper import JWTProvider
-from apps.core.security.dtos import AuthResponseDTO
 from apps.tcc.usecase.services.auth.asyn_auth_servic import AsyncAuthDomainService
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.u_exceptions import InvalidUserInputError, UserAuthenticationError
+from core.schemas.common.response import LogoutResponse
+
 
 class LoginUseCase(BaseUseCase):
 
@@ -30,5 +31,4 @@ class LoginUseCase(BaseUseCase):
         asyncio.create_task(
             AsyncAuthDomainService().audit_login_async(user_model.id, "LOGIN")
         )
-
-        return AuthResponseDTO.from_user(user_model, tokens)
+        return LogoutResponse

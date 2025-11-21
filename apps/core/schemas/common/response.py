@@ -60,6 +60,24 @@ class ErrorResponse(BaseModel):
             data['timestamp'] = datetime.now()
         super().__init__(**data)
 
+# --- User Registration Specific Schemas ---
+
+class UserRegistrationData(BaseModel):
+    """Complete user registration response data"""
+    user: Dict[str, Any]  # User data as dict
+    tokens: Dict[str, Any]  # Token data as dict
+
+class UserRegistrationResponse(APIResponse[UserRegistrationData]):
+    """API response for user registration"""
+    
+    @classmethod
+    def from_user_and_tokens(cls, 
+                           user_data: Dict[str, Any], 
+                           tokens_data: Dict[str, Any],
+                           message: str = "User created successfully") -> 'UserRegistrationResponse':
+        """Convenience method to create response from user and token data"""
+        data = UserRegistrationData(user=user_data, tokens=tokens_data)
+        return cls.success_response(message=message, data=data)
 
 # --- Login / Logout related schemas ---
 
@@ -90,7 +108,7 @@ class LogoutResponse(APIResponse[None]):
     """API response returned after logout (usually just success/message)."""
     pass
 
-# Convenience constructors for login/logout
+# Convenience constructors
 
 def make_login_response(access_token: str,
                         refresh_token: Optional[str] = None,

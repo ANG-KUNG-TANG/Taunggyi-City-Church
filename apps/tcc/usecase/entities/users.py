@@ -1,4 +1,3 @@
-# entities/users.py (Fixed - if this file exists)
 import html
 from datetime import datetime
 from typing import Optional
