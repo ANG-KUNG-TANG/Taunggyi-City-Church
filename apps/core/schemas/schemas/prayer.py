@@ -5,8 +5,6 @@ from typing import Optional
 from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
 from apps.tcc.models.base.enums import PrayerPrivacy
 
-
-
 class PrayerRequestBase(BaseSchema):
     """Base prayer request schema with common fields."""
     

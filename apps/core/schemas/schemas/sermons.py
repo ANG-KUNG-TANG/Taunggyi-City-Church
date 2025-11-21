@@ -1,32 +1,30 @@
-from datetime import datetime
-from typing import Optional
-from pydantic import Field, field_validator
-
-from apps.tcc.models.base.enums import SermonStatus
-from .base import BaseResponseSchema, BaseSchema
-
-from pydantic import BaseModel, field_validator, ConfigDict
+from pydantic import BaseModel, field_validator, ConfigDict, Field
 from datetime import datetime
 from typing import Optional
 import re
 
+from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
+from apps.tcc.models.base.enums import SermonStatus
 
 class SermonBase(BaseSchema):
     """Base sermon schema with common fields."""
     
-    title: str
-    preacher: str
-    bible_passage: Optional[str] = None
+    title: str = Field(..., min_length=1, max_length=200)
+    preacher: str = Field(..., min_length=1, max_length=120)
+    bible_passage: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
     content: Optional[str] = None
-    duration_minutes: Optional[int] = None
+    duration_minutes: Optional[int] = Field(None, ge=1, le=480)
     sermon_date: datetime
     video_url: Optional[str] = None
     audio_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
+    status: SermonStatus = Field(default=SermonStatus.DRAFT)
 
-class SermonCreate(SermonBase):
-    """Schema for creating a new sermon."""
+    @field_validator('title')
+    @classmethod
+    def validate_title(cls, v):
+        return v.strip()
     
     @field_validator('duration_minutes')
     @classmethod
@@ -50,19 +48,24 @@ class SermonCreate(SermonBase):
         pattern = r'^[1-9]?[A-Za-z]+\s+\d+:\d+(-\d+)?(\s*[A-Za-z]+)?$'
         return bool(re.match(pattern, reference.strip()))
 
+class SermonCreate(SermonBase):
+    """Schema for creating a new sermon."""
+    pass
+
 class SermonUpdate(BaseSchema):
     """Schema for updating sermon information."""
     
-    title: Optional[str] = None
-    preacher: Optional[str] = None
-    bible_passage: Optional[str] = None
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    preacher: Optional[str] = Field(None, min_length=1, max_length=120)
+    bible_passage: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
     content: Optional[str] = None
-    duration_minutes: Optional[int] = None
+    duration_minutes: Optional[int] = Field(None, ge=1, le=480)
     sermon_date: Optional[datetime] = None
     video_url: Optional[str] = None
     audio_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
+    status: Optional[SermonStatus] = None
 
 class SermonResponse(SermonBase, BaseResponseSchema):
     """Schema for sermon response."""
@@ -75,36 +78,3 @@ class SermonResponse(SermonBase, BaseResponseSchema):
             datetime: lambda v: v.isoformat(),
         }
     )
-class SermonBaseSchema(BaseSchema):
-    title: str = Field(..., min_length=1, max_length=200)
-    preacher: str = Field(..., min_length=1, max_length=120)
-    bible_passage: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = None
-    content: Optional[str] = None
-    sermon_date: datetime = Field(...)
-    status: SermonStatus = Field(default=SermonStatus.DRAFT)
-    duration_minutes: Optional[int] = Field(None, ge=1, le=480)
-
-    @field_validator('title')
-    @classmethod
-    def validate_title(cls, v):
-        return v.strip()
-
-
-class SermonCreateSchema(SermonBaseSchema):
-    pass
-
-
-class SermonUpdateSchema(BaseSchema):
-    title: Optional[str] = Field(None, min_length=1, max_length=200)
-    preacher: Optional[str] = Field(None, min_length=1, max_length=120)
-    bible_passage: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = None
-    content: Optional[str] = None
-    sermon_date: Optional[datetime] = None
-    status: Optional[SermonStatus] = None
-    duration_minutes: Optional[int] = Field(None, ge=1, le=480)
-
-
-class SermonResponseSchema(SermonBaseSchema):
-    pass

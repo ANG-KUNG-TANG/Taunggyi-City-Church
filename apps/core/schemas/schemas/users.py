@@ -2,9 +2,8 @@ from typing import Optional
 from datetime import date
 from pydantic import Field, EmailStr, field_validator, model_validator
 
+from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
 from apps.tcc.models.base.enums import Gender, MaritalStatus, UserRole, UserStatus
-from .base import BaseSchema
-
 
 class UserSchema(BaseSchema):
     """Base user schema with validation rules"""
@@ -33,11 +32,9 @@ class UserSchema(BaseSchema):
             raise ValueError('Date of birth cannot be in the future')
         return self
 
-
 class UserCreateSchema(UserSchema):
     """Schema for creating users with password"""
     password: str = Field(..., min_length=8)
-
 
 class UserUpdateSchema(BaseSchema):
     """Schema for updating users"""
@@ -59,10 +56,8 @@ class UserUpdateSchema(BaseSchema):
     
     email_notifications: Optional[bool] = None
 
-
-class UserResponseSchema(UserSchema):
+class UserResponseSchema(UserSchema, BaseResponseSchema):
     """Schema for API responses"""
-    id: int
     is_staff: bool = False
     is_superuser: bool = False
     is_active: bool = True

@@ -1,7 +1,9 @@
 from rest_framework_simplejwt.tokens import RefreshToken
 from apps.core.helpers.jwt_helper import JWTProvider
+from apps.core.security.dtos import TokenRefreshResponseDTO
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 from usecase.domain_exception.u_exceptions import InvalidUserInputError, UserAuthenticationError
+
 
 class RefreshTokenUseCase(BaseUseCase):
 
@@ -21,8 +23,9 @@ class RefreshTokenUseCase(BaseUseCase):
             if not user_model.is_active:
                 raise UserAuthenticationError("User inactive")
 
+            # Sync: Token generation
             new_tokens = JWTProvider.generate_tokens(user_model)
-            return new_tokens
+            return TokenRefreshResponseDTO(**new_tokens)
 
         except Exception:
             raise UserAuthenticationError("Invalid refresh token")

@@ -6,7 +6,6 @@ from decimal import Decimal
 from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
 from apps.tcc.models.base.enums import EventStatus, EventType, RegistrationStatus
 
-
 class EventBase(BaseSchema):
     """Base event schema with common fields."""
     
