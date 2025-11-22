@@ -1,6 +1,6 @@
 import asyncio
 from django.contrib.auth import authenticate
-from apps.core.schemas.builders.builder import UserResponseBuilder
+from apps.core.schemas.builders.user_rp_builder import UserResponseBuilder
 from apps.core.schemas.common.response import LoginResponse, make_login_response
 from apps.tcc.usecase.domain_exception.auth_exceptions import AccountInactiveException, InvalidCredentialsException, InvalidUserInputError
 from apps.tcc.usecase.services.auth.auth_service import AsyncAuthDomainService

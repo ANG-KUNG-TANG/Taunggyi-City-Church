@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, List
 from apps.core.core_exceptions.base import BaseAppException, ErrorContext
 
 
-class UnauthorizedException(BaseAppException):
+class UnauthorizedActionException(BaseAppException):
     """Base class for all authorization-related exceptions"""
     
     def __init__(
@@ -25,12 +25,12 @@ class UnauthorizedException(BaseAppException):
         )
 
 
-class AuthenticationException(UnauthorizedException):
+class AuthenticationException(UnauthorizedActionException):
     """Authentication-related exceptions (401)"""
     pass
 
 
-class AuthorizationException(UnauthorizedException):
+class AuthorizationException(UnauthorizedActionException):
     """Authorization-related exceptions (403)"""
     
     def __init__(

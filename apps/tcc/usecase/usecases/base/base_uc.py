@@ -4,13 +4,17 @@ from django.db import transaction
 from asgiref.sync import sync_to_async
 
 from apps.core.core_exceptions.domain import DomainException
+from apps.tcc.usecase.domain_exception.auth_exceptions import AuthorizationException, UnauthenticatedException
 from .config import UseCaseConfiguration
 from .base_context import OperationContext
 from .authorization import AuthorizationManager
-from usecase.domain_exception.u_exceptions import (
-    UnauthorizedActionException,
-    DomainValidationException
-)
+# Remove the old import and use the new auth exceptions
+# from usecase.domain_exception.u_exceptions import (
+#     UnauthorizedActionException,
+#     DomainValidationException
+# )
+
+from usecase.domain_exception.u_exceptions import DomainValidationException  # Keep if still needed elsewhere
 
 logger = logging.getLogger("app.usecase")
 
@@ -99,14 +103,16 @@ class BaseUseCase:
             - Input validation
         """
         if self.config.require_authentication and not ctx.user:
-            raise UnauthorizedActionException("Authentication required")
+            # Use the more specific UnauthenticatedException
+            raise UnauthenticatedException("Authentication required")
 
         authorized = await sync_to_async(
             AuthorizationManager.is_authorized
         )(ctx.user, self.config)
 
         if not authorized:
-            raise UnauthorizedActionException("You do not have permission")
+            # Use the more specific AuthorizationException
+            raise AuthorizationException("You do not have permission")
 
         if self.config.validate_input:
             await self._validate_input(ctx.input_data, ctx)

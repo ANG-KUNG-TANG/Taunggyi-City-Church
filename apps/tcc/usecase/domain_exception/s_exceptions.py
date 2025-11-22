@@ -39,8 +39,18 @@ class InvalidInputException(DomainValidationException):
         cause: Optional[Exception] = None,
     ):
         details = details or {}
-        # There was no call to super???
-
+        # Add field_errors to details if provided
+        if field_errors:
+            details["field_errors"] = field_errors
+            
+        super().__init__(
+            message=message,
+            field_errors=field_errors,
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=message  # Default user message to the main message
+        )
 class SermonNotFoundException(EntityNotFoundException):
     """Exception when sermon is not found."""
     
@@ -270,3 +280,4 @@ class SermonAlreadyPublishedException(BusinessRuleException):
             cause=cause,
             user_message=user_message
         )
+        

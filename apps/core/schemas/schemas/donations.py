@@ -1,12 +1,12 @@
 from pydantic import BaseModel, field_validator, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from decimal import Decimal
 
 from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
 from apps.tcc.models.base.enums import DonationStatus, PaymentMethod
 
-class DonationBase(BaseSchema):
+class DonationBaseSchema(BaseSchema):
     """Base donation schema with common fields."""
     
     amount: Decimal
@@ -19,7 +19,7 @@ class DonationBase(BaseSchema):
     payment_method: PaymentMethod
     fund_type_id: Optional[int] = None
 
-class DonationCreate(DonationBase):
+class DonationCreateSchema(DonationBaseSchema):
     """Schema for creating a new donation."""
     
     user_id: int
@@ -43,7 +43,7 @@ class DonationCreate(DonationBase):
             raise ValueError("Recurring donations require frequency")
         return v
 
-class DonationUpdate(BaseSchema):
+class DonationUpdateSchema(DonationBaseSchema):
     """Schema for updating donation information."""
     
     amount: Optional[Decimal] = None
@@ -56,7 +56,7 @@ class DonationUpdate(BaseSchema):
     payment_method: Optional[PaymentMethod] = None
     fund_type_id: Optional[int] = None
 
-class DonationResponse(DonationBase, BaseResponseSchema):
+class DonationResponseSchema(DonationBaseSchema, BaseResponseSchema):
     """Schema for donation response."""
     
     user_id: int
@@ -71,7 +71,7 @@ class DonationResponse(DonationBase, BaseResponseSchema):
         }
     )
 
-class FundTypeBase(BaseSchema):
+class FundTypeBaseSchema(BaseSchema):
     """Base fund type schema with common fields."""
     
     name: str
@@ -80,7 +80,7 @@ class FundTypeBase(BaseSchema):
     current_balance: Decimal = Decimal('0.00')
     is_active: bool = True
 
-class FundTypeCreate(FundTypeBase):
+class FundTypeCreateSchema(FundTypeBaseSchema):
     """Schema for creating a new fund type."""
     
     @field_validator('target_amount')
@@ -99,7 +99,7 @@ class FundTypeCreate(FundTypeBase):
             raise ValueError("Current balance cannot be negative")
         return v
 
-class FundTypeUpdate(BaseSchema):
+class FundTypeUpdateSchema(BaseSchema):
     """Schema for updating fund type information."""
     
     name: Optional[str] = None
@@ -108,7 +108,7 @@ class FundTypeUpdate(BaseSchema):
     current_balance: Optional[Decimal] = None
     is_active: Optional[bool] = None
 
-class FundTypeResponse(FundTypeBase, BaseResponseSchema):
+class FundTypeResponseSchema(FundTypeBaseSchema, BaseResponseSchema):
     """Schema for fund type response."""
     
     total_raised: Decimal = Decimal('0.00')
@@ -119,3 +119,21 @@ class FundTypeResponse(FundTypeBase, BaseResponseSchema):
             Decimal: lambda v: str(v),
         }
     )
+    
+class DonationListResponseSchema(BaseSchema):
+    """Schema for listing multiple donations with pagination support."""
+    
+    donations: List[DonationResponseSchema]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int
+
+class FundTypeListResponseSchema(BaseSchema):
+    """Schema for listing multiple fund types with pagination support."""
+    
+    fund_types: List[FundTypeResponseSchema]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int

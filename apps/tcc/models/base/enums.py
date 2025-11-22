@@ -92,6 +92,7 @@ class RegistrationStatus(models.TextChoices):
     WAITLISTED = "waitlisted", _("Waitlisted")
     CANCELLED = "cancelled", _("Cancelled")
     CHECKED_IN = "checked_in", _("Checked In")
+    PENDING = "pending", _("Pending")
 
 
 class SermonStatus(models.TextChoices):

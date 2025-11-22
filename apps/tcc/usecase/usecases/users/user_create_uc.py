@@ -1,5 +1,5 @@
 from typing import Dict, Any, List
-from apps.core.schemas.builders.builder import UserResponseBuilder
+from apps.core.schemas.builders.user_rp_builder import UserResponseBuilder
 from apps.core.schemas.common.response import UserRegistrationResponse, APIResponse
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.usecases.base.jwt_uc import JWTCreateUseCase

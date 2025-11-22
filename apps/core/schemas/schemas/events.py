@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from decimal import Decimal
 
 from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
@@ -58,7 +58,7 @@ class EventUpdate(BaseSchema):
     cost: Optional[Decimal] = None
     image_url: Optional[str] = None
 
-class EventResponse(EventBase, BaseResponseSchema):
+class EventResponseSchema(EventBase, BaseResponseSchema):
     """Schema for event response."""
     
     attendee_count: int = 0
@@ -88,3 +88,21 @@ class EventRegistrationResponse(BaseResponseSchema):
     notes: Optional[str] = None
     event_title: Optional[str] = None
     user_name: Optional[str] = None
+
+class EventListResponseSchema(BaseSchema):
+    """Schema for listing multiple events with pagination support."""
+    
+    events: List[EventResponseSchema]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int
+
+class EventRegistrationListResponseSchema(BaseSchema):
+    """Schema for listing multiple event registrations with pagination support."""
+    
+    registrations: List[EventRegistrationResponse]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int

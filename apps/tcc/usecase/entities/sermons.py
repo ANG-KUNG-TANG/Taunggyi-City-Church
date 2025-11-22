@@ -1,8 +1,9 @@
-# sermons.py - Fixed Entity Classes
 import html
 import re
+from datetime import datetime
 from apps.core.schemas.schemas.sermons import SermonCreateSchema
 from apps.tcc.models.base.enums import SermonStatus
+
 
 class SermonEntity:
     def __init__(self, sermon_data: SermonCreateSchema = None, **kwargs):
@@ -14,6 +15,10 @@ class SermonEntity:
             self.content = sermon_data.content
             self.duration_minutes = sermon_data.duration_minutes
             self.sermon_date = sermon_data.sermon_date
+            self.video_url = getattr(sermon_data, 'video_url', None)
+            self.audio_url = getattr(sermon_data, 'audio_url', None)
+            self.thumbnail_url = getattr(sermon_data, 'thumbnail_url', None)
+            self.status = getattr(sermon_data, 'status', SermonStatus.DRAFT)
         else:
             # For repository conversion
             self.id = kwargs.get('id')
@@ -26,8 +31,10 @@ class SermonEntity:
             self.sermon_date = kwargs.get('sermon_date')
             self.audio_url = kwargs.get('audio_url')
             self.video_url = kwargs.get('video_url')
+            self.thumbnail_url = kwargs.get('thumbnail_url')
             self.status = kwargs.get('status', SermonStatus.DRAFT)
-            self.is_active = kwargs.get('is_active', True)
+            self.view_count = kwargs.get('view_count', 0)
+            self.like_count = kwargs.get('like_count', 0)
             self.created_at = kwargs.get('created_at')
             self.updated_at = kwargs.get('updated_at')
     
@@ -50,6 +57,8 @@ class SermonEntity:
     @staticmethod
     def is_valid_bible_reference(reference: str) -> bool:
         """Basic bible reference validation"""
+        if not reference:
+            return False
         pattern = r'^[1-9]?[A-Za-z]+\s+\d+:\d+'
         return bool(re.match(pattern, reference))
     

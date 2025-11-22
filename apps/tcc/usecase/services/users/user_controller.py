@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, Optional, List
 from apps.core.schemas.common.response import APIResponse
-from apps.core.schemas.builders.builder import UserResponseBuilder
+from apps.core.schemas.builders.user_rp_builder import UserResponseBuilder
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.services.auth.base_controller import BaseController
 from apps.tcc.usecase.services.exceptions.user_handler_exceptions import UserExceptionHandler

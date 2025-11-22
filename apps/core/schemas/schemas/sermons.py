@@ -1,12 +1,12 @@
 from pydantic import BaseModel, field_validator, ConfigDict, Field
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 import re
 
 from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
 from apps.tcc.models.base.enums import SermonStatus
 
-class SermonBase(BaseSchema):
+class SermonBaseSchema(BaseSchema):
     """Base sermon schema with common fields."""
     
     title: str = Field(..., min_length=1, max_length=200)
@@ -48,11 +48,11 @@ class SermonBase(BaseSchema):
         pattern = r'^[1-9]?[A-Za-z]+\s+\d+:\d+(-\d+)?(\s*[A-Za-z]+)?$'
         return bool(re.match(pattern, reference.strip()))
 
-class SermonCreate(SermonBase):
+class SermonCreateSchema(SermonBaseSchema):
     """Schema for creating a new sermon."""
     pass
 
-class SermonUpdate(BaseSchema):
+class SermonUpdateSchema(BaseSchema):
     """Schema for updating sermon information."""
     
     title: Optional[str] = Field(None, min_length=1, max_length=200)
@@ -67,7 +67,7 @@ class SermonUpdate(BaseSchema):
     thumbnail_url: Optional[str] = None
     status: Optional[SermonStatus] = None
 
-class SermonResponse(SermonBase, BaseResponseSchema):
+class SermonResponseSchema(SermonBaseSchema, BaseResponseSchema):
     """Schema for sermon response."""
     
     view_count: int = 0
@@ -78,3 +78,13 @@ class SermonResponse(SermonBase, BaseResponseSchema):
             datetime: lambda v: v.isoformat(),
         }
     )
+    
+    
+class SermonListResponseSchema(BaseSchema):
+    """Schema for listing multiple sermons with pagination support."""
+
+    sermons: List[SermonResponseSchema]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int

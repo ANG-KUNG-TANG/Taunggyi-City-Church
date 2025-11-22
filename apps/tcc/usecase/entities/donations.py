@@ -1,20 +1,40 @@
 import html
 from decimal import Decimal
-from typing import Dict
+from typing import Dict, Optional
 from datetime import datetime
 from apps.core.schemas.schemas.donations import DonationCreate, FundTypeCreate
-from models.base.enums import DonationStatus, PaymentMethod
+from apps.tcc.models.base.enums import DonationStatus, PaymentMethod
+
 
 class DonationEntity:
-    def __init__(self, donation_data: DonationCreate):
-        self.amount = donation_data.amount
-        self.transaction_id = donation_data.transaction_id
-        self.receipt_number = donation_data.receipt_number
-        self.notes = donation_data.notes
-        self.is_recurring = donation_data.is_recurring
-        self.recurring_frequency = donation_data.recurring_frequency
-        self.donation_date = donation_data.donation_date or datetime.now()
-        self.payment_method = donation_data.payment_method
+    def __init__(self, donation_data: DonationCreate = None, **kwargs):
+        if donation_data:
+            self.amount = donation_data.amount
+            self.transaction_id = donation_data.transaction_id
+            self.receipt_number = donation_data.receipt_number
+            self.notes = donation_data.notes
+            self.is_recurring = donation_data.is_recurring
+            self.recurring_frequency = donation_data.recurring_frequency
+            self.donation_date = donation_data.donation_date or datetime.now()
+            self.payment_method = donation_data.payment_method
+            self.fund_type_id = donation_data.fund_type_id
+            self.user_id = getattr(donation_data, 'user_id', None)
+        else:
+            # For repository conversion
+            self.id = kwargs.get('id')
+            self.amount = kwargs.get('amount')
+            self.transaction_id = kwargs.get('transaction_id')
+            self.receipt_number = kwargs.get('receipt_number')
+            self.notes = kwargs.get('notes')
+            self.is_recurring = kwargs.get('is_recurring', False)
+            self.recurring_frequency = kwargs.get('recurring_frequency')
+            self.donation_date = kwargs.get('donation_date', datetime.now())
+            self.payment_method = kwargs.get('payment_method')
+            self.fund_type_id = kwargs.get('fund_type_id')
+            self.user_id = kwargs.get('user_id')
+            self.status = kwargs.get('status', DonationStatus.PENDING)
+            self.created_at = kwargs.get('created_at')
+            self.updated_at = kwargs.get('updated_at')
     
     def sanitize_inputs(self):
         """Sanitize donation content"""
@@ -34,16 +54,29 @@ class DonationEntity:
             'receipt_number': self.receipt_number or 'N/A',
             'amount': str(self.amount),
             'date': self.donation_date.strftime('%Y-%m-%d %H:%M'),
-            'payment_method': self.payment_method.value,
+            'payment_method': self.payment_method.value if hasattr(self.payment_method, 'value') else str(self.payment_method),
             'transaction_id': self.transaction_id or 'N/A'
         }
 
+
 class FundTypeEntity:
-    def __init__(self, fund_data: FundTypeCreate):
-        self.name = fund_data.name
-        self.description = fund_data.description
-        self.target_amount = fund_data.target_amount
-        self.current_balance = fund_data.current_balance
+    def __init__(self, fund_data: FundTypeCreate = None, **kwargs):
+        if fund_data:
+            self.name = fund_data.name
+            self.description = fund_data.description
+            self.target_amount = fund_data.target_amount
+            self.current_balance = fund_data.current_balance
+            self.is_active = getattr(fund_data, 'is_active', True)
+        else:
+            # For repository conversion
+            self.id = kwargs.get('id')
+            self.name = kwargs.get('name')
+            self.description = kwargs.get('description')
+            self.target_amount = kwargs.get('target_amount')
+            self.current_balance = kwargs.get('current_balance', Decimal('0.00'))
+            self.is_active = kwargs.get('is_active', True)
+            self.created_at = kwargs.get('created_at')
+            self.updated_at = kwargs.get('updated_at')
     
     def sanitize_inputs(self):
         """Sanitize fund type content"""

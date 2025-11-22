@@ -1,5 +1,5 @@
 from rest_framework_simplejwt.tokens import RefreshToken
-from apps.core.schemas.builders.builder import UserResponseBuilder
+from apps.core.schemas.builders.user_rp_builder import UserResponseBuilder
 from apps.core.schemas.common.response import LoginResponse, make_login_response
 from apps.tcc.usecase.domain_exception.auth_exceptions import AccountInactiveException, InvalidTokenException, InvalidUserInputError
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository

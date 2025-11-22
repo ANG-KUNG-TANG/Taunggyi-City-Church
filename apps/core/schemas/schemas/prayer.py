@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
 from apps.tcc.models.base.enums import PrayerPrivacy
@@ -48,7 +48,7 @@ class PrayerRequestUpdate(BaseSchema):
     answer_notes: Optional[str] = None
     is_answered: Optional[bool] = None
 
-class PrayerRequestResponse(PrayerRequestBase, BaseResponseSchema):
+class PrayerRequestResponseSchema(PrayerRequestBase, BaseResponseSchema):
     """Schema for prayer request response."""
     
     user_id: int
@@ -61,3 +61,12 @@ class PrayerRequestResponse(PrayerRequestBase, BaseResponseSchema):
             datetime: lambda v: v.isoformat(),
         }
     )
+
+class PrayerRequestListResponseSchema(BaseSchema):
+    """Schema for listing multiple prayer requests with pagination support."""
+    
+    prayer_requests: List[PrayerRequestResponseSchema]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int

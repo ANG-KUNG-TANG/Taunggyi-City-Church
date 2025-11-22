@@ -1,4 +1,3 @@
-# sermon_create.py
 from typing import Dict, Any
 from apps.tcc.usecase.repo.domain_repo.sermons import SermonRepository
 from usecases.base.base_uc import BaseUseCase
