@@ -576,3 +576,33 @@ class ConcurrentRequestLimitException(AuthorizationException):
             context=context,
             cause=cause
         )
+
+class InvalidUserInputError(Exception):
+    def __init__(self, message="Invalid input", field_errors=None):
+        self.message = message
+        self.field_errors = field_errors or {}
+        super().__init__(self.message)
+
+
+class UserAuthenticationError(Exception):
+    def __init__(self, message="Invalid email or password"):
+        self.message = message
+        super().__init__(self.message)
+
+
+class InvalidTokenError(Exception):
+    def __init__(self, message="Invalid or expired token"):
+        self.message = message
+        super().__init__(self.message)
+
+
+class UnauthorizedError(Exception):
+    def __init__(self, message="Unauthorized access"):
+        self.message = message
+        super().__init__(self.message)
+
+
+class ForbiddenError(Exception):
+    def __init__(self, message="You do not have permission to perform this action"):
+        self.message = message
+        super().__init__(self.message)
