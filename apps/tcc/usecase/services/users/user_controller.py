@@ -1,271 +1,305 @@
-# apps/tcc/controllers/user_controller.py
-from typing import Dict, Any
-from apps.core.core_validators.decorators import validate, validate_query_params
-from apps.core.schemas.common.response import (
-    UserRegistrationResponse, 
-    LoginResponse,
-    LogoutResponse,
-    make_login_response,
-    make_logout_response,
-    APIResponse
-)
-from apps.core.schemas.schemas.users import (
-    UserCreateSchema, 
-    UserUpdateSchema, 
-    UserQuerySchema,
-    UserLoginSchema,
-    UserChangePasswordSchema
-)
+import logging
+from typing import Dict, Any, Optional, List
+from apps.core.schemas.common.response import APIResponse
 from apps.core.schemas.builders.builder import UserResponseBuilder
-from apps.tcc.usecase.services.users.exception import UserExceptionHandler
+from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
+from apps.tcc.usecase.services.auth.base_controller import BaseController
+from apps.tcc.usecase.services.exceptions.user_handler_exceptions import UserExceptionHandler
+from apps.tcc.usecase.usecases.users.user_create_uc import CreateUserUseCase
+from apps.core.core_validators.decorators import validate
+from apps.tcc.usecase.usecases.users.user_read_uc import (
+    GetUserByIdUseCase,
+    GetUserByEmailUseCase,
+    GetAllUsersUseCase,
+    GetUsersByRoleUseCase,
+    SearchUsersUseCase
+)
+from apps.tcc.usecase.usecases.users.user_update_uc import UpdateUserUseCase, ChangeUserStatusUseCase
+from apps.tcc.usecase.usecases.users.user_delete_uc import DeleteUserUseCase
+from apps.tcc.usecase.usecases.base.jwt_uc import JWTCreateUseCase
+from apps.core.schemas.schemas.users import UserCreateSchema, UserUpdateSchema
+from apps.tcc.models.base.enums import UserRole, UserStatus
 
-# Use the production-level exception handler
-handle_user_exceptions = UserExceptionHandler.handle_user_exceptions
+logger = logging.getLogger(__name__)
 
 
-class UserController:
+class UserController(BaseController):
     """
-    Unified controller using comprehensive exception handling and response builders
+    Comprehensive User Controller
+    Handles all user operations using use cases from user UC layer
     """
+    
+    def __init__(
+        self,
+        user_repository: UserRepository,
+        jwt_uc: JWTCreateUseCase
+    ):
+        self.user_repository = user_repository
+        self.jwt_uc = jwt_uc
+        
+        # Initialize all user use cases
+        self.create_user_uc = CreateUserUseCase(user_repository, jwt_uc)
+        self.get_user_by_id_uc = GetUserByIdUseCase(user_repository)
+        self.get_user_by_email_uc = GetUserByEmailUseCase(user_repository)
+        self.get_all_users_uc = GetAllUsersUseCase(user_repository)
+        self.get_users_by_role_uc = GetUsersByRoleUseCase(user_repository)
+        self.search_users_uc = SearchUsersUseCase(user_repository)
+        self.update_user_uc = UpdateUserUseCase(user_repository)
+        self.change_user_status_uc = ChangeUserStatusUseCase(user_repository)
+        self.delete_user_uc = DeleteUserUseCase(user_repository)
 
-    def __init__(self, create_user_uc, get_user_uc, update_user_uc, 
-                 list_users_uc, login_user_uc, change_password_uc, logout_user_uc=None):
-        self.create_user_uc = create_user_uc
-        self.get_user_uc = get_user_uc
-        self.update_user_uc = update_user_uc
-        self.list_users_uc = list_users_uc
-        self.login_user_uc = login_user_uc
-        self.change_password_uc = change_password_uc
-        self.logout_user_uc = logout_user_uc
-
-    # Authentication endpoints
-    @validate(schema_name="UserCreateSchema", data_key="user_data")
-    @handle_user_exceptions
-    async def register(self, user_data: dict) -> UserRegistrationResponse:
+    # CREATE Operations
+    @BaseController.handle_exceptions
+    @validate.validate_input(UserCreateSchema)
+    async def create_user(
+        self, 
+        input_data: Dict[str, Any], 
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
         """
-        Register new user with comprehensive validation and exception handling
-        
-        Args:
-            user_data: Validated user creation data
-            
-        Returns:
-            UserRegistrationResponse with user data and tokens
+        Create a new user account
+        Uses: CreateUserUseCase
         """
-        return await self.create_user_uc.execute(user_data)
-
-    @validate(schema_name="UserLoginSchema", data_key="login_data")
-    @handle_user_exceptions
-    async def login(self, login_data: dict) -> LoginResponse:
-        """
-        User login with credential validation
-        
-        Args:
-            login_data: Validated login credentials
-            
-        Returns:
-            LoginResponse with access tokens and user info
-        """
-        result = await self.login_user_uc.execute(login_data)
-        
-        # Handle different response formats from use case
-        if isinstance(result, dict):
-            # If use case returns raw data, format it properly
-            return make_login_response(
-                access_token=result.get('access_token'),
-                refresh_token=result.get('refresh_token'),
-                expires_in=result.get('expires_in'),
-                user=result.get('user'),
-                message=result.get('message', 'Login successful')
-            )
-        elif hasattr(result, 'data') and isinstance(result.data, dict):
-            # If use case returns APIResponse with data
-            data = result.data
-            return make_login_response(
-                access_token=data.get('access_token'),
-                refresh_token=data.get('refresh_token'),
-                expires_in=data.get('expires_in'),
-                user=data.get('user'),
-                message=result.message or 'Login successful'
-            )
-        
+        result = await self.create_user_uc.execute(input_data, None, context or {})
         return result
 
-    @handle_user_exceptions
-    async def logout(self, user_id: int = None, token: str = None) -> LogoutResponse:
+    # READ Operations
+    @BaseController.handle_exceptions
+    async def get_user_by_id(
+        self, 
+        user_id: str,
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
         """
-        User logout with optional token invalidation
-        
-        Args:
-            user_id: Optional user ID for targeted logout
-            token: Optional specific token to invalidate
-            
-        Returns:
-            LogoutResponse confirming logout
+        Get user by ID
+        Uses: GetUserByIdUseCase
         """
-        if self.logout_user_uc:
-            # Use the logout use case if available
-            await self.logout_user_uc.execute({
-                'user_id': user_id,
-                'token': token
-            })
-        
-        return make_logout_response("Logout successful")
+        input_data = {'user_id': user_id}
+        result = await self.get_user_by_id_uc.execute(input_data, current_user, context or {})
+        return result
 
-    # User management endpoints
-    @handle_user_exceptions
-    async def get_profile(self, user_id: int) -> APIResponse:
+    @BaseController.handle_exceptions
+    async def get_user_by_email(
+        self, 
+        email: str,
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
         """
-        Get user profile by ID
-        
-        Args:
-            user_id: User identifier
-            
-        Returns:
-            APIResponse with user profile data
+        Get user by email
+        Uses: GetUserByEmailUseCase
         """
-        return await self.get_user_uc.execute({"user_id": user_id})
+        input_data = {'email': email}
+        result = await self.get_user_by_email_uc.execute(input_data, current_user, context or {})
+        return result
 
-    @validate(schema_name="UserUpdateSchema", data_key="update_data")
-    @handle_user_exceptions
-    async def update_profile(self, user_id: int, update_data: dict) -> APIResponse:
+    @BaseController.handle_exceptions
+    async def get_all_users(
+        self,
+        filters: Dict[str, Any] = None,
+        page: int = 1,
+        per_page: int = 20,
+        current_user: Any = None,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
         """
-        Update user profile with validation
-        
-        Args:
-            user_id: User identifier
-            update_data: Validated update data
-            
-        Returns:
-            APIResponse with updated user data
+        Get all users with pagination and filtering
+        Uses: GetAllUsersUseCase
         """
-        return await self.update_user_uc.execute({
-            "user_id": user_id,
-            "update_data": update_data
-        })
+        input_data = {
+            'filters': filters or {},
+            'page': page,
+            'per_page': per_page
+        }
+        result = await self.get_all_users_uc.execute(input_data, current_user, context or {})
+        return result
 
-    @validate(schema_name="UserChangePasswordSchema", data_key="password_data")
-    @handle_user_exceptions
-    async def change_password(self, user_id: int, password_data: dict) -> APIResponse:
+    @BaseController.handle_exceptions
+    async def get_users_by_role(
+        self,
+        role: str,
+        page: int = 1,
+        per_page: int = 20,
+        current_user: Any = None,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
         """
-        Change user password with security validation
-        
-        Args:
-            user_id: User identifier
-            password_data: Validated password change data
-            
-        Returns:
-            APIResponse confirming password change
+        Get users by role with pagination
+        Uses: GetUsersByRoleUseCase
         """
-        return await self.change_password_uc.execute({
-            "user_id": user_id,
-            "password_data": password_data
-        })
+        input_data = {
+            'role': role,
+            'page': page,
+            'per_page': per_page
+        }
+        result = await self.get_users_by_role_uc.execute(input_data, current_user, context or {})
+        return result
 
-    @validate_query_params(schema_name="UserQuerySchema")
-    @handle_user_exceptions
-    async def list_users(self, validated_query: dict) -> APIResponse:
+    @BaseController.handle_exceptions
+    async def search_users(
+        self,
+        search_term: str,
+        page: int = 1,
+        per_page: int = 20,
+        current_user: Any = None,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
         """
-        List users with filtering and pagination
-        
-        Args:
-            validated_query: Validated query parameters
-            
-        Returns:
-            APIResponse with paginated user list
+        Search users with pagination
+        Uses: SearchUsersUseCase
         """
-        return await self.list_users_uc.execute(validated_query)
+        input_data = {
+            'search_term': search_term,
+            'page': page,
+            'per_page': per_page
+        }
+        result = await self.search_users_uc.execute(input_data, current_user, context or {})
+        return result
 
-    @handle_user_exceptions
-    async def get_current_user(self, current_user_id: int) -> APIResponse:
+    @BaseController.handle_exceptions
+    async def get_current_user_profile(
+        self,
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
         """
         Get current authenticated user's profile
-        
-        Args:
-            current_user_id: Authenticated user's ID from JWT
-            
-        Returns:
-            APIResponse with current user data
+        Uses: GetUserByIdUseCase internally
         """
-        return await self.get_user_uc.execute({"user_id": current_user_id})
+        from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
+        
+        if not current_user or not hasattr(current_user, 'id'):
+            raise InvalidUserInputException(
+                field_errors={"user": ["User authentication required"]},
+                user_message="User authentication required."
+            )
+        
+        input_data = {'user_id': str(current_user.id)}
+        result = await self.get_user_by_id_uc.execute(input_data, current_user, context or {})
+        return result
 
-    @validate(schema_name="UserUpdateSchema", data_key="update_data")
-    @handle_user_exceptions
-    async def update_current_user(self, current_user_id: int, update_data: dict) -> APIResponse:
+    # UPDATE Operations
+    @BaseController.handle_exceptions
+    async def update_user(
+        self,
+        user_id: str,
+        update_data: Dict[str, Any],
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
+        """
+        Update user profile
+        Uses: UpdateUserUseCase
+        """
+        input_data = {
+            'user_id': user_id,
+            'update_data': update_data
+        }
+        result = await self.update_user_uc.execute(input_data, current_user, context or {})
+        return result
+
+    @BaseController.handle_exceptions
+    @validate.validate_optional(UserUpdateSchema)
+    async def update_current_user_profile(
+        self,
+        update_data: Dict[str, Any],
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
         """
         Update current authenticated user's profile
+        Uses: UpdateUserUseCase internally
+        """
+        from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
         
-        Args:
-            current_user_id: Authenticated user's ID
-            update_data: Validated update data
-            
-        Returns:
-            APIResponse with updated user data
-        """
-        return await self.update_user_uc.execute({
-            "user_id": current_user_id,
-            "update_data": update_data
-        })
-
-    # Admin-only endpoints
-    @handle_user_exceptions
-    async def deactivate_user(self, user_id: int, current_user_id: int) -> APIResponse:
-        """
-        Deactivate user account (admin only)
+        if not current_user or not hasattr(current_user, 'id'):
+            raise InvalidUserInputException(
+                field_errors={"user": ["User authentication required"]},
+                user_message="User authentication required."
+            )
         
-        Args:
-            user_id: User to deactivate
-            current_user_id: Admin user ID for authorization
-            
-        Returns:
-            APIResponse confirming deactivation
-        """
-        return await self.update_user_uc.execute({
-            "user_id": user_id,
-            "update_data": {"status": "INACTIVE"},
-            "requester_id": current_user_id
-        })
+        input_data = {
+            'user_id': str(current_user.id),
+            'update_data': update_data
+        }
+        result = await self.update_user_uc.execute(input_data, current_user, context or {})
+        return result
 
-    @handle_user_exceptions
-    async def activate_user(self, user_id: int, current_user_id: int) -> APIResponse:
+    @BaseController.handle_exceptions
+    async def change_user_status(
+        self,
+        user_id: str,
+        status: str,
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
         """
-        Activate user account (admin only)
+        Change user status
+        Uses: ChangeUserStatusUseCase
+        """
+        input_data = {
+            'user_id': user_id,
+            'status': status
+        }
+        result = await self.change_user_status_uc.execute(input_data, current_user, context or {})
+        return result
+
+    # DELETE Operations
+    @BaseController.handle_exceptions
+    async def delete_user(
+        self,
+        user_id: str,
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
+        """
+        Soft delete user
+        Uses: DeleteUserUseCase
+        """
+        input_data = {'user_id': user_id}
+        result = await self.delete_user_uc.execute(input_data, current_user, context or {})
+        return result
+
+    # BATCH Operations
+    @BaseController.handle_exceptions
+    async def bulk_change_status(
+        self,
+        user_ids: List[str],
+        status: str,
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> APIResponse:
+        """
+        Bulk change user statuses
+        Uses: ChangeUserStatusUseCase internally for each user
+        """
+        results = []
+        errors = []
         
-        Args:
-            user_id: User to activate
-            current_user_id: Admin user ID for authorization
-            
-        Returns:
-            APIResponse confirming activation
-        """
-        return await self.update_user_uc.execute({
-            "user_id": user_id,
-            "update_data": {"status": "ACTIVE"},
-            "requester_id": current_user_id
-        })
+        for user_id in user_ids:
+            try:
+                input_data = {'user_id': user_id, 'status': status}
+                result = await self.change_user_status_uc.execute(
+                    input_data, current_user, context or {}
+                )
+                results.append({'user_id': user_id, 'success': True})
+            except Exception as e:
+                errors.append({'user_id': user_id, 'error': str(e)})
+                logger.error(f"Failed to update status for user {user_id}: {str(e)}")
+        
+        return APIResponse.success_response(
+            message=f"Bulk status update completed. Success: {len(results)}, Failed: {len(errors)}",
+            data={
+                'successful_updates': results,
+                'failed_updates': errors
+            }
+        )
 
-
-# Factory function for dependency injection
+# Convenience instance creator
 def create_user_controller(
-    create_user_uc,
-    get_user_uc, 
-    update_user_uc,
-    list_users_uc,
-    login_user_uc,
-    change_password_uc,
-    logout_user_uc=None
+    user_repository: UserRepository,
+    jwt_uc: JWTCreateUseCase
 ) -> UserController:
-    """
-    Factory function to create UserController with all dependencies
-    
-    Returns:
-        Configured UserController instance
-    """
-    return UserController(
-        create_user_uc=create_user_uc,
-        get_user_uc=get_user_uc,
-        update_user_uc=update_user_uc,
-        list_users_uc=list_users_uc,
-        login_user_uc=login_user_uc,
-        change_password_uc=change_password_uc,
-        logout_user_uc=logout_user_uc
-    )
+    """Factory function to create user controller"""
+    return UserController(user_repository, jwt_uc)

@@ -1,4 +1,3 @@
-# apps/tcc/controllers/decorators/user_exceptions.py
 from functools import wraps
 from typing import Dict, Any, Optional
 import logging
@@ -7,7 +6,7 @@ from apps.core.schemas.common.response import (
     LoginResponse,
     APIResponse
 )
-from apps.tcc.usecase.domain_exception.u_exceptions import (
+from apps.tcc.usecase.domain_exception.u_exceptions import ( 
     UserAlreadyExistsException,
     UserNotFoundException,
     InvalidUserInputException,
@@ -18,6 +17,7 @@ from apps.tcc.usecase.domain_exception.u_exceptions import (
     PasswordValidationException,
     UserException
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -159,12 +159,13 @@ class UserExceptionHandler:
                 status_code = cls._get_status_code(e)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse.error_response(
-                    message=e.user_message or "User operation failed",
-                    data=error_data,
-                    status_code=status_code
-                )
-                
+            return APIResponse(
+                success=False,
+                message=e.user_message or "Error message",
+                data=error_data,
+                status_code=status_code
+            )
+                            
         return wrapper
 
 # Convenience function for direct usage

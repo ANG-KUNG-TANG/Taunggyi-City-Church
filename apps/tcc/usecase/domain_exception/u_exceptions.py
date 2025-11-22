@@ -65,8 +65,6 @@ class UserException(BaseAppException):
         )
 
 class InvalidUserInputException(DomainValidationException):
-    """Exception for invalid user input data."""
-    
     def __init__(
         self,
         field_errors: Dict[str, List[str]],
@@ -75,14 +73,7 @@ class InvalidUserInputException(DomainValidationException):
         cause: Optional[Exception] = None,
         user_message: Optional[str] = None
     ):
-        details = details or {}
-        details.update({
-            "reason": "User input validation failed"
-        })
-        
-        if not user_message:
-            user_message = "Please provide valid input data."
-            
+        # Call parent constructor correctly
         super().__init__(
             message="Invalid user input",
             field_errors=field_errors,
@@ -91,7 +82,6 @@ class InvalidUserInputException(DomainValidationException):
             cause=cause,
             user_message=user_message
         )
-    
 class UserNotFoundException(EntityNotFoundException):
     """Exception when user is not found."""
     

@@ -1,16 +1,16 @@
-# apps/tcc/usecase/usecases/user_create_uc.py
 from typing import Dict, Any, List
 from apps.core.schemas.builders.builder import UserResponseBuilder
-from apps.core.schemas.common.response import UserRegistrationResponse, UserRegistrationData
+from apps.core.schemas.common.response import UserRegistrationResponse, APIResponse
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.usecases.base.jwt_uc import JWTCreateUseCase
-from usecases.base.base_uc import BaseUseCase
-from usecase.domain_exception.u_exceptions import (
+from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
+from apps.tcc.usecase.domain_exception.u_exceptions import (
     InvalidUserInputException, 
     UserAlreadyExistsException
 )
-from entities.users import UserEntity
+from apps.tcc.usecase.entities.users import UserEntity
 from apps.core.schemas.schemas.users import UserCreateSchema
+
 
 class CreateUserUseCase(BaseUseCase):
     """User creation use case using your existing response schemas"""

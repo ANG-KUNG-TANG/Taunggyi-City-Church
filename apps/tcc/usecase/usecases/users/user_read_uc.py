@@ -1,18 +1,21 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
+from apps.core.schemas.builders.builder import UserResponseBuilder
+from apps.core.schemas.common.response import APIResponse
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
-from usecases.base.base_uc import BaseUseCase
-from usecase.domain_exception.u_exceptions import (
+from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
+from apps.tcc.usecase.domain_exception.u_exceptions import (
     InvalidUserInputException,
     UserNotFoundException
 )
-from apps.tcc.models.base.enums import UserRole, UserStatus
+from apps.tcc.models.base.enums import UserRole
+
 
 class GetUserByIdUseCase(BaseUseCase):
-    """Use case for getting user by ID"""
+    """Use case for getting user by ID with JWT context"""
     
-    def __init__(self):
+    def __init__(self, user_repository: UserRepository):
         super().__init__()
-        self.user_repository = UserRepository()  
+        self.user_repository = user_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -20,26 +23,36 @@ class GetUserByIdUseCase(BaseUseCase):
     async def _validate_input(self, input_data: Dict[str, Any], context):
         user_id = input_data.get('user_id')
         if not user_id:
-            raise InvalidUserInputException(details={
-                "message": "User ID is required",
-                "field": "user_id"
-            })
+            raise InvalidUserInputException(
+                field_errors={"user_id": ["User ID is required"]},
+                user_message="Please provide a valid user ID."
+            )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
         user_id = input_data['user_id']
         user_entity = await self.user_repository.get_by_id(user_id)
         
         if not user_entity:
-            raise UserNotFoundException(user_id=user_id)
+            raise UserNotFoundException(
+                user_id=user_id,
+                user_message="User not found."
+            )
         
-        return self._format_user_response(user_entity)
+        # Use builder to create consistent response
+        user_response = UserResponseBuilder.to_response(user_entity)
+        
+        return APIResponse.success_response(
+            message="User retrieved successfully",
+            data=user_response.model_dump()
+        )
+
 
 class GetUserByEmailUseCase(BaseUseCase):
-    """Use case for getting user by email"""
+    """Use case for getting user by email with JWT context"""
     
-    def __init__(self):
+    def __init__(self, user_repository: UserRepository):
         super().__init__()
-        self.user_repository = UserRepository()  # Instantiate directly
+        self.user_repository = user_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -47,45 +60,72 @@ class GetUserByEmailUseCase(BaseUseCase):
     async def _validate_input(self, input_data: Dict[str, Any], context):
         email = input_data.get('email')
         if not email:
-            raise InvalidUserInputException(details={
-                "message": "Email is required",
-                "field": "email"
-            })
+            raise InvalidUserInputException(
+                field_errors={"email": ["Email is required"]},
+                user_message="Please provide a valid email address."
+            )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
         email = input_data['email']
         user_entity = await self.user_repository.get_by_email(email)
         
         if not user_entity:
-            raise UserNotFoundException(message=f"User with email {email} not found")
+            raise UserNotFoundException(
+                email=email,
+                user_message="User with this email not found."
+            )
         
-        return self._format_user_response(user_entity)
+        user_response = UserResponseBuilder.to_response(user_entity)
+        
+        return APIResponse.success_response(
+            message="User retrieved successfully",
+            data=user_response.model_dump()
+        )
+
 
 class GetAllUsersUseCase(BaseUseCase):
-    """Use case for getting all users with optional filtering"""
+    """Use case for getting all users with optional filtering and JWT context"""
     
-    def __init__(self):
+    def __init__(self, user_repository: UserRepository):
         super().__init__()
-        self.user_repository = UserRepository()  # Instantiate directly
+        self.user_repository = user_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
+        self.config.required_permissions = ['can_manage_users']
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
         filters = input_data.get('filters', {})
-        users = await self.user_repository.get_all(filters)
+        page = input_data.get('page', 1)
+        per_page = input_data.get('per_page', 20)
         
-        return {
-            "users": [self._format_user_response(user_entity) for user_entity in users],
-            "total_count": len(users)
-        }
+        # Get users with pagination
+        users, total_count = await self.user_repository.get_all_paginated(
+            filters=filters,
+            page=page,
+            per_page=per_page
+        )
+        
+        # Use builder for list response
+        list_response = UserResponseBuilder.to_list_response(
+            entities=users,
+            total=total_count,
+            page=page,
+            per_page=per_page
+        )
+        
+        return APIResponse.success_response(
+            message="Users retrieved successfully",
+            data=list_response.model_dump()
+        )
+
 
 class GetUsersByRoleUseCase(BaseUseCase):
-    """Use case for getting users by role"""
+    """Use case for getting users by role with JWT context"""
     
-    def __init__(self):
+    def __init__(self, user_repository: UserRepository):
         super().__init__()
-        self.user_repository = UserRepository()  # Instantiate directly
+        self.user_repository = user_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -94,10 +134,10 @@ class GetUsersByRoleUseCase(BaseUseCase):
     async def _validate_input(self, input_data: Dict[str, Any], context):
         role = input_data.get('role')
         if not role:
-            raise InvalidUserInputException(details={
-                "message": "Role is required",
-                "field": "role"
-            })
+            raise InvalidUserInputException(
+                field_errors={"role": ["Role is required"]},
+                user_message="Please specify a user role."
+            )
         
         # Convert string to enum if needed
         if isinstance(role, str):
@@ -105,153 +145,73 @@ class GetUsersByRoleUseCase(BaseUseCase):
                 role = UserRole(role)
             except ValueError:
                 valid_roles = [role.value for role in UserRole]
-                raise InvalidUserInputException(details={
-                    "message": "Invalid role",
-                    "field": "role",
-                    "valid_roles": valid_roles
-                })
+                raise InvalidUserInputException(
+                    field_errors={"role": [f"Invalid role. Valid roles: {', '.join(valid_roles)}"]},
+                    user_message="Please provide a valid user role."
+                )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
         role = input_data['role']
-        users = await self.user_repository.get_by_role(role)
+        page = input_data.get('page', 1)
+        per_page = input_data.get('per_page', 20)
         
-        return {
-            "users": [self._format_user_response(user_entity) for user_entity in users],
-            "role": role.value if hasattr(role, 'value') else role,
-            "total_count": len(users)
-        }
+        users, total_count = await self.user_repository.get_by_role_paginated(
+            role=role,
+            page=page,
+            per_page=per_page
+        )
+        
+        list_response = UserResponseBuilder.to_list_response(
+            entities=users,
+            total=total_count,
+            page=page,
+            per_page=per_page
+        )
+        
+        return APIResponse.success_response(
+            message=f"Users with role {role.value} retrieved successfully",
+            data=list_response.model_dump()
+        )
+
 
 class SearchUsersUseCase(BaseUseCase):
-    """Use case for searching users"""
+    """Use case for searching users with JWT context"""
     
-    def __init__(self):
+    def __init__(self, user_repository: UserRepository):
         super().__init__()
-        self.user_repository = UserRepository()  # Instantiate directly
+        self.user_repository = user_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
+        self.config.required_permissions = ['can_manage_users']
 
     async def _validate_input(self, input_data: Dict[str, Any], context):
         search_term = input_data.get('search_term')
-        if not search_term:
-            raise InvalidUserInputException(details={
-                "message": "Search term is required",
-                "field": "search_term"
-            })
+        if not search_term or len(search_term.strip()) < 2:
+            raise InvalidUserInputException(
+                field_errors={"search_term": ["Search term must be at least 2 characters long"]},
+                user_message="Please provide a search term with at least 2 characters."
+            )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
         search_term = input_data['search_term']
-        users = await self.user_repository.search_users(search_term)
+        page = input_data.get('page', 1)
+        per_page = input_data.get('per_page', 20)
         
-        return {
-            "users": [self._format_user_response(user_entity) for user_entity in users],
-            "search_term": search_term,
-            "total_count": len(users)
-        }
-
-class GetMinistryLeadersUseCase(BaseUseCase):
-    """Use case for getting all ministry leaders"""
-    
-    def __init__(self):
-        super().__init__()
-        self.user_repository = UserRepository()  # Instantiate directly
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-        self.config.required_permissions = ['can_manage_users']
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        users = await self.user_repository.get_by_role(UserRole.MINISTRY_LEADER)
+        users, total_count = await self.user_repository.search_users_paginated(
+            search_term=search_term,
+            page=page,
+            per_page=per_page
+        )
         
-        return {
-            "users": [self._format_user_response(user_entity) for user_entity in users],
-            "total_count": len(users)
-        }
-
-class GetUsersByStatusUseCase(BaseUseCase):
-    """Use case for getting users by status"""
-    
-    def __init__(self):
-        super().__init__()
-        self.user_repository = UserRepository()  # Instantiate directly
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-        self.config.required_permissions = ['can_manage_users']
-
-    async def _validate_input(self, input_data: Dict[str, Any], context):
-        status = input_data.get('status')
-        if not status:
-            raise InvalidUserInputException(details={
-                "message": "Status is required",
-                "field": "status"
-            })
+        list_response = UserResponseBuilder.to_list_response(
+            entities=users,
+            total=total_count,
+            page=page,
+            per_page=per_page
+        )
         
-        # Convert string to enum if needed
-        if isinstance(status, str):
-            try:
-                status = UserStatus(status)
-            except ValueError:
-                valid_statuses = [status.value for status in UserStatus]
-                raise InvalidUserInputException(details={
-                    "message": "Invalid status",
-                    "field": "status",
-                    "valid_statuses": valid_statuses
-                })
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        status = input_data['status']
-        users = await self.user_repository.get_all(filters={'status': status})
-        
-        return {
-            "users": [self._format_user_response(user_entity) for user_entity in users],
-            "status": status.value if hasattr(status, 'value') else status,
-            "total_count": len(users)
-        }
-
-class GetActiveUsersCountUseCase(BaseUseCase):
-    """Use case for getting active users count"""
-    
-    def __init__(self):
-        super().__init__()
-        self.user_repository = UserRepository()  # Instantiate directly
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-        self.config.required_permissions = ['can_manage_users']
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        count = await self.user_repository.get_active_users_count()
-        
-        return {
-            "active_users_count": count
-        }
-
-# Common response formatting method
-def _format_user_response(user_entity):
-    """Format user entity for response"""
-    return {
-        'id': user_entity.id,
-        'name': user_entity.name,
-        'email': user_entity.email,
-        'phone_number': user_entity.phone_number,
-        'age': user_entity.age,
-        'gender': user_entity.gender,
-        'marital_status': user_entity.marital_status,
-        'date_of_birth': user_entity.date_of_birth,
-        'role': user_entity.role.value if hasattr(user_entity.role, 'value') else user_entity.role,
-        'status': user_entity.status.value if hasattr(user_entity.status, 'value') else user_entity.status,
-        'is_active': user_entity.is_active,
-        'email_notifications': user_entity.email_notifications,
-        'sms_notifications': user_entity.sms_notifications,
-        'membership_date': user_entity.membership_date,
-        'baptism_date': user_entity.baptism_date,
-        'created_at': user_entity.created_at,
-        'updated_at': user_entity.updated_at
-    }
-
-# Attach the formatting method to all read use cases
-for cls in [GetUserByIdUseCase, GetUserByEmailUseCase, GetAllUsersUseCase, 
-           GetUsersByRoleUseCase, SearchUsersUseCase, GetMinistryLeadersUseCase,
-           GetUsersByStatusUseCase]:
-    cls._format_user_response = staticmethod(_format_user_response)
+        return APIResponse.success_response(
+            message=f"Search results for '{search_term}'",
+            data=list_response.model_dump()
+        )

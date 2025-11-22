@@ -1,4 +1,5 @@
-from typing import List, Optional, Dict, Any
+from datetime import timezone
+from typing import List, Optional, Dict, Any, Tuple
 from django.db.models import Q
 from apps.core.cache.async_cache import AsyncCache
 from repo.base.modelrepo import DomainRepository
@@ -173,7 +174,82 @@ class UserRepository(DomainRepository):
             return True
         
         return False
+
+    # ============ PAGINATION OPERATIONS ============
     
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_all_paginated(self, filters: Dict = None, page: int = 1, per_page: int = 20) -> Tuple[List[UserEntity], int]:
+        """Get all users with pagination"""
+        queryset = User.objects.filter(is_active=True)
+        
+        if filters:
+            for key, value in filters.items():
+                queryset = queryset.filter(**{key: value})
+        
+        # Get total count
+        total_count = await queryset.acount()
+        
+        # Calculate offset
+        offset = (page - 1) * per_page
+        
+        # Apply pagination
+        paginated_queryset = queryset[offset:offset + per_page]
+        
+        # Convert to entities
+        users = []
+        async for user in paginated_queryset:
+            users.append(await self._model_to_entity(user))
+            
+        return users, total_count
+    
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def get_by_role_paginated(self, role: UserRole, page: int = 1, per_page: int = 20) -> Tuple[List[UserEntity], int]:
+        """Get users by role with pagination"""
+        queryset = User.objects.filter(role=role, is_active=True)
+        
+        # Get total count
+        total_count = await queryset.acount()
+        
+        # Calculate offset
+        offset = (page - 1) * per_page
+        
+        # Apply pagination
+        paginated_queryset = queryset[offset:offset + per_page]
+        
+        # Convert to entities
+        users = []
+        async for user in paginated_queryset:
+            users.append(await self._model_to_entity(user))
+            
+        return users, total_count
+    
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def search_users_paginated(self, search_term: str, page: int = 1, per_page: int = 20) -> Tuple[List[UserEntity], int]:
+        """Search users by name or email with pagination"""
+        queryset = User.objects.filter(
+            Q(is_active=True) &
+            (Q(name__icontains=search_term) | Q(email__icontains=search_term))
+        )
+        
+        # Get total count
+        total_count = await queryset.acount()
+        
+        # Calculate offset
+        offset = (page - 1) * per_page
+        
+        # Apply pagination
+        paginated_queryset = queryset[offset:offset + per_page]
+        
+        # Convert to entities
+        users = []
+        async for user in paginated_queryset:
+            users.append(await self._model_to_entity(user))
+            
+        return users, total_count
+
     # ============ QUERY OPERATIONS ============
     
     @with_db_error_handling
@@ -254,7 +330,66 @@ class UserRepository(DomainRepository):
     async def get_active_users_count(self) -> int:
         """Get count of active users with caching"""
         return await User.objects.filter(is_active=True).acount()
+
+    # ============ AUTHENTICATION OPERATIONS ============
     
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def verify_password(self, user_id: int, password: str) -> bool:
+        """Verify user password"""
+        try:
+            user = await User.objects.aget(id=user_id, is_active=True)
+            return user.check_password(password)
+        except User.DoesNotExist:
+            return False
+    
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def increment_failed_login_attempts(self, user_id: int) -> bool:
+        """Increment failed login attempts"""
+        try:
+            user = await User.objects.aget(id=user_id)
+            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+            
+            # Lock account after 5 failed attempts
+            if user.failed_login_attempts >= 5:
+                user.is_locked = True
+                user.locked_until = timezone.now() + timezone.timedelta(hours=1)
+            
+            await user.asave()
+            return True
+        except User.DoesNotExist:
+            return False
+    
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def reset_failed_login_attempts(self, user_id: int) -> bool:
+        """Reset failed login attempts"""
+        try:
+            user = await User.objects.aget(id=user_id)
+            user.failed_login_attempts = 0
+            user.is_locked = False
+            user.locked_until = None
+            await user.asave()
+            return True
+        except User.DoesNotExist:
+            return False
+    
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def invalidate_token(self, token: str) -> bool:
+        """Invalidate a specific token"""
+        # Implementation depends on your token storage
+        # This could involve adding to a blacklist
+        return True
+    
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    async def invalidate_all_user_tokens(self, user_id: int) -> bool:
+        """Invalidate all tokens for a user"""
+        # Implementation depends on your token storage
+        return True
+
     # ============ BATCH OPERATIONS ============
     
     @with_db_error_handling

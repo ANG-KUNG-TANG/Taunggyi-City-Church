@@ -106,6 +106,27 @@ class EntityNotFoundException(DomainException):
             user_message=user_message
         )
 
+class UnauthorizedActionException(DomainException):
+    """
+    Raised when a user tries to perform an action without proper authentication
+    or authorization.
+    """
+    def __init__(
+        self,
+        message: str = "Unauthorized action",
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[Any] = None,
+        user_message: Optional[str] = None,
+    ):
+        super().__init__(
+            message=message,
+            error_code="UNAUTHORIZED",
+            status_code=401,
+            details=details,
+            context=context,
+            user_message=user_message or "You do not have permission to perform this action."
+        )
+
 
 class DomainValidationException(DomainException):  # Renamed from ValidationException
     """
