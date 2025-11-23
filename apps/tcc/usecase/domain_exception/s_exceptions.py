@@ -4,6 +4,7 @@ from apps.core.core_exceptions.domain import BusinessRuleException, EntityNotFou
 from apps.core.core_exceptions.integration import StorageException
 
 
+
 class SermonException(BaseAppException):
     """Base exception for sermon-related errors."""
     
@@ -51,6 +52,76 @@ class InvalidInputException(DomainValidationException):
             cause=cause,
             user_message=message  # Default user message to the main message
         )
+
+class InvalidSermonInputException(SermonException):
+    """Raised when sermon input data is invalid"""
+    
+    def __init__(
+        self, 
+        field_errors: Dict[str, List[str]],
+        user_message: str = "Invalid sermon data provided.",
+        developer_message: str = None
+    ):
+        super().__init__(
+            user_message=user_message,
+            developer_message=developer_message or f"Field errors: {field_errors}",
+            error_code="INVALID_SERMON_INPUT",
+            field_errors=field_errors
+        )
+
+
+class SermonNotFoundException(SermonException):
+    """Raised when sermon is not found"""
+    
+    def __init__(
+        self,
+        sermon_id: Optional[int] = None,
+        title: Optional[str] = None,
+        user_message: str = "Sermon not found.",
+        developer_message: str = None
+    ):
+        identifier = f"ID: {sermon_id}" if sermon_id else f"title: {title}"
+        super().__init__(
+            user_message=user_message,
+            developer_message=developer_message or f"Sermon not found with {identifier}",
+            error_code="SERMON_NOT_FOUND"
+        )
+
+
+class SermonAlreadyExistsException(SermonException):
+    """Raised when sermon with same title and date already exists"""
+    
+    def __init__(
+        self,
+        title: str,
+        sermon_date: str,
+        user_message: str = "Sermon already exists.",
+        developer_message: str = None
+    ):
+        super().__init__(
+            user_message=user_message,
+            developer_message=developer_message or f"Sermon with title '{title}' on date '{sermon_date}' already exists",
+            error_code="SERMON_ALREADY_EXISTS"
+        )
+
+
+class SermonAccessDeniedException(SermonException):
+    """Raised when user doesn't have permission to access sermon"""
+    
+    def __init__(
+        self,
+        sermon_id: int,
+        user_id: int,
+        user_message: str = "Access to sermon denied.",
+        developer_message: str = None
+    ):
+        super().__init__(
+            user_message=user_message,
+            developer_message=developer_message or f"User {user_id} denied access to sermon {sermon_id}",
+            error_code="SERMON_ACCESS_DENIED"
+        )
+
+
 class SermonNotFoundException(EntityNotFoundException):
     """Exception when sermon is not found."""
     
