@@ -82,6 +82,8 @@ class InvalidUserInputException(DomainValidationException):
             cause=cause,
             user_message=user_message
         )
+        
+        
 class UserNotFoundException(EntityNotFoundException):
     """Exception when user is not found."""
     

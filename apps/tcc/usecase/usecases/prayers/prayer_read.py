@@ -1,22 +1,20 @@
-
-from typing import Dict, Any, List, Optional
-from apps.tcc.usecase.repo.domain_repo.prayer import PrayerRepository, PrayerResponseRepository
-from usecases.base.base_uc import BaseUseCase
-from apps.tcc.usecase.entities.prayer import PrayerRequestEntity, PrayerResponseEntity
-from apps.tcc.models.base.enums import PrayerCategory
-from usecase.domain_exception.p_exceptions import (
-    PrayerException,
-    PrayerRequestNotFoundException,
-    PrayerCategoryInvalidException
+from typing import Dict, Any, List
+from apps.core.schemas.builders.prayer_re_builder import PrayerResponseBuilder
+from apps.core.schemas.common.response import APIResponse
+from apps.tcc.usecase.repo.domain_repo.prayer import PrayerRepository
+from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
+from apps.tcc.usecase.domain_exception.p_exceptions import (
+    InvalidPrayerInputException,
+    PrayerRequestNotFoundException
 )
 
 
 class GetPrayerRequestByIdUseCase(BaseUseCase):
     """Use case for getting prayer request by ID"""
     
-    def __init__(self):
+    def __init__(self, prayer_repository: PrayerRepository):
         super().__init__()
-        self.prayer_repository = PrayerRepository()  # Instantiate directly
+        self.prayer_repository = prayer_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -24,13 +22,12 @@ class GetPrayerRequestByIdUseCase(BaseUseCase):
     async def _validate_input(self, input_data: Dict[str, Any], context):
         prayer_id = input_data.get('prayer_id')
         if not prayer_id:
-            raise PrayerException(
-                message="Prayer ID is required",
-                error_code="MISSING_PRAYER_ID",
-                user_message="Prayer request ID is required."
+            raise InvalidPrayerInputException(
+                field_errors={"prayer_id": ["Prayer ID is required"]},
+                user_message="Please provide a valid prayer ID."
             )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
         prayer_id = input_data['prayer_id']
         prayer_entity = await self.prayer_repository.get_by_id(prayer_id)
         
@@ -40,297 +37,162 @@ class GetPrayerRequestByIdUseCase(BaseUseCase):
                 user_message="Prayer request not found."
             )
         
-        return {
-            "prayer": self._format_prayer_response(prayer_entity)
-        }
-
-    @staticmethod
-    def _format_prayer_response(prayer_entity: PrayerRequestEntity) -> Dict[str, Any]:
-        """Format prayer entity for response"""
-        return {
-            'id': prayer_entity.id,
-            'user_id': prayer_entity.user_id,
-            'title': prayer_entity.title,
-            'content': prayer_entity.content,
-            'category': prayer_entity.category.value if hasattr(prayer_entity.category, 'value') else prayer_entity.category,
-            'privacy': prayer_entity.privacy.value if hasattr(prayer_entity.privacy, 'value') else prayer_entity.privacy,
-            'status': prayer_entity.status.value if hasattr(prayer_entity.status, 'value') else prayer_entity.status,
-            'is_answered': prayer_entity.is_answered,
-            'answer_notes': prayer_entity.answer_notes,
-            'is_active': prayer_entity.is_active,
-            'created_at': prayer_entity.created_at,
-            'updated_at': prayer_entity.updated_at,
-            'expires_at': prayer_entity.expires_at
-        }
+        # Check if user can view this prayer
+        if not prayer_entity.can_view(user):
+            raise PrayerRequestNotFoundException(
+                prayer_id=str(prayer_id),
+                user_message="Prayer request not found or access denied."
+            )
+        
+        # Use builder for response
+        prayer_response = PrayerResponseBuilder.to_response(prayer_entity)
+        
+        return APIResponse.success_response(
+            message="Prayer request retrieved successfully",
+            data=prayer_response.model_dump()
+        )
 
 
 class GetAllPrayerRequestsUseCase(BaseUseCase):
-    """Use case for getting all prayer requests with optional filtering"""
+    """Use case for getting all prayer requests with pagination"""
     
-    def __init__(self):
+    def __init__(self, prayer_repository: PrayerRepository):
         super().__init__()
-        self.prayer_repository = PrayerRepository()  # Instantiate directly
+        self.prayer_repository = prayer_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        filters = input_data.get('filters', {})
-        prayers = await self.prayer_repository.get_all(filters)
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+        page = input_data.get('page', 1)
+        per_page = input_data.get('per_page', 20)
         
-        return {
-            "prayers": [self._format_prayer_response(prayer) for prayer in prayers],
-            "total_count": len(prayers)
-        }
-
-    @staticmethod
-    def _format_prayer_response(prayer_entity: PrayerRequestEntity) -> Dict[str, Any]:
-        """Format prayer entity for response"""
-        return {
-            'id': prayer_entity.id,
-            'user_id': prayer_entity.user_id,
-            'title': prayer_entity.title,
-            'content': prayer_entity.content,
-            'category': prayer_entity.category.value if hasattr(prayer_entity.category, 'value') else prayer_entity.category,
-            'privacy': prayer_entity.privacy.value if hasattr(prayer_entity.privacy, 'value') else prayer_entity.privacy,
-            'status': prayer_entity.status.value if hasattr(prayer_entity.status, 'value') else prayer_entity.status,
-            'is_answered': prayer_entity.is_answered,
-            'answer_notes': prayer_entity.answer_notes,
-            'is_active': prayer_entity.is_active,
-            'created_at': prayer_entity.created_at,
-            'updated_at': prayer_entity.updated_at,
-            'expires_at': prayer_entity.expires_at
-        }
+        # Get prayers with pagination
+        prayers, total_count = await self.prayer_repository.get_all_paginated(
+            page=page,
+            per_page=per_page,
+            user_id=user.id  # Only get prayers user can view
+        )
+        
+        # Use builder for list response
+        list_response = PrayerResponseBuilder.to_list_response(
+            entities=prayers,
+            total=total_count,
+            page=page,
+            per_page=per_page
+        )
+        
+        return APIResponse.success_response(
+            message="Prayer requests retrieved successfully",
+            data=list_response.model_dump()
+        )
 
 
 class GetPublicPrayerRequestsUseCase(BaseUseCase):
     """Use case for getting public prayer requests"""
     
-    def __init__(self):
+    def __init__(self, prayer_repository: PrayerRepository):
         super().__init__()
-        self.prayer_repository = PrayerRepository()  # Instantiate directly
+        self.prayer_repository = prayer_repository
     
     def _setup_configuration(self):
-        self.config.require_authentication = False  # Public prayers can be viewed without auth
+        self.config.require_authentication = False
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        limit = input_data.get('limit')
-        prayers = await self.prayer_repository.get_public_prayers(limit)
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+        page = input_data.get('page', 1)
+        per_page = input_data.get('per_page', 20)
         
-        return {
-            "prayers": [self._format_prayer_response(prayer) for prayer in prayers],
-            "total_count": len(prayers)
-        }
-
-    @staticmethod
-    def _format_prayer_response(prayer_entity: PrayerRequestEntity) -> Dict[str, Any]:
-        """Format prayer entity for response"""
-        return {
-            'id': prayer_entity.id,
-            'user_id': prayer_entity.user_id,
-            'title': prayer_entity.title,
-            'content': prayer_entity.content,
-            'category': prayer_entity.category.value if hasattr(prayer_entity.category, 'value') else prayer_entity.category,
-            'privacy': prayer_entity.privacy.value if hasattr(prayer_entity.privacy, 'value') else prayer_entity.privacy,
-            'status': prayer_entity.status.value if hasattr(prayer_entity.status, 'value') else prayer_entity.status,
-            'is_answered': prayer_entity.is_answered,
-            'answer_notes': prayer_entity.answer_notes,
-            'is_active': prayer_entity.is_active,
-            'created_at': prayer_entity.created_at,
-            'updated_at': prayer_entity.updated_at,
-            'expires_at': prayer_entity.expires_at
-        }
+        prayers, total_count = await self.prayer_repository.get_public_prayers_paginated(
+            page=page,
+            per_page=per_page
+        )
+        
+        # Convert to public responses
+        public_responses = [PrayerResponseBuilder.to_public_response(prayer) for prayer in prayers]
+        
+        return APIResponse.success_response(
+            message="Public prayer requests retrieved successfully",
+            data={
+                "prayer_requests": public_responses,
+                "total": total_count,
+                "page": page,
+                "per_page": per_page,
+                "total_pages": (total_count + per_page - 1) // per_page if per_page > 0 else 1
+            }
+        )
 
 
 class GetUserPrayerRequestsUseCase(BaseUseCase):
-    """Use case for getting all prayer requests by a user"""
+    """Use case for getting prayer requests by current user"""
     
-    def __init__(self):
+    def __init__(self, prayer_repository: PrayerRepository):
         super().__init__()
-        self.prayer_repository = PrayerRepository()  # Instantiate directly
+        self.prayer_repository = prayer_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        prayers = await self.prayer_repository.get_user_prayers(user.id)
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+        page = input_data.get('page', 1)
+        per_page = input_data.get('per_page', 20)
         
-        return {
-            "prayers": [self._format_prayer_response(prayer) for prayer in prayers],
-            "total_count": len(prayers)
-        }
-
-    @staticmethod
-    def _format_prayer_response(prayer_entity: PrayerRequestEntity) -> Dict[str, Any]:
-        """Format prayer entity for response"""
-        return {
-            'id': prayer_entity.id,
-            'user_id': prayer_entity.user_id,
-            'title': prayer_entity.title,
-            'content': prayer_entity.content,
-            'category': prayer_entity.category.value if hasattr(prayer_entity.category, 'value') else prayer_entity.category,
-            'privacy': prayer_entity.privacy.value if hasattr(prayer_entity.privacy, 'value') else prayer_entity.privacy,
-            'status': prayer_entity.status.value if hasattr(prayer_entity.status, 'value') else prayer_entity.status,
-            'is_answered': prayer_entity.is_answered,
-            'answer_notes': prayer_entity.answer_notes,
-            'is_active': prayer_entity.is_active,
-            'created_at': prayer_entity.created_at,
-            'updated_at': prayer_entity.updated_at,
-            'expires_at': prayer_entity.expires_at
-        }
+        prayers, total_count = await self.prayer_repository.get_user_prayers_paginated(
+            user_id=user.id,
+            page=page,
+            per_page=per_page
+        )
+        
+        list_response = PrayerResponseBuilder.to_list_response(
+            entities=prayers,
+            total=total_count,
+            page=page,
+            per_page=per_page
+        )
+        
+        return APIResponse.success_response(
+            message="Your prayer requests retrieved successfully",
+            data=list_response.model_dump()
+        )
 
 
-class GetPrayerRequestsByCategoryUseCase(BaseUseCase):
-    """Use case for getting prayers by category"""
+class GetPrayerRequestsByPrivacyUseCase(BaseUseCase):
+    """Use case for getting prayers by privacy level"""
     
-    def __init__(self):
+    def __init__(self, prayer_repository: PrayerRepository):
         super().__init__()
-        self.prayer_repository = PrayerRepository()  # Instantiate directly
+        self.prayer_repository = prayer_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
 
     async def _validate_input(self, input_data: Dict[str, Any], context):
-        category = input_data.get('category')
-        if not category:
-            raise PrayerException(
-                message="Category is required",
-                error_code="MISSING_CATEGORY",
-                user_message="Prayer category is required."
-            )
-        
-        self._validate_category(category)
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        category = input_data['category']
-        prayers = await self.prayer_repository.get_prayers_by_category(category)
-        
-        return {
-            "prayers": [self._format_prayer_response(prayer) for prayer in prayers],
-            "category": category.value if hasattr(category, 'value') else category,
-            "total_count": len(prayers)
-        }
-
-    def _validate_category(self, category: str) -> None:
-        """Validate prayer category"""
-        allowed_categories = [choice.value for choice in PrayerCategory]
-        
-        if category not in allowed_categories:
-            raise PrayerCategoryInvalidException(
-                category=category,
-                allowed_categories=allowed_categories,
-                user_message=f"Category '{category}' is not supported. Please choose from: {', '.join(allowed_categories)}"
+        privacy = input_data.get('privacy')
+        if not privacy:
+            raise InvalidPrayerInputException(
+                field_errors={"privacy": ["Privacy level is required"]},
+                user_message="Prayer privacy level is required."
             )
 
-    @staticmethod
-    def _format_prayer_response(prayer_entity: PrayerRequestEntity) -> Dict[str, Any]:
-        """Format prayer entity for response"""
-        return {
-            'id': prayer_entity.id,
-            'user_id': prayer_entity.user_id,
-            'title': prayer_entity.title,
-            'content': prayer_entity.content,
-            'category': prayer_entity.category.value if hasattr(prayer_entity.category, 'value') else prayer_entity.category,
-            'privacy': prayer_entity.privacy.value if hasattr(prayer_entity.privacy, 'value') else prayer_entity.privacy,
-            'status': prayer_entity.status.value if hasattr(prayer_entity.status, 'value') else prayer_entity.status,
-            'is_answered': prayer_entity.is_answered,
-            'answer_notes': prayer_entity.answer_notes,
-            'is_active': prayer_entity.is_active,
-            'created_at': prayer_entity.created_at,
-            'updated_at': prayer_entity.updated_at,
-            'expires_at': prayer_entity.expires_at
-        }
-
-
-class GetPrayerResponseByIdUseCase(BaseUseCase):
-    """Use case for getting prayer response by ID"""
-    
-    def __init__(self):
-        super().__init__()
-        self.prayer_response_repository = PrayerResponseRepository()  # Instantiate directly
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-
-    async def _validate_input(self, input_data: Dict[str, Any], context):
-        response_id = input_data.get('response_id')
-        if not response_id:
-            raise PrayerException(
-                message="Response ID is required",
-                error_code="MISSING_RESPONSE_ID",
-                user_message="Prayer response ID is required."
-            )
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        response_id = input_data['response_id']
-        response_entity = await self.prayer_response_repository.get_by_id(response_id)
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+        privacy = input_data['privacy']
+        page = input_data.get('page', 1)
+        per_page = input_data.get('per_page', 20)
         
-        if not response_entity:
-            raise PrayerException(
-                message=f"Prayer response {response_id} not found",
-                error_code="PRAYER_RESPONSE_NOT_FOUND",
-                user_message="Prayer response not found."
-            )
+        prayers, total_count = await self.prayer_repository.get_prayers_by_privacy_paginated(
+            privacy=privacy,
+            user_id=user.id,
+            page=page,
+            per_page=per_page
+        )
         
-        return {
-            "response": self._format_response_response(response_entity)
-        }
-
-    @staticmethod
-    def _format_response_response(response_entity: PrayerResponseEntity) -> Dict[str, Any]:
-        """Format prayer response entity for response"""
-        return {
-            'id': response_entity.id,
-            'prayer_request_id': response_entity.prayer_request_id,
-            'user_id': response_entity.user_id,
-            'content': response_entity.content,
-            'is_private': response_entity.is_private,
-            'is_active': response_entity.is_active,
-            'created_at': response_entity.created_at,
-            'updated_at': response_entity.updated_at
-        }
-
-
-class GetPrayerResponsesForPrayerUseCase(BaseUseCase):
-    """Use case for getting all responses for a prayer request"""
-    
-    def __init__(self):
-        super().__init__()
-        self.prayer_response_repository = PrayerResponseRepository()  # Instantiate directly
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-
-    async def _validate_input(self, input_data: Dict[str, Any], context):
-        prayer_id = input_data.get('prayer_id')
-        if not prayer_id:
-            raise PrayerException(
-                message="Prayer ID is required",
-                error_code="MISSING_PRAYER_ID",
-                user_message="Prayer request ID is required."
-            )
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
-        prayer_id = input_data['prayer_id']
+        list_response = PrayerResponseBuilder.to_list_response(
+            entities=prayers,
+            total=total_count,
+            page=page,
+            per_page=per_page
+        )
         
-        responses = await self.prayer_response_repository.get_responses_for_prayer(prayer_id)
-        
-        return {
-            "prayer_id": prayer_id,
-            "responses": [self._format_response_response(response) for response in responses],
-            "total_count": len(responses)
-        }
-
-    @staticmethod
-    def _format_response_response(response_entity: PrayerResponseEntity) -> Dict[str, Any]:
-        """Format prayer response entity for response"""
-        return {
-            'id': response_entity.id,
-            'prayer_request_id': response_entity.prayer_request_id,
-            'user_id': response_entity.user_id,
-            'content': response_entity.content,
-            'is_private': response_entity.is_private,
-            'is_active': response_entity.is_active,
-            'created_at': response_entity.created_at,
-            'updated_at': response_entity.updated_at
-        }
+        return APIResponse.success_response(
+            message=f"Prayer requests with privacy '{privacy}' retrieved successfully",
+            data=list_response.model_dump()
+        )

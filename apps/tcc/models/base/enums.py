@@ -61,7 +61,7 @@ class PrayerCategory(models.TextChoices):
     FINANCIAL = "financial", _("Financial")
     FAMILY = "family", _("Family")
     OTHER = "other", _("Other")
-
+    GENERAL = "general", _('General')
 
 class PrayerStatus(models.TextChoices):
     ACTIVE = "active", _("Active")

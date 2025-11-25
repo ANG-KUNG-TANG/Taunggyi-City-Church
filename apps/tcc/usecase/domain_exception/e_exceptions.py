@@ -27,6 +27,25 @@ class EventException(BaseAppException):
         )
 
 
+class InvalidEventInputException(EventException):
+    def __init__(
+        self,
+        field_errors: Dict[str, List[str]],
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None,
+        user_message: Optional[str] = None
+    ):
+        # Call parent constructor correctly
+        super().__init__(
+            message="Invalid Event input",
+            field_errors=field_errors,
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message
+        )
+        
 class EventNotFoundException(EntityNotFoundException):
     """Exception when event is not found."""
     

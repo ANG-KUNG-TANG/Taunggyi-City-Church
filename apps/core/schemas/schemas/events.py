@@ -20,7 +20,7 @@ class EventBase(BaseSchema):
     cost: Optional[Decimal] = None
     image_url: Optional[str] = None
 
-class EventCreate(EventBase):
+class EventCreateSchema(EventBase):
     """Schema for creating a new event."""
     
     @field_validator('end_date')
@@ -44,7 +44,7 @@ class EventCreate(EventBase):
             raise ValueError("Event cannot be in the past")
         return v
 
-class EventUpdate(BaseSchema):
+class EventUpdateSchema(BaseSchema):
     """Schema for updating event information."""
     
     title: Optional[str] = None
@@ -71,7 +71,7 @@ class EventResponseSchema(EventBase, BaseResponseSchema):
         }
     )
 
-class EventRegistrationCreate(BaseSchema):
+class EventRegistrationCreateSchema(BaseSchema):
     """Schema for event registration."""
     
     event_id: int
@@ -79,7 +79,7 @@ class EventRegistrationCreate(BaseSchema):
     status: RegistrationStatus = RegistrationStatus.PENDING
     notes: Optional[str] = None
 
-class EventRegistrationResponse(BaseResponseSchema):
+class EventRegistrationResponseSchema(BaseResponseSchema):
     """Schema for event registration response."""
     
     event_id: int
@@ -101,7 +101,7 @@ class EventListResponseSchema(BaseSchema):
 class EventRegistrationListResponseSchema(BaseSchema):
     """Schema for listing multiple event registrations with pagination support."""
     
-    registrations: List[EventRegistrationResponse]
+    registrations: List[EventRegistrationResponseSchema]
     total: int
     page: int
     per_page: int

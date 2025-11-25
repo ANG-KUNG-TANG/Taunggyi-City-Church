@@ -25,7 +25,22 @@ class PrayerException(BaseAppException):
             cause=cause,
             user_message=user_message
         )
-
+class InvalidPrayerInputException(PrayerException):
+    """Raised when prayer input data is invalid"""
+    
+    def __init__(
+        self, 
+        field_errors: Dict[str, List[str]],
+        user_message: str = "Invalid prayer data provided.",
+        developer_message: str = None,
+        error_code: str = "INVALID_PRAYER_INPUT"
+    ):
+        super().__init__(
+            user_message=user_message,
+            developer_message=developer_message or f"Field errors: {field_errors}",
+            error_code=error_code,
+            field_errors=field_errors
+        )
 
 class PrayerRequestNotFoundException(EntityNotFoundException):
     """Exception when prayer request is not found."""
