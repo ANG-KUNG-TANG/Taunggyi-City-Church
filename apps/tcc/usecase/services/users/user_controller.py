@@ -2,11 +2,9 @@ import logging
 from typing import Dict, Any, Optional, List
 from apps.core.schemas.common.response import APIResponse
 from apps.core.schemas.builders.user_rp_builder import UserResponseBuilder
-from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.services.auth.base_controller import BaseController
-from apps.tcc.usecase.services.exceptions.user_handler_exceptions import UserExceptionHandler
+from apps.tcc.usecase.services.exceptions.u_handler_exceptions import UserExceptionHandler
 from apps.tcc.usecase.usecases.users.user_create_uc import CreateUserUseCase
-from apps.core.core_validators.decorators import validate
 from apps.tcc.usecase.usecases.users.user_read_uc import (
     GetUserByIdUseCase,
     GetUserByEmailUseCase,
@@ -16,7 +14,7 @@ from apps.tcc.usecase.usecases.users.user_read_uc import (
 )
 from apps.tcc.usecase.usecases.users.user_update_uc import UpdateUserUseCase, ChangeUserStatusUseCase
 from apps.tcc.usecase.usecases.users.user_delete_uc import DeleteUserUseCase
-from apps.tcc.usecase.usecases.base.jwt_uc import JWTCreateUseCase
+from apps.core.core_validators.decorators import validate
 from apps.core.schemas.schemas.users import UserCreateSchema, UserUpdateSchema
 from apps.tcc.models.base.enums import UserRole, UserStatus
 
@@ -25,28 +23,32 @@ logger = logging.getLogger(__name__)
 
 class UserController(BaseController):
     """
-    Comprehensive User Controller
-    Handles all user operations using use cases from user UC layer
+    User Controller with Dependency Injected Use Cases
+    Now properly integrated with your dependency injection system
     """
     
     def __init__(
         self,
-        user_repository: UserRepository,
-        jwt_uc: JWTCreateUseCase
+        create_user_uc: CreateUserUseCase,
+        get_user_by_id_uc: GetUserByIdUseCase,
+        get_user_by_email_uc: GetUserByEmailUseCase,
+        get_all_users_uc: GetAllUsersUseCase,
+        get_users_by_role_uc: GetUsersByRoleUseCase,
+        search_users_uc: SearchUsersUseCase,
+        update_user_uc: UpdateUserUseCase,
+        change_user_status_uc: ChangeUserStatusUseCase,
+        delete_user_uc: DeleteUserUseCase
     ):
-        self.user_repository = user_repository
-        self.jwt_uc = jwt_uc
-        
-        # Initialize all user use cases
-        self.create_user_uc = CreateUserUseCase(user_repository, jwt_uc)
-        self.get_user_by_id_uc = GetUserByIdUseCase(user_repository)
-        self.get_user_by_email_uc = GetUserByEmailUseCase(user_repository)
-        self.get_all_users_uc = GetAllUsersUseCase(user_repository)
-        self.get_users_by_role_uc = GetUsersByRoleUseCase(user_repository)
-        self.search_users_uc = SearchUsersUseCase(user_repository)
-        self.update_user_uc = UpdateUserUseCase(user_repository)
-        self.change_user_status_uc = ChangeUserStatusUseCase(user_repository)
-        self.delete_user_uc = DeleteUserUseCase(user_repository)
+        # Inject all use cases directly
+        self.create_user_uc = create_user_uc
+        self.get_user_by_id_uc = get_user_by_id_uc
+        self.get_user_by_email_uc = get_user_by_email_uc
+        self.get_all_users_uc = get_all_users_uc
+        self.get_users_by_role_uc = get_users_by_role_uc
+        self.search_users_uc = search_users_uc
+        self.update_user_uc = update_user_uc
+        self.change_user_status_uc = change_user_status_uc
+        self.delete_user_uc = delete_user_uc
 
     # CREATE Operations
     @BaseController.handle_exceptions
@@ -296,10 +298,45 @@ class UserController(BaseController):
             }
         )
 
-# Convenience instance creator
+
+# New Factory Functions using your dependency injection
+def create_user_controller_with_di() -> UserController:
+    """
+    Create user controller using dependency injection
+    This replaces the old factory function
+    """
+    from apps.tcc.dependencies.user_dep import (
+        get_create_user_uc,
+        get_user_by_id_uc,
+        get_user_by_email_uc,
+        get_all_users_uc,
+        get_users_by_role_uc,
+        get_search_users_uc,
+        get_update_user_uc,
+        get_change_user_status_uc,
+        get_delete_user_uc
+    )
+    
+    return UserController(
+        create_user_uc=get_create_user_uc(),
+        get_user_by_id_uc=get_user_by_id_uc(),
+        get_user_by_email_uc=get_user_by_email_uc(),
+        get_all_users_uc=get_all_users_uc(),
+        get_users_by_role_uc=get_users_by_role_uc(),
+        search_users_uc=get_search_users_uc(),
+        update_user_uc=get_update_user_uc(),
+        change_user_status_uc=get_change_user_status_uc(),
+        delete_user_uc=get_delete_user_uc()
+    )
+
+
+# Legacy factory function for backward compatibility
 def create_user_controller(
-    user_repository: UserRepository,
-    jwt_uc: JWTCreateUseCase
+    user_repository = None,  # Keep parameter for backward compatibility
+    jwt_uc = None           # Keep parameter for backward compatibility
 ) -> UserController:
-    """Factory function to create user controller"""
-    return UserController(user_repository, jwt_uc)
+    """
+    Legacy factory function - now uses dependency injection internally
+    Maintains backward compatibility with existing code
+    """
+    return create_user_controller_with_di()

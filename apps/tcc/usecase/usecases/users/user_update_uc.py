@@ -13,7 +13,7 @@ from apps.tcc.models.base.enums import UserStatus
 
 
 class UpdateUserUseCase(BaseUseCase):
-    """Use case for updating user profile with JWT context"""
+    """Fixed use case for updating user profile"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -30,10 +30,19 @@ class UpdateUserUseCase(BaseUseCase):
                 user_message="Please provide a valid user ID."
             )
         
+        # Validate user_id is numeric
+        try:
+            int(user_id)
+        except (ValueError, TypeError):
+            raise InvalidUserInputException(
+                field_errors={"user_id": ["User ID must be a number"]},
+                user_message="Please provide a valid user ID."
+            )
+        
         # Validate update data using schema
         update_data = input_data.get('update_data', {})
         try:
-            validated_data = UserUpdateSchema(**update_data)
+            UserUpdateSchema(**update_data)
         except Exception as e:
             field_errors = self._extract_pydantic_errors(e)
             raise InvalidUserInputException(
@@ -42,7 +51,7 @@ class UpdateUserUseCase(BaseUseCase):
             )
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
-        user_id = input_data['user_id']
+        user_id = int(input_data['user_id'])
         update_data = input_data.get('update_data', {})
         
         # Check if user exists
@@ -53,12 +62,12 @@ class UpdateUserUseCase(BaseUseCase):
                 user_message="User not found."
             )
         
-        # Create updated UserEntity from validated data
-        validated_update = UserUpdateSchema(**update_data)
-        updated_user_entity = self._create_updated_entity(existing_user, validated_update)
+        # Create updated UserEntity by merging existing data with updates
+        updated_entity_data = {**existing_user.__dict__, **update_data}
+        updated_entity = UserEntity(**updated_entity_data)
         
         # Update user using repository
-        updated_user = await self.user_repository.update(user_id, updated_user_entity)
+        updated_user = await self.user_repository.update(user_id, updated_entity)
         
         if not updated_user:
             raise UserNotFoundException(
@@ -74,26 +83,6 @@ class UpdateUserUseCase(BaseUseCase):
             data=user_response.model_dump()
         )
 
-    def _create_updated_entity(self, existing_user: UserEntity, update_data: UserUpdateSchema) -> UserEntity:
-        """Create updated UserEntity from existing user and update data"""
-        update_dict = update_data.model_dump(exclude_unset=True)
-        
-        # Build kwargs for UserEntity constructor
-        entity_kwargs = {"id": existing_user.id}
-        
-        # Add all existing attributes
-        for attr in ['name', 'email', 'phone_number', 'age', 'gender', 'marital_status', 
-                    'date_of_birth', 'testimony', 'baptism_date', 'membership_date',
-                    'role', 'status', 'email_notifications', 'sms_notifications',
-                    'is_staff', 'is_superuser', 'is_active', 'created_at', 'updated_at']:
-            if hasattr(existing_user, attr):
-                entity_kwargs[attr] = getattr(existing_user, attr)
-        
-        # Override with updated values
-        entity_kwargs.update(update_dict)
-        
-        return UserEntity(**entity_kwargs)
-
     def _extract_pydantic_errors(self, validation_error: Exception) -> Dict[str, List[str]]:
         """Extract field errors from Pydantic validation"""
         field_errors = {}
@@ -107,7 +96,7 @@ class UpdateUserUseCase(BaseUseCase):
 
 
 class ChangeUserStatusUseCase(BaseUseCase):
-    """Use case for changing user status with JWT context"""
+    """Fixed use case for changing user status"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -124,6 +113,15 @@ class ChangeUserStatusUseCase(BaseUseCase):
         if not user_id:
             raise InvalidUserInputException(
                 field_errors={"user_id": ["User ID is required"]},
+                user_message="Please provide a valid user ID."
+            )
+        
+        # Validate user_id is numeric
+        try:
+            int(user_id)
+        except (ValueError, TypeError):
+            raise InvalidUserInputException(
+                field_errors={"user_id": ["User ID must be a number"]},
                 user_message="Please provide a valid user ID."
             )
         
@@ -145,7 +143,7 @@ class ChangeUserStatusUseCase(BaseUseCase):
                 )
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
-        user_id = input_data['user_id']
+        user_id = int(input_data['user_id'])
         status = input_data['status']
         
         # Get existing user
@@ -156,32 +154,12 @@ class ChangeUserStatusUseCase(BaseUseCase):
                 user_message="User not found."
             )
         
-        # Update only the status
-        updated_user_entity = UserEntity(
-            id=user_id,
-            name=existing_user.name,
-            email=existing_user.email,
-            phone_number=existing_user.phone_number,
-            age=existing_user.age,
-            gender=existing_user.gender,
-            marital_status=existing_user.marital_status,
-            date_of_birth=existing_user.date_of_birth,
-            testimony=existing_user.testimony,
-            baptism_date=existing_user.baptism_date,
-            membership_date=existing_user.membership_date,
-            role=existing_user.role,
-            status=status,
-            email_notifications=existing_user.email_notifications,
-            sms_notifications=existing_user.sms_notifications,
-            is_staff=existing_user.is_staff,
-            is_superuser=existing_user.is_superuser,
-            is_active=existing_user.is_active,
-            created_at=existing_user.created_at,
-            updated_at=existing_user.updated_at
-        )
+        # Create updated entity with only status changed
+        updated_entity_data = {**existing_user.__dict__, 'status': status}
+        updated_entity = UserEntity(**updated_entity_data)
         
         # Update user using repository
-        updated_user = await self.user_repository.update(user_id, updated_user_entity)
+        updated_user = await self.user_repository.update(user_id, updated_entity)
         
         if not updated_user:
             raise UserNotFoundException(

@@ -6,14 +6,16 @@ from apps.tcc.usecase.domain_exception.d_exceptions import (
     DonationException,
     DonationNotFoundException
 )
+# Import Response Builder
+from apps.core.schemas.builders.donation_rp_builder import DonationResponseBuilder, FundTypeResponseBuilder
 
 
 class DeleteDonationUseCase(BaseUseCase):
     """Use case for soft deleting donations"""
     
-    def __init__(self):
+    def __init__(self, donation_repository: DonationRepository):
         super().__init__()
-        self.donation_repository = DonationRepository()
+        self.donation_repository = donation_repository
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -47,10 +49,14 @@ class DeleteDonationUseCase(BaseUseCase):
                 donation_id=str(donation_id),
                 user_message="Donation not found for deletion."
             )
+            
+        # Re-fetch the updated entity to get the soft-deleted state for the response
+        updated_donation = await self.donation_repository.get_by_id(donation_id)
         
+        # Use the DonationResponseBuilder for a structured response
         return {
             "message": "Donation deleted successfully",
-            "donation_id": donation_id
+            "donation": DonationResponseBuilder.to_response(updated_donation).model_dump()
         }
 
 
@@ -105,8 +111,12 @@ class DeleteFundTypeUseCase(BaseUseCase):
                 error_code="FUND_DELETION_FAILED",
                 user_message="Fund not found for deletion."
             )
+
+        # Re-fetch the updated entity to get the soft-deleted state for the response
+        updated_fund = await self.fund_repository.get_by_id(fund_id)
         
+        # Use the FundTypeResponseBuilder for a structured response
         return {
             "message": "Fund type deleted successfully",
-            "fund_id": fund_id
+            "fund": FundTypeResponseBuilder.to_response(updated_fund).model_dump()
         }

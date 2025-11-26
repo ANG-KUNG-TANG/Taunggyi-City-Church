@@ -11,7 +11,7 @@ from apps.tcc.models.base.enums import UserRole
 
 
 class GetUserByIdUseCase(BaseUseCase):
-    """Use case for getting user by ID with JWT context"""
+    """Fixed use case for getting user by ID"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -27,9 +27,18 @@ class GetUserByIdUseCase(BaseUseCase):
                 field_errors={"user_id": ["User ID is required"]},
                 user_message="Please provide a valid user ID."
             )
+        
+        # Validate user_id is numeric
+        try:
+            int(user_id)
+        except (ValueError, TypeError):
+            raise InvalidUserInputException(
+                field_errors={"user_id": ["User ID must be a number"]},
+                user_message="Please provide a valid user ID."
+            )
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
-        user_id = input_data['user_id']
+        user_id = int(input_data['user_id'])
         user_entity = await self.user_repository.get_by_id(user_id)
         
         if not user_entity:
@@ -48,7 +57,7 @@ class GetUserByIdUseCase(BaseUseCase):
 
 
 class GetUserByEmailUseCase(BaseUseCase):
-    """Use case for getting user by email with JWT context"""
+    """Fixed use case for getting user by email"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -84,7 +93,7 @@ class GetUserByEmailUseCase(BaseUseCase):
 
 
 class GetAllUsersUseCase(BaseUseCase):
-    """Use case for getting all users with optional filtering and JWT context"""
+    """Fixed use case for getting all users with pagination"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -99,8 +108,8 @@ class GetAllUsersUseCase(BaseUseCase):
         page = input_data.get('page', 1)
         per_page = input_data.get('per_page', 20)
         
-        # Get users with pagination
-        users, total_count = await self.user_repository.get_all_paginated(
+        # Get users with pagination using correct repository method
+        users, total_count = await self.user_repository.get_paginated_users(
             filters=filters,
             page=page,
             per_page=per_page
@@ -121,7 +130,7 @@ class GetAllUsersUseCase(BaseUseCase):
 
 
 class GetUsersByRoleUseCase(BaseUseCase):
-    """Use case for getting users by role with JWT context"""
+    """Fixed use case for getting users by role"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -155,8 +164,9 @@ class GetUsersByRoleUseCase(BaseUseCase):
         page = input_data.get('page', 1)
         per_page = input_data.get('per_page', 20)
         
-        users, total_count = await self.user_repository.get_by_role_paginated(
-            role=role,
+        # Use filters with role instead of role-specific method
+        users, total_count = await self.user_repository.get_paginated_users(
+            filters={'role': role},
             page=page,
             per_page=per_page
         )
@@ -175,7 +185,7 @@ class GetUsersByRoleUseCase(BaseUseCase):
 
 
 class SearchUsersUseCase(BaseUseCase):
-    """Use case for searching users with JWT context"""
+    """Fixed use case for searching users"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -198,7 +208,7 @@ class SearchUsersUseCase(BaseUseCase):
         page = input_data.get('page', 1)
         per_page = input_data.get('per_page', 20)
         
-        users, total_count = await self.user_repository.search_users_paginated(
+        users, total_count = await self.user_repository.search_users(
             search_term=search_term,
             page=page,
             per_page=per_page

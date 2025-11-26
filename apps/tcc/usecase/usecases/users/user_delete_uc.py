@@ -9,7 +9,7 @@ from apps.core.schemas.common.response import APIResponse
 
 
 class DeleteUserUseCase(BaseUseCase):
-    """Use case for soft deleting users"""
+    """Fixed use case for soft deleting users"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -26,9 +26,18 @@ class DeleteUserUseCase(BaseUseCase):
                 field_errors={"user_id": ["User ID is required"]},
                 user_message="Please provide a valid user ID."
             )
+        
+        # Validate user_id is numeric
+        try:
+            int(user_id)
+        except (ValueError, TypeError):
+            raise InvalidUserInputException(
+                field_errors={"user_id": ["User ID must be a number"]},
+                user_message="Please provide a valid user ID."
+            )
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
-        user_id = input_data['user_id']
+        user_id = int(input_data['user_id'])
         
         # Check if user exists before deletion
         existing_user = await self.user_repository.get_by_id(user_id)

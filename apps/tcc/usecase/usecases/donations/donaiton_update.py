@@ -10,15 +10,19 @@ from apps.tcc.usecase.domain_exception.d_exceptions import (
     DonationAmountInvalidException,
     FundInactiveException
 )
+# Import Schemas and Response Builder
+from apps.core.schemas.schemas.donations import DonationUpdateSchema, FundTypeUpdateSchema
+from apps.core.schemas.builders.donation_rp_builder import DonationResponseBuilder, FundTypeResponseBuilder
 
 
 class UpdateDonationUseCase(BaseUseCase):
     """Use case for updating donations"""
-    
-    def __init__(self):
+        
+    def __init__(self, donation_repository: DonationRepository,fund_repository: FundRepository):
         super().__init__()
-        self.donation_repository = DonationRepository()
-        self.fund_repository = FundRepository()
+        self.donation_repository = donation_repository
+        self.fund_repository = fund_repository
+    
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -31,6 +35,18 @@ class UpdateDonationUseCase(BaseUseCase):
                 message="Donation ID is required",
                 error_code="MISSING_DONATION_ID",
                 user_message="Donation ID is required."
+            )
+        
+        # Validate input data using DonationUpdateSchema
+        update_data = {k: v for k, v in input_data.items() if k != 'donation_id'}
+        try:
+            DonationUpdateSchema(**update_data)
+        except Exception as e:
+             raise DonationException(
+                message="Input validation failed",
+                error_code="INVALID_INPUT",
+                details={"schema_error": str(e)},
+                user_message="Invalid data provided for donation update."
             )
         
         # Validate amount if provided
@@ -59,12 +75,12 @@ class UpdateDonationUseCase(BaseUseCase):
             donor_id=existing_donation.donor_id,
             fund_id=input_data.get('fund_id', existing_donation.fund_id),
             amount=Decimal(str(input_data.get('amount', existing_donation.amount))),
-            payment_method=existing_donation.payment_method,
+            payment_method=input_data.get('payment_method', existing_donation.payment_method),
             status=input_data.get('status', existing_donation.status),
             donation_date=input_data.get('donation_date', existing_donation.donation_date),
             transaction_id=input_data.get('transaction_id', existing_donation.transaction_id),
             is_recurring=input_data.get('is_recurring', existing_donation.is_recurring),
-            is_active=existing_donation.is_active,
+            is_active=input_data.get('is_active', existing_donation.is_active),
             created_at=existing_donation.created_at,
             updated_at=existing_donation.updated_at
         )
@@ -80,7 +96,7 @@ class UpdateDonationUseCase(BaseUseCase):
         
         return {
             "message": "Donation updated successfully",
-            "donation": self._format_donation_response(updated_donation)
+            "donation": DonationResponseBuilder.to_response(updated_donation).model_dump()
         }
 
     async def _validate_amount(self, amount: float) -> None:
@@ -114,24 +130,6 @@ class UpdateDonationUseCase(BaseUseCase):
                 user_message=f"Fund '{fund_entity.name}' is not currently accepting donations."
             )
 
-    @staticmethod
-    def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
-        """Format donation entity for response"""
-        return {
-            'id': donation_entity.id,
-            'donor_id': donation_entity.donor_id,
-            'fund_id': donation_entity.fund_id,
-            'amount': float(donation_entity.amount) if donation_entity.amount else None,
-            'payment_method': donation_entity.payment_method.value if hasattr(donation_entity.payment_method, 'value') else donation_entity.payment_method,
-            'status': donation_entity.status.value if hasattr(donation_entity.status, 'value') else donation_entity.status,
-            'donation_date': donation_entity.donation_date,
-            'transaction_id': donation_entity.transaction_id,
-            'is_recurring': donation_entity.is_recurring,
-            'is_active': donation_entity.is_active,
-            'created_at': donation_entity.created_at,
-            'updated_at': donation_entity.updated_at
-        }
-
 
 class UpdateFundTypeUseCase(BaseUseCase):
     """Use case for updating fund types"""
@@ -152,6 +150,18 @@ class UpdateFundTypeUseCase(BaseUseCase):
                 error_code="MISSING_FUND_ID",
                 user_message="Fund ID is required."
             )
+        
+        # Validate input data using FundTypeUpdateSchema
+        update_data = {k: v for k, v in input_data.items() if k != 'fund_id'}
+        try:
+            FundTypeUpdateSchema(**update_data)
+        except Exception as e:
+             raise DonationException(
+                message="Input validation failed",
+                error_code="INVALID_INPUT",
+                details={"schema_error": str(e)},
+                user_message="Invalid data provided for fund type update."
+            )
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         fund_id = input_data['fund_id']
@@ -170,8 +180,8 @@ class UpdateFundTypeUseCase(BaseUseCase):
             id=fund_id,
             name=input_data.get('name', existing_fund.name),
             description=input_data.get('description', existing_fund.description),
-            target_amount=Decimal(str(input_data.get('target_amount', existing_fund.target_amount))) if input_data.get('target_amount') else existing_fund.target_amount,
-            current_amount=Decimal(str(input_data.get('current_amount', existing_fund.current_amount))),
+            target_amount=Decimal(str(input_data['target_amount'])) if input_data.get('target_amount') is not None else existing_fund.target_amount,
+            current_amount=Decimal(str(input_data.get('current_balance', existing_fund.current_amount))),
             is_active=input_data.get('is_active', existing_fund.is_active),
             created_at=existing_fund.created_at,
             updated_at=existing_fund.updated_at
@@ -189,19 +199,5 @@ class UpdateFundTypeUseCase(BaseUseCase):
         
         return {
             "message": "Fund type updated successfully",
-            "fund": self._format_fund_response(updated_fund)
-        }
-
-    @staticmethod
-    def _format_fund_response(fund_entity: FundTypeEntity) -> Dict[str, Any]:
-        """Format fund entity for response"""
-        return {
-            'id': fund_entity.id,
-            'name': fund_entity.name,
-            'description': fund_entity.description,
-            'target_amount': float(fund_entity.target_amount) if fund_entity.target_amount else None,
-            'current_amount': float(fund_entity.current_amount) if fund_entity.current_amount else None,
-            'is_active': fund_entity.is_active,
-            'created_at': fund_entity.created_at,
-            'updated_at': fund_entity.updated_at
+            "fund": FundTypeResponseBuilder.to_response(updated_fund).model_dump()
         }

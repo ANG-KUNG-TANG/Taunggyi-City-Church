@@ -13,7 +13,7 @@ from apps.core.schemas.schemas.users import UserCreateSchema
 
 
 class CreateUserUseCase(BaseUseCase):
-    """User creation use case using your existing response schemas"""
+    """Fixed user creation use case"""
     
     def __init__(self, user_repository: UserRepository, jwt_uc: JWTCreateUseCase):
         super().__init__()
@@ -43,22 +43,33 @@ class CreateUserUseCase(BaseUseCase):
             )
 
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> UserRegistrationResponse:
-        # Create and persist user
-        user_entity = UserEntity(user_data=UserCreateSchema(**input_data))
-        user_entity.prepare_for_persistence()
-        created_user = await self.user_repository.create(user_entity)
+        # Extract password before creating entity
+        password = input_data.get('password')
+        
+        # Create entity using proper constructor
+        user_entity = UserEntity.from_create_schema(UserCreateSchema(**input_data))
+        
+        # Validate entity business rules
+        validation_errors = user_entity.validate_for_creation()
+        if validation_errors:
+            raise InvalidUserInputException(
+                field_errors={"_form": validation_errors},
+                user_message="Please check your input data."
+            )
+        
+        # Create user with password
+        created_user = await self.user_repository.create(user_entity, password)
 
         # Generate tokens
         tokens = await self.jwt_uc.execute(
             user_id=str(created_user.id),
             email=created_user.email,
-            roles=[created_user.role.value]
+            roles=[created_user.role]
         )
 
-        # Build response using your existing UserRegistrationResponse
+        # Build response
         user_response = UserResponseBuilder.to_response(created_user)
         
-        # Use your existing from_user_and_tokens method
         return UserRegistrationResponse.from_user_and_tokens(
             user_data=user_response.model_dump(),
             tokens_data=tokens,

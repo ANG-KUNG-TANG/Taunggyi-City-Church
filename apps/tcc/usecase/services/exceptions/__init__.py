@@ -16,7 +16,7 @@ __all__ = [
 Exception handler decorators for production use.
 """
 
-from .user_handler_exceptions import handle_user_exceptions, UserExceptionHandler
+from .u_handler_exceptions import handle_user_exceptions, UserExceptionHandler
 from .auth_exceptions import handle_auth_exceptions, AuthExceptionHandler
 
 __all__ = [

@@ -7,14 +7,18 @@ from apps.tcc.usecase.domain_exception.d_exceptions import (
     DonationException,
     DonationNotFoundException
 )
+# Import Response Builder
+from apps.core.schemas.builders.donation_rp_builder import DonationResponseBuilder, FundTypeResponseBuilder
 
 
 class GetDonationByIdUseCase(BaseUseCase):
     """Use case for getting donation by ID"""
     
-    def __init__(self):
+        
+    def __init__(self, donation_repository: DonationRepository):
         super().__init__()
-        self.donation_repository = DonationRepository()  # Instantiate directly
+        self.donation_repository = donation_repository
+    
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -39,25 +43,7 @@ class GetDonationByIdUseCase(BaseUseCase):
             )
         
         return {
-            "donation": self._format_donation_response(donation_entity)
-        }
-
-    @staticmethod
-    def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
-        """Format donation entity for response"""
-        return {
-            'id': donation_entity.id,
-            'donor_id': donation_entity.donor_id,
-            'fund_id': donation_entity.fund_id,
-            'amount': float(donation_entity.amount) if donation_entity.amount else None,
-            'payment_method': donation_entity.payment_method.value if hasattr(donation_entity.payment_method, 'value') else donation_entity.payment_method,
-            'status': donation_entity.status.value if hasattr(donation_entity.status, 'value') else donation_entity.status,
-            'donation_date': donation_entity.donation_date,
-            'transaction_id': donation_entity.transaction_id,
-            'is_recurring': donation_entity.is_recurring,
-            'is_active': donation_entity.is_active,
-            'created_at': donation_entity.created_at,
-            'updated_at': donation_entity.updated_at
+            "donation": DonationResponseBuilder.to_response(donation_entity).model_dump()
         }
 
 
@@ -76,15 +62,14 @@ class GetAllDonationsUseCase(BaseUseCase):
         filters = input_data.get('filters', {})
         donations = await self.donation_repository.get_all(filters)
         
-        return {
-            "donations": [self._format_donation_response(donation) for donation in donations],
-            "total_count": len(donations)
-        }
-
-    @staticmethod
-    def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
-        """Format donation entity for response"""
-        return GetDonationByIdUseCase._format_donation_response(donation_entity)
+        list_response = DonationResponseBuilder.to_list_response(
+            donations,
+            total=len(donations), # Placeholder, actual total should come from repo if paginated
+            page=input_data.get('page', 1),
+            per_page=input_data.get('per_page', 20)
+        )
+        
+        return list_response.model_dump()
 
 
 class GetUserDonationsUseCase(BaseUseCase):
@@ -100,15 +85,12 @@ class GetUserDonationsUseCase(BaseUseCase):
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         donations = await self.donation_repository.get_user_donations(user.id)
         
-        return {
-            "donations": [self._format_donation_response(donation) for donation in donations],
-            "total_count": len(donations)
-        }
-
-    @staticmethod
-    def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
-        """Format donation entity for response"""
-        return GetDonationByIdUseCase._format_donation_response(donation_entity)
+        list_response = DonationResponseBuilder.to_list_response(
+            donations,
+            total=len(donations)
+        )
+        
+        return list_response.model_dump()
 
 
 class GetDonationsByStatusUseCase(BaseUseCase):
@@ -135,16 +117,12 @@ class GetDonationsByStatusUseCase(BaseUseCase):
         status = input_data['status']
         donations = await self.donation_repository.get_donations_by_status(status)
         
-        return {
-            "donations": [self._format_donation_response(donation) for donation in donations],
-            "status": status.value if hasattr(status, 'value') else status,
-            "total_count": len(donations)
-        }
-
-    @staticmethod
-    def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
-        """Format donation entity for response"""
-        return GetDonationByIdUseCase._format_donation_response(donation_entity)
+        list_response = DonationResponseBuilder.to_list_response(
+            donations,
+            total=len(donations)
+        )
+        
+        return list_response.model_dump()
 
 
 class GetFundTypeByIdUseCase(BaseUseCase):
@@ -178,21 +156,7 @@ class GetFundTypeByIdUseCase(BaseUseCase):
             )
         
         return {
-            "fund": self._format_fund_response(fund_entity)
-        }
-
-    @staticmethod
-    def _format_fund_response(fund_entity: FundTypeEntity) -> Dict[str, Any]:
-        """Format fund entity for response"""
-        return {
-            'id': fund_entity.id,
-            'name': fund_entity.name,
-            'description': fund_entity.description,
-            'target_amount': float(fund_entity.target_amount) if fund_entity.target_amount else None,
-            'current_amount': float(fund_entity.current_amount) if fund_entity.current_amount else None,
-            'is_active': fund_entity.is_active,
-            'created_at': fund_entity.created_at,
-            'updated_at': fund_entity.updated_at
+            "fund": FundTypeResponseBuilder.to_response(fund_entity).model_dump()
         }
 
 
@@ -210,15 +174,14 @@ class GetAllFundTypesUseCase(BaseUseCase):
         filters = input_data.get('filters', {})
         funds = await self.fund_repository.get_all(filters)
         
-        return {
-            "funds": [self._format_fund_response(fund) for fund in funds],
-            "total_count": len(funds)
-        }
-
-    @staticmethod
-    def _format_fund_response(fund_entity: FundTypeEntity) -> Dict[str, Any]:
-        """Format fund entity for response"""
-        return GetFundTypeByIdUseCase._format_fund_response(fund_entity)
+        list_response = FundTypeResponseBuilder.to_list_response(
+            funds,
+            total=len(funds), # Placeholder
+            page=input_data.get('page', 1),
+            per_page=input_data.get('per_page', 20)
+        )
+        
+        return list_response.model_dump()
 
 
 class GetActiveFundTypesUseCase(BaseUseCase):
@@ -234,15 +197,12 @@ class GetActiveFundTypesUseCase(BaseUseCase):
     async def _on_execute(self, input_data: Dict[str, Any], user, context) -> Dict[str, Any]:
         funds = await self.fund_repository.get_active_funds()
         
-        return {
-            "funds": [self._format_fund_response(fund) for fund in funds],
-            "total_count": len(funds)
-        }
-
-    @staticmethod
-    def _format_fund_response(fund_entity: FundTypeEntity) -> Dict[str, Any]:
-        """Format fund entity for response"""
-        return GetFundTypeByIdUseCase._format_fund_response(fund_entity)
+        list_response = FundTypeResponseBuilder.to_list_response(
+            funds,
+            total=len(funds)
+        )
+        
+        return list_response.model_dump()
 
 
 class GetDonationsByFundUseCase(BaseUseCase):
@@ -269,16 +229,14 @@ class GetDonationsByFundUseCase(BaseUseCase):
         fund_id = input_data['fund_id']
         donations = await self.donation_repository.get_donations_by_fund(fund_id)
         
-        return {
-            "fund_id": fund_id,
-            "donations": [self._format_donation_response(donation) for donation in donations],
-            "total_count": len(donations)
-        }
-
-    @staticmethod
-    def _format_donation_response(donation_entity: DonationEntity) -> Dict[str, Any]:
-        """Format donation entity for response"""
-        return GetDonationByIdUseCase._format_donation_response(donation_entity)
+        list_response = DonationResponseBuilder.to_list_response(
+            donations,
+            total=len(donations)
+        )
+        
+        response_data = list_response.model_dump()
+        response_data["fund_id"] = fund_id
+        return response_data
 
 
 class GetDonationStatsUseCase(BaseUseCase):
