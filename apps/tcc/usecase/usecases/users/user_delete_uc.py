@@ -5,11 +5,10 @@ from apps.tcc.usecase.domain_exception.u_exceptions import (
     InvalidUserInputException,
     UserNotFoundException
 )
-from apps.core.schemas.common.response import APIResponse
-
+from apps.core.schemas.out_schemas.base import DeleteResponseSchema
 
 class DeleteUserUseCase(BaseUseCase):
-    """Fixed use case for soft deleting users"""
+    """Use case for soft deleting users - without builder pattern"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -36,7 +35,7 @@ class DeleteUserUseCase(BaseUseCase):
                 user_message="Please provide a valid user ID."
             )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> DeleteResponseSchema:
         user_id = int(input_data['user_id'])
         
         # Check if user exists before deletion
@@ -56,7 +55,8 @@ class DeleteUserUseCase(BaseUseCase):
                 user_message="Failed to delete user."
             )
         
-        return APIResponse.success_response(
-            message="User deleted successfully",
-            data={"user_id": user_id}
+        return DeleteResponseSchema(
+            id=user_id,
+            deleted=success,
+            message="User deleted successfully"
         )

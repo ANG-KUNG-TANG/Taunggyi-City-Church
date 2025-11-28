@@ -46,8 +46,10 @@ INSTALLED_APPS = [
 ]
 AUTH_USER_MODEL = 'tcc.User'
 MIDDLEWARE = [
-    # 'apps.tcc.models.base.signals.AuditLogMiddleware',
     'config.middleware.RequestIDMiddleware',
+    'config.middleware.GlobalExceptionMiddleware',
+    'config.middleware.DatabaseQueryLoggingMiddleware',
+    'config.middleware.SecurityHeadersMiddleware',
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -58,6 +60,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
@@ -131,10 +134,9 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # ──────────────────────────────
 # REST Framework
-# ──────────────────────────────
+
 REST_FRAMEWORK = {
-    'EXCEPTION_HANDLER': 'core.core_exceptions.handlers.django_handler',
-    'DEFAULT_RENDERER_CLASSES': ('rest_framework.renderers.JSONRenderer',),
+    'EXCEPTION_HANDLER': 'apps.core.core_exceptions.handlers.django_handler.django_handler',
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),

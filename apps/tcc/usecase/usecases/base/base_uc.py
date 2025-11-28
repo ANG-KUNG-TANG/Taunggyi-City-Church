@@ -1,3 +1,4 @@
+from datetime import datetime
 import uuid
 import logging
 from django.db import transaction
@@ -8,13 +9,7 @@ from apps.tcc.usecase.domain_exception.auth_exceptions import AuthorizationExcep
 from .config import UseCaseConfiguration
 from .base_context import OperationContext
 from .authorization import AuthorizationManager
-# Remove the old import and use the new auth exceptions
-# from usecase.domain_exception.u_exceptions import (
-#     UnauthorizedActionException,
-#     DomainValidationException
-# )
-
-from usecase.domain_exception.u_exceptions import DomainValidationException  # Keep if still needed elsewhere
+from apps.tcc.usecase.domain_exception.u_exceptions import DomainValidationException  # Keep if still needed elsewhere
 
 logger = logging.getLogger("app.usecase")
 
@@ -124,6 +119,7 @@ class BaseUseCase:
 
     async def _finalize(self, ctx: OperationContext):
         """Always runs: logging, cleanup, audit integration"""
+        ctx.end_time= datetime.utcnow()
         logger.info(
             f"[{self.__class__.__name__}] Completed with operation_id={ctx.operation_id}"
         )

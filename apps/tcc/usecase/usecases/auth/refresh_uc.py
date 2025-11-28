@@ -1,6 +1,7 @@
+from datetime import datetime, timedelta
 from rest_framework_simplejwt.tokens import RefreshToken
-from apps.core.schemas.builders.user_rp_builder import UserResponseBuilder
-from apps.core.schemas.common.response import LoginResponse, make_login_response
+from apps.core.schemas.out_schemas.aut_out_schemas import TokenRefreshResponseSchema, TokenResponseSchema
+from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema
 from apps.tcc.usecase.domain_exception.auth_exceptions import AccountInactiveException, InvalidTokenException, InvalidUserInputError
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
@@ -8,7 +9,7 @@ from apps.core.core_exceptions.base import ErrorContext
 
 
 class RefreshTokenUseCase(BaseUseCase):
-    """Token refresh use case"""
+    """Token refresh use case with output schema support"""
 
     def __init__(self, user_repository: UserRepository, jwt_provider):
         super().__init__()
@@ -31,14 +32,14 @@ class RefreshTokenUseCase(BaseUseCase):
             user_id = token["user_id"]
 
             user_model = await self.user_repository.get_by_id(user_id)
-            if not user_model.is_active:
+            if not user_model or not user_model.is_active:
                 context = ErrorContext(
                     operation="TOKEN_REFRESH",
-                    user_identifier=user_model.email,
+                    user_identifier=getattr(user_model, 'email', 'unknown'),
                     endpoint="auth/refresh"
                 )
                 raise AccountInactiveException(
-                    username=user_model.email,
+                    username=getattr(user_model, 'email', 'unknown'),
                     user_id=user_id,
                     context=context
                 )
@@ -46,16 +47,20 @@ class RefreshTokenUseCase(BaseUseCase):
             # Sync: Token generation
             new_tokens = self.jwt_provider.generate_tokens(user_model)
             
-            # Build user response
-            user_response = UserResponseBuilder.to_response(user_model)
+            # Build token data for TokenResponseSchema
+            expires_in = new_tokens.get("expires_in", 3600)  # Default 1 hour
+            token_data = {
+                "access_token": new_tokens["access"],
+                "refresh_token": new_tokens.get("refresh"),
+                "token_type": "bearer",
+                "expires_in": expires_in,
+                "expires_at": datetime.utcnow() + timedelta(seconds=expires_in)
+            }
             
-            # Use the same login response structure for consistency
-            return make_login_response(
-                access_token=new_tokens["access"],
-                refresh_token=new_tokens.get("refresh"),
-                expires_in=new_tokens.get("expires_in"),
-                user=user_response.model_dump(),
-                message="Token refreshed successfully"
+            # Return TokenRefreshResponseSchema directly
+            return TokenRefreshResponseSchema(
+                message="Token refreshed successfully",
+                tokens=TokenResponseSchema(**token_data)
             )
 
         except Exception as e:

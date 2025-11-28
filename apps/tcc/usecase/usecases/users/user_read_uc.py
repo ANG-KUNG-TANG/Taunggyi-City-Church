@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
-from apps.core.schemas.builders.user_rp_builder import UserResponseBuilder
-from apps.core.schemas.common.response import APIResponse
+from apps.core.schemas.out_schemas.base import BaseResponseSchema
+from apps.core.schemas.common.pagination import PaginatedResponse
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.domain_exception.u_exceptions import (
@@ -8,10 +8,10 @@ from apps.tcc.usecase.domain_exception.u_exceptions import (
     UserNotFoundException
 )
 from apps.tcc.models.base.enums import UserRole
-
+from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema, UserListResponseSchema
 
 class GetUserByIdUseCase(BaseUseCase):
-    """Fixed use case for getting user by ID"""
+    """Use case for getting user by ID - without builder pattern"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -37,7 +37,7 @@ class GetUserByIdUseCase(BaseUseCase):
                 user_message="Please provide a valid user ID."
             )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> UserResponseSchema:
         user_id = int(input_data['user_id'])
         user_entity = await self.user_repository.get_by_id(user_id)
         
@@ -47,17 +47,12 @@ class GetUserByIdUseCase(BaseUseCase):
                 user_message="User not found."
             )
         
-        # Use builder to create consistent response
-        user_response = UserResponseBuilder.to_response(user_entity)
-        
-        return APIResponse.success_response(
-            message="User retrieved successfully",
-            data=user_response.model_dump()
-        )
+        # Convert entity directly to response schema
+        return UserResponseSchema.model_validate(user_entity)
 
 
 class GetUserByEmailUseCase(BaseUseCase):
-    """Fixed use case for getting user by email"""
+    """Use case for getting user by email - without builder pattern"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -74,7 +69,7 @@ class GetUserByEmailUseCase(BaseUseCase):
                 user_message="Please provide a valid email address."
             )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> UserResponseSchema:
         email = input_data['email']
         user_entity = await self.user_repository.get_by_email(email)
         
@@ -84,16 +79,12 @@ class GetUserByEmailUseCase(BaseUseCase):
                 user_message="User with this email not found."
             )
         
-        user_response = UserResponseBuilder.to_response(user_entity)
-        
-        return APIResponse.success_response(
-            message="User retrieved successfully",
-            data=user_response.model_dump()
-        )
+        # Convert entity directly to response schema
+        return UserResponseSchema.model_validate(user_entity)
 
 
 class GetAllUsersUseCase(BaseUseCase):
-    """Fixed use case for getting all users with pagination"""
+    """Use case for getting all users with pagination - without builder pattern"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -103,7 +94,7 @@ class GetAllUsersUseCase(BaseUseCase):
         self.config.require_authentication = True
         self.config.required_permissions = ['can_manage_users']
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> UserListResponseSchema:
         filters = input_data.get('filters', {})
         page = input_data.get('page', 1)
         per_page = input_data.get('per_page', 20)
@@ -115,22 +106,25 @@ class GetAllUsersUseCase(BaseUseCase):
             per_page=per_page
         )
         
-        # Use builder for list response
-        list_response = UserResponseBuilder.to_list_response(
-            entities=users,
+        # Convert entities directly to response schemas
+        user_responses = [UserResponseSchema.model_validate(user) for user in users]
+        
+        # Calculate pagination info
+        total_pages = (total_count + per_page - 1) // per_page if per_page > 0 else 1
+        
+        return UserListResponseSchema(
+            items=user_responses,
             total=total_count,
             page=page,
-            per_page=per_page
-        )
-        
-        return APIResponse.success_response(
-            message="Users retrieved successfully",
-            data=list_response.model_dump()
+            page_size=per_page,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1
         )
 
 
 class GetUsersByRoleUseCase(BaseUseCase):
-    """Fixed use case for getting users by role"""
+    """Use case for getting users by role - without builder pattern"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -159,7 +153,7 @@ class GetUsersByRoleUseCase(BaseUseCase):
                     user_message="Please provide a valid user role."
                 )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> UserListResponseSchema:
         role = input_data['role']
         page = input_data.get('page', 1)
         per_page = input_data.get('per_page', 20)
@@ -171,21 +165,25 @@ class GetUsersByRoleUseCase(BaseUseCase):
             per_page=per_page
         )
         
-        list_response = UserResponseBuilder.to_list_response(
-            entities=users,
+        # Convert entities directly to response schemas
+        user_responses = [UserResponseSchema.model_validate(user) for user in users]
+        
+        # Calculate pagination info
+        total_pages = (total_count + per_page - 1) // per_page if per_page > 0 else 1
+        
+        return UserListResponseSchema(
+            items=user_responses,
             total=total_count,
             page=page,
-            per_page=per_page
-        )
-        
-        return APIResponse.success_response(
-            message=f"Users with role {role.value} retrieved successfully",
-            data=list_response.model_dump()
+            page_size=per_page,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1
         )
 
 
 class SearchUsersUseCase(BaseUseCase):
-    """Fixed use case for searching users"""
+    """Use case for searching users - without builder pattern"""
     
     def __init__(self, user_repository: UserRepository):
         super().__init__()
@@ -203,7 +201,7 @@ class SearchUsersUseCase(BaseUseCase):
                 user_message="Please provide a search term with at least 2 characters."
             )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> APIResponse:
+    async def _on_execute(self, input_data: Dict[str, Any], user, context) -> UserListResponseSchema:
         search_term = input_data['search_term']
         page = input_data.get('page', 1)
         per_page = input_data.get('per_page', 20)
@@ -214,14 +212,18 @@ class SearchUsersUseCase(BaseUseCase):
             per_page=per_page
         )
         
-        list_response = UserResponseBuilder.to_list_response(
-            entities=users,
+        # Convert entities directly to response schemas
+        user_responses = [UserResponseSchema.model_validate(user) for user in users]
+        
+        # Calculate pagination info
+        total_pages = (total_count + per_page - 1) // per_page if per_page > 0 else 1
+        
+        return UserListResponseSchema(
+            items=user_responses,
             total=total_count,
             page=page,
-            per_page=per_page
-        )
-        
-        return APIResponse.success_response(
-            message=f"Search results for '{search_term}'",
-            data=list_response.model_dump()
+            page_size=per_page,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1
         )

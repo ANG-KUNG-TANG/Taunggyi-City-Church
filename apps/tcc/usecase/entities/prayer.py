@@ -1,76 +1,80 @@
+from typing import Optional
 from datetime import datetime
-from apps.core.schemas.schemas.prayer import PrayerRequestCreate
-from apps.tcc.usecase.entities.users import UserEntity
-from apps.tcc.models.base.enums import PrayerPrivacy, UserRole
-import html
+from dataclasses import dataclass
+from .base_entity import BaseEntity
 
 
-class PrayerRequestEntity:
-    def __init__(self, prayer_data: PrayerRequestCreate = None, **kwargs):
-        if prayer_data:
-            self.title = prayer_data.title
-            self.content = prayer_data.content
-            self.privacy = prayer_data.privacy
-            self.expires_at = prayer_data.expires_at
-            self.answer_notes = prayer_data.answer_notes
-            self.user_id = prayer_data.user_id
-        else:
-            # For repository conversion
-            self.id = kwargs.get('id')
-            self.user_id = kwargs.get('user_id')
-            self.title = kwargs.get('title')
-            self.content = kwargs.get('content')
-            self.privacy = kwargs.get('privacy', PrayerPrivacy.CONGREGATION)
-            self.expires_at = kwargs.get('expires_at')
-            self.answer_notes = kwargs.get('answer_notes')
-            self.is_answered = kwargs.get('is_answered', False)
-            self.prayer_count = kwargs.get('prayer_count', 0)
-            self.created_at = kwargs.get('created_at')
-            self.updated_at = kwargs.get('updated_at')
-    
-    def sanitize_inputs(self):
-        """Sanitize prayer content"""
-        if hasattr(self, 'title'):
-            self.title = html.escape(self.title.strip())
-        if hasattr(self, 'content'):
-            self.content = html.escape(self.content.strip())
-        if hasattr(self, 'answer_notes') and self.answer_notes:
-            self.answer_notes = html.escape(self.answer_notes.strip())
+@dataclass
+class PrayerRequestEntity(BaseEntity):
+    """Entity for prayer requests"""
+    title: str = ""
+    description: str = ""
+    is_public: bool = False
+    is_anonymous: bool = False
+    status: str = "pending"
+    priority: str = "normal"
+    category: str = "general"
+    requested_by: Optional[int] = None
+    assigned_to: Optional[int] = None
+    answer: Optional[str] = None
+    answered_at: Optional[datetime] = None
+    answered_by: Optional[int] = None
+    expiration_date: Optional[datetime] = None
+    prayer_count: int = 0
     
     def prepare_for_persistence(self):
-        self.sanitize_inputs()
+        """Prepare entity for database operations"""
+        self.update_timestamps()
+        self.title = self.sanitize_string(self.title)
+        self.description = self.sanitize_string(self.description)
+        self.answer = self.sanitize_string(self.answer)
     
-    @property
-    def is_expired(self) -> bool:
-        if not self.expires_at:
-            return False
-        return datetime.now() > self.expires_at
+    @classmethod
+    def from_model(cls, model):
+        """Create entity from Django model"""
+        return cls(
+            id=model.id,
+            title=model.title,
+            description=model.description,
+            is_public=model.is_public,
+            is_anonymous=model.is_anonymous,
+            status=model.status,
+            priority=model.priority,
+            category=model.category,
+            requested_by=model.requested_by_id,
+            assigned_to=model.assigned_to_id,
+            answer=model.answer,
+            answered_at=model.answered_at,
+            answered_by=model.answered_by_id,
+            expiration_date=model.expiration_date,
+            prayer_count=model.prayer_count,
+            created_at=model.created_at,
+            updated_at=model.updated_at
+        )
+
+
+@dataclass
+class PrayerResponseEntity(BaseEntity):
+    """Entity for prayer responses"""
+    prayer_request_id: int
+    responded_by: int
+    response: str = ""
+    is_public: bool = False
     
-    def can_view(self, user: UserEntity) -> bool:
-        if not user:
-            return False
-        
-        # User can view their own requests
-        if self.user_id == user.id:
-            return True
-        
-        # Public requests can be viewed by anyone
-        if self.privacy == PrayerPrivacy.PUBLIC:
-            return True
-        
-        # Congregation requests can be viewed by members
-        if self.privacy == PrayerPrivacy.CONGREGATION and user.is_member:
-            return True
-        
-        # Leaders can view all requests
-        if self.privacy == PrayerPrivacy.LEADERS_ONLY and user.is_ministry_leader:
-            return True
-        
-        # Staff and super admins can view everything
-        if user.role in [UserRole.SUPER_ADMIN, UserRole.STAFF]:
-            return True
-        
-        return False
+    def prepare_for_persistence(self):
+        """Prepare entity for database operations"""
+        self.update_timestamps()
+        self.response = self.sanitize_string(self.response)
     
-    def __str__(self):
-        return f"{self.title} - User {self.user_id}"
+    @classmethod
+    def from_model(cls, model):
+        """Create entity from Django model"""
+        return cls(
+            id=model.id,
+            prayer_request_id=model.prayer_request_id,
+            responded_by=model.responded_by_id,
+            response=model.response,
+            is_public=model.is_public,
+            created_at=model.created_at,
+            updated_at=model.updated_at
+        )

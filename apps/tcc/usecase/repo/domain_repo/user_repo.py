@@ -1,14 +1,12 @@
-from datetime import timezone
 from typing import List, Optional, Dict, Any, Tuple
-from django.db import transaction
 from django.db.models import Q
+from asgiref.sync import sync_to_async 
 from apps.core.cache.async_cache import AsyncCache
-from repo.base.modelrepo import DomainRepository
 from apps.tcc.models.users.users import User
 from apps.tcc.models.base.enums import UserRole, UserStatus
-from entities.users import UserEntity
+from apps.tcc.usecase.entities.users import UserEntity  
+from apps.tcc.usecase.repo.base.modelrepo import DomainRepository
 from core.db.decorators import with_db_error_handling, with_retry
-from utils.audit_logging import AuditLogger
 from core.cache.decorator import cached, cache_invalidate
 import logging
 
@@ -20,185 +18,123 @@ class UserRepository(DomainRepository):
         super().__init__(User)
         self.cache = cache
     
-    # ============ CRUD OPERATIONS ============
+    # ============ OVERRIDDEN CRUD OPERATIONS WITH CACHING ============
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    @transaction.atomic
     @cache_invalidate(
-        key_templates=[
-            "user:{id}",
-            "user:email:{user_entity.email}",
-            "users:list:*"
-        ],
+        key_templates=["user:{user_entity.id}", "user:email:{user_entity.email}", "users:list:*"],
         namespace="users",
         version="1"
     )
-    async def create(self, user_entity: UserEntity, password: str = None) -> UserEntity:
-        """Create new user with password handling"""
-        user_entity.prepare_for_persistence()
-        
-        # Convert entity to model data
-        user_data = self._entity_to_model_data(user_entity)
-        
-        # Create user model
-        user_model = await self.model_class.objects.acreate(**user_data)
-        
-        # Set password if provided
-        if password:
-            user_model.set_password(password)
-            await user_model.asave(update_fields=['password'])
-        
-        user_entity_result = UserEntity.from_model(user_model)
-        
-        # Audit logging
-        await AuditLogger.log_create(
-            user=None,
-            obj=user_model,
-            notes=f"Created user: {user_entity_result.email}",
-            ip_address="system",
-            user_agent="system"
-        )
-        
-        logger.info(f"User created successfully: {user_entity_result.email}")
-        return user_entity_result
-    
-    @with_db_error_handling
-    @with_retry(max_retries=3)
-    @cached(
-        key_template="user:{id}",
-        ttl=3600,
-        namespace="users",
-        version="1"
-    )
-    async def get_by_id(self, id: int) -> Optional[UserEntity]:
-        """Get user by ID with caching"""
+    async def create(self, data, user=None, request=None) -> UserEntity:
+        """Create user with password handling"""
         try:
-            user_model = await self.model_class.objects.aget(id=id, is_active=True)
-            return UserEntity.from_model(user_model)
-        except User.DoesNotExist:
-            logger.debug(f"User not found with ID: {id}")
-            return None
+            logger.info(f"UserRepository.create called with data type: {type(data)}")
+            
+            # Handle both dict and entity input
+            if hasattr(data, '__dict__'):
+                # It's an entity - convert to dict
+                user_data = {k: v for k, v in data.__dict__.items() 
+                           if not k.startswith('_') and v is not None}
+            else:
+                # It's a dict - use copy
+                user_data = data.copy() if isinstance(data, dict) else data
+            
+            # Extract password if provided
+            password = user_data.pop('password', None)
+            
+            # Create user via parent
+            user_entity = await super().create(user_data, user, request)
+            
+            # Set password if provided
+            if password:
+                user_model = await sync_to_async(User.objects.get)(id=user_entity.id)
+                user_model.set_password(password)
+                await sync_to_async(user_model.save)()
+            
+            logger.info(f"User created successfully: {user_entity.email}")
+            return user_entity
+            
+        except Exception as e:
+            logger.error(f"Error in user creation: {str(e)}", exc_info=True)
+            raise
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    @cached(
-        key_template="user:email:{email}",
-        ttl=3600,
-        namespace="users",
-        version="1"
-    )
+    @cached(key_template="user:{object_id}", ttl=3600, namespace="users", version="1")
+    async def get_by_id(self, object_id, user=None, *args, **kwargs) -> Optional[UserEntity]:
+        return await super().get_by_id(object_id, user, *args, **kwargs)
+    
+    @with_db_error_handling
+    @with_retry(max_retries=3)
+    @cached(key_template="user:email:{email}", ttl=3600, namespace="users", version="1")
     async def get_by_email(self, email: str) -> Optional[UserEntity]:
         """Get user by email with caching"""
         try:
-            user_model = await self.model_class.objects.aget(email=email, is_active=True)
-            return UserEntity.from_model(user_model)
+            user = await sync_to_async(User.objects.get)(email=email, is_active=True)
+            return await self._model_to_entity(user)
         except User.DoesNotExist:
             logger.debug(f"User not found with email: {email}")
             return None
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    @transaction.atomic
     @cache_invalidate(
-        key_templates=[
-            "user:{id}",
-            "user:email:{user_entity.email}",
-            "users:list:*"
-        ],
+        key_templates=["user:{object_id}", "user:email:{user_entity.email}", "users:list:*"],
         namespace="users",
         version="1"
     )
-    async def update(self, id: int, user_entity: UserEntity) -> Optional[UserEntity]:
+    async def update(self, object_id, data, user=None, request=None) -> Optional[UserEntity]:
         """Update user with proper change tracking"""
-        target_user = await self._get_by_id_uncached(id)
-        if not target_user:
-            return None
-        
-        user_entity.prepare_for_persistence()
-        
-        # Get update data
-        update_data = self._entity_to_model_data(user_entity)
-        
-        # Update model
-        updated_count = await self.model_class.objects.filter(id=id).aupdate(**update_data)
-        if updated_count:
-            updated_user = await self._get_by_id_uncached(id)
-            
-            # Audit logging
-            changes = self._get_changes(target_user, updated_user)
-            await AuditLogger.log_update(
-                user=None,
-                obj=updated_user,
-                changes=changes,
-                notes=f"Updated user: {updated_user.email}",
-                ip_address="system",
-                user_agent="system"
-            )
-            
-            logger.info(f"User updated successfully: {updated_user.email}")
-            return updated_user
-        return None
+        # Use parent's update which already handles audit logging
+        return await super().update(object_id, data, user, request)
     
     @with_db_error_handling
     @with_retry(max_retries=3)
-    @transaction.atomic
     @cache_invalidate(
-        key_templates=[
-            "user:{id}",
-            "user:email:{target_user.email}",
-            "users:list:*"
-        ],
+        key_templates=["user:{object_id}", "user:email:{user.email}", "users:list:*"],
         namespace="users",
         version="1"
     )
-    async def delete(self, id: int) -> bool:
+    async def delete(self, object_id, user=None, request=None) -> bool:
         """Soft delete user"""
-        target_user = await self._get_by_id_uncached(id)
-        if not target_user:
-            return False
-        
-        # Soft delete
-        updated_count = await self.model_class.objects.filter(id=id).aupdate(is_active=False)
-        
-        if updated_count:
-            await AuditLogger.log_delete(
-                user=None,
-                obj=target_user,
-                notes=f"Deleted user: {target_user.email}",
-                ip_address="system",
-                user_agent="system"
-            )
-            
-            logger.info(f"User deleted successfully: {target_user.email}")
-            return True
-        
-        return False
-
+        return await super().delete(object_id, user, request)
+    
     # ============ BUSINESS OPERATIONS ============
     
     @with_db_error_handling
     @with_retry(max_retries=3)
+    @cached(
+        key_template="users:list:{filters_hash}:{page}:{per_page}",
+        ttl=900,
+        namespace="users",
+        version="1"
+    )
     async def get_paginated_users(self, filters: Dict = None, page: int = 1, per_page: int = 20) -> Tuple[List[UserEntity], int]:
         """Get paginated users with filters"""
-        queryset = User.objects.filter(is_active=True)
+        base_queryset = User.objects.filter(is_active=True)
         
         if filters:
             for key, value in filters.items():
-                if value is not None:
-                    queryset = queryset.filter(**{key: value})
+                base_queryset = base_queryset.filter(**{key: value})
+        
+        # Add filters_hash for decorator
+        filters_hash = hash(str(filters)) if filters else "all"
+        setattr(self, 'filters_hash', filters_hash)
+        setattr(self, 'page', page)
+        setattr(self, 'per_page', per_page)
         
         # Get total count
-        total_count = await queryset.acount()
+        total_count = await sync_to_async(base_queryset.count)()
         
         # Calculate offset and apply pagination
         offset = (page - 1) * per_page
-        paginated_queryset = queryset[offset:offset + per_page]
+        users_queryset = base_queryset.order_by('-created_at')[offset:offset + per_page]
         
-        # Convert to entities
         users = []
-        async for user in paginated_queryset:
-            users.append(UserEntity.from_model(user))
+        for user in await sync_to_async(list)(users_queryset):
+            users.append(await self._model_to_entity(user))
             
         return users, total_count
     
@@ -211,13 +147,13 @@ class UserRepository(DomainRepository):
             (Q(name__icontains=search_term) | Q(email__icontains=search_term))
         )
         
-        total_count = await queryset.acount()
+        total_count = await sync_to_async(queryset.count)()
         offset = (page - 1) * per_page
-        paginated_queryset = queryset[offset:offset + per_page]
         
+        users_queryset = queryset.order_by('-created_at')[offset:offset + per_page]
         users = []
-        async for user in paginated_queryset:
-            users.append(UserEntity.from_model(user))
+        for user in await sync_to_async(list)(users_queryset):
+            users.append(await self._model_to_entity(user))
             
         return users, total_count
     
@@ -225,59 +161,20 @@ class UserRepository(DomainRepository):
     @with_retry(max_retries=3)
     async def email_exists(self, email: str) -> bool:
         """Check if email already exists"""
-        return await User.objects.filter(email=email, is_active=True).aexists()
+        return await sync_to_async(User.objects.filter(email=email, is_active=True).exists)()
     
     @with_db_error_handling
     @with_retry(max_retries=3)
     async def verify_password(self, user_id: int, password: str) -> bool:
         """Verify user password"""
         try:
-            user = await User.objects.aget(id=user_id, is_active=True)
+            user = await sync_to_async(User.objects.get)(id=user_id, is_active=True)
             return user.check_password(password)
         except User.DoesNotExist:
             return False
 
-    # ============ INTERNAL METHODS ============
+    # ============ CONVERSION METHODS ============
     
-    async def _get_by_id_uncached(self, id: int) -> Optional[UserEntity]:
-        """Internal method to get user by ID without cache"""
-        try:
-            user_model = await self.model_class.objects.aget(id=id, is_active=True)
-            return UserEntity.from_model(user_model)
-        except User.DoesNotExist:
-            return None
-    
-    def _entity_to_model_data(self, user_entity: UserEntity) -> Dict[str, Any]:
-        """Convert UserEntity to model data dictionary"""
-        return {
-            'name': user_entity.name,
-            'email': user_entity.email,
-            'phone_number': user_entity.phone_number,
-            'age': user_entity.age,
-            'gender': user_entity.gender,
-            'marital_status': user_entity.marital_status,
-            'date_of_birth': user_entity.date_of_birth,
-            'testimony': user_entity.testimony,
-            'baptism_date': user_entity.baptism_date,
-            'membership_date': user_entity.membership_date,
-            'role': user_entity.role,
-            'status': user_entity.status,
-            'is_staff': user_entity.is_staff,
-            'is_superuser': user_entity.is_superuser,
-            'is_active': user_entity.is_active,
-            'email_notifications': user_entity.email_notifications,
-            'sms_notifications': user_entity.sms_notifications,
-        }
-    
-    def _get_changes(self, old_entity: UserEntity, new_entity: UserEntity) -> Dict:
-        """Track changes between entity versions"""
-        changes = {}
-        fields_to_track = ['name', 'email', 'role', 'status']
-        
-        for field in fields_to_track:
-            old_value = getattr(old_entity, field, None)
-            new_value = getattr(new_entity, field, None)
-            if old_value != new_value:
-                changes[field] = {'old': old_value, 'new': new_value}
-        
-        return changes
+    async def _model_to_entity(self, user_model) -> UserEntity:
+        """Convert Django model to UserEntity"""
+        return UserEntity.from_model(user_model)

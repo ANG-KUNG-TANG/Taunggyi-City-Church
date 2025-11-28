@@ -10,7 +10,7 @@ class OperationContext:
     input_data: Any
     output_data: Any = None
     error: Optional[Exception] = None
-    start_tiem: datetime = field(default_factory=datetime.utcnow)
+    start_time: datetime = field(default_factory=datetime.utcnow)
     end_time: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     

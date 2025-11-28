@@ -1,98 +1,56 @@
-from functools import lru_cache
-from typing import AsyncGenerator
-
-# 1. Import Repositories
+from typing import Dict, Any
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
-
-# 2. Import Shared/Base Use Cases
-from apps.tcc.usecase.usecases.base.jwt_uc import JWTCreateUseCase
-
-# 3. Import User Domain Use Cases
 from apps.tcc.usecase.usecases.users.user_create_uc import CreateUserUseCase
 from apps.tcc.usecase.usecases.users.user_read_uc import (
-    GetUserByIdUseCase,
-    GetUserByEmailUseCase,
-    GetAllUsersUseCase,
-    GetUsersByRoleUseCase,
-    SearchUsersUseCase
+    GetUserByIdUseCase, GetUserByEmailUseCase, GetAllUsersUseCase,
+    GetUsersByRoleUseCase, SearchUsersUseCase
 )
-from apps.tcc.usecase.usecases.users.user_update_uc import (
-    UpdateUserUseCase,
-    ChangeUserStatusUseCase
-)
+from apps.tcc.usecase.usecases.users.user_update_uc import UpdateUserUseCase, ChangeUserStatusUseCase
 from apps.tcc.usecase.usecases.users.user_delete_uc import DeleteUserUseCase
+from apps.tcc.usecase.usecases.auth.jwt_uc import JWTCreateUseCase
 
-# --- Repository Providers ---
-
-@lru_cache()
-def get_user_repository() -> UserRepository:
-    """
-    Creates a singleton instance of the User Repository.
-    """
+# Repository
+async def get_user_repository() -> UserRepository:
     return UserRepository()
 
-# --- Shared Logic Providers ---
-
-def get_jwt_create_uc() -> JWTCreateUseCase:
-    """
-    Provides the JWT creation use case required by CreateUserUseCase.
-    """
-    # Assuming JWTCreateUseCase might need its own dependencies or config
+# Auth
+async def get_jwt_uc() -> JWTCreateUseCase:
     return JWTCreateUseCase()
 
-# --- User Use Case Factories ---
+# Use Cases
+async def get_create_user_uc() -> CreateUserUseCase:
+    user_repo = await get_user_repository()
+    jwt_uc = await get_jwt_uc()
+    return CreateUserUseCase(user_repository=user_repo, jwt_uc=jwt_uc)
 
-def get_create_user_uc() -> CreateUserUseCase:
-    """Dependency provider for CreateUserUseCase"""
-    return CreateUserUseCase(
-        user_repository=get_user_repository(),
-        jwt_uc=get_jwt_create_uc()
-    )
+async def get_user_by_id_uc() -> GetUserByIdUseCase:
+    user_repo = await get_user_repository()
+    return GetUserByIdUseCase(user_repository=user_repo)
 
-def get_user_by_id_uc() -> GetUserByIdUseCase:
-    """Dependency provider for GetUserByIdUseCase"""
-    return GetUserByIdUseCase(
-        user_repository=get_user_repository()
-    )
+async def get_user_by_email_uc() -> GetUserByEmailUseCase:
+    user_repo = await get_user_repository()
+    return GetUserByEmailUseCase(user_repository=user_repo)
 
-def get_user_by_email_uc() -> GetUserByEmailUseCase:
-    """Dependency provider for GetUserByEmailUseCase"""
-    return GetUserByEmailUseCase(
-        user_repository=get_user_repository()
-    )
+async def get_all_users_uc() -> GetAllUsersUseCase:
+    user_repo = await get_user_repository()
+    return GetAllUsersUseCase(user_repository=user_repo)
 
-def get_all_users_uc() -> GetAllUsersUseCase:
-    """Dependency provider for GetAllUsersUseCase"""
-    return GetAllUsersUseCase(
-        user_repository=get_user_repository()
-    )
+async def get_users_by_role_uc() -> GetUsersByRoleUseCase:
+    user_repo = await get_user_repository()
+    return GetUsersByRoleUseCase(user_repository=user_repo)
 
-def get_users_by_role_uc() -> GetUsersByRoleUseCase:
-    """Dependency provider for GetUsersByRoleUseCase"""
-    return GetUsersByRoleUseCase(
-        user_repository=get_user_repository()
-    )
+async def get_search_users_uc() -> SearchUsersUseCase:
+    user_repo = await get_user_repository()
+    return SearchUsersUseCase(user_repository=user_repo)
 
-def get_search_users_uc() -> SearchUsersUseCase:
-    """Dependency provider for SearchUsersUseCase"""
-    return SearchUsersUseCase(
-        user_repository=get_user_repository()
-    )
+async def get_update_user_uc() -> UpdateUserUseCase:
+    user_repo = await get_user_repository()
+    return UpdateUserUseCase(user_repository=user_repo)
 
-def get_update_user_uc() -> UpdateUserUseCase:
-    """Dependency provider for UpdateUserUseCase"""
-    return UpdateUserUseCase(
-        user_repository=get_user_repository()
-    )
+async def get_change_user_status_uc() -> ChangeUserStatusUseCase:
+    user_repo = await get_user_repository()
+    return ChangeUserStatusUseCase(user_repository=user_repo)
 
-def get_change_user_status_uc() -> ChangeUserStatusUseCase:
-    """Dependency provider for ChangeUserStatusUseCase"""
-    return ChangeUserStatusUseCase(
-        user_repository=get_user_repository()
-    )
-
-def get_delete_user_uc() -> DeleteUserUseCase:
-    """Dependency provider for DeleteUserUseCase"""
-    return DeleteUserUseCase(
-        user_repository=get_user_repository()
-    )
+async def get_delete_user_uc() -> DeleteUserUseCase:
+    user_repo = await get_user_repository()
+    return DeleteUserUseCase(user_repository=user_repo)

@@ -5,9 +5,6 @@ from .user_read_uc import (
     GetAllUsersUseCase,
     GetUsersByRoleUseCase,
     SearchUsersUseCase,
-    GetMinistryLeadersUseCase,
-    GetUsersByStatusUseCase,
-    GetActiveUsersCountUseCase
 )
 from .user_update_uc import UpdateUserUseCase, ChangeUserStatusUseCase
 from .user_delete_uc import DeleteUserUseCase
@@ -19,9 +16,6 @@ __all__ = [
     'GetAllUsersUseCase',
     'GetUsersByRoleUseCase',
     'SearchUsersUseCase',
-    'GetMinistryLeadersUseCase',
-    'GetUsersByStatusUseCase',
-    'GetActiveUsersCountUseCase',
     'UpdateUserUseCase',
     'ChangeUserStatusUseCase',
     'DeleteUserUseCase'

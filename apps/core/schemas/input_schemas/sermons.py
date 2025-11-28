@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 import re
 
-from apps.core.schemas.schemas.base import BaseResponseSchema, BaseSchema
+from apps.core.schemas.input_schemas.base import BaseResponseSchema, BaseSchema
 from apps.tcc.models.base.enums import SermonStatus
 
 class SermonBaseSchema(BaseSchema):

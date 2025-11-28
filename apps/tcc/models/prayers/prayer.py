@@ -5,7 +5,7 @@ from django.db import models
 from apps.tcc.models.users.users import User
 
 
-class PrayerRequest(BaseModel):
+class Prayer(BaseModel):
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -106,7 +106,7 @@ class PrayerRequest(BaseModel):
 
 class PrayerResponse(BaseModel):
     prayer_request = models.ForeignKey(
-        PrayerRequest,
+        Prayer,
         on_delete=models.CASCADE,
         related_name='responses'
     )

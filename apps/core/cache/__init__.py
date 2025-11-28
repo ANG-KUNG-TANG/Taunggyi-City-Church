@@ -1,20 +1,14 @@
-from .async_cache import AsyncRedisCache, async_cache
-from .decorator import cached, cache_key, invalidate_cache
-from .cache_keys import CacheKeyGenerator, key_generator
+from .async_cache import AsyncRedisCache, async_cache, AsyncCache, async_redis_cache
+from .cache_keys import CacheKeyBuilder, CacheNamespace
+from .serializer import CacheSerializer, SerializationType
 
 __all__ = [
-    'BaseCache',
-    'AsyncBaseCache',
-    'SyncRedisCache',
     'AsyncRedisCache',
-    'sync_cache',
-    'async_cache',
-    'cached',
-    'cache_key',
-    'invalidate_cache',
-    'CacheKeyGenerator',
-    'key_generator',
+    'async_cache', 
+    'AsyncCache',
+    'async_redis_cache',
+    'CacheKeyBuilder',
+    'CacheNamespace', 
+    'CacheSerializer',
+    'SerializationType'
 ]
-
-# Default cache instance
-cache = async_cache

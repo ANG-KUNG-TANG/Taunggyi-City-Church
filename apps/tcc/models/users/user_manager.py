@@ -9,6 +9,12 @@ class UserManager(BaseUserManager):
             raise ValueError('The name must be set')
         
         email = self.normalize_email(email)
+        
+        # Set default values for required fields
+        extra_fields.setdefault('is_active', True)
+        extra_fields.setdefault('role', UserRole.VISITOR)
+        extra_fields.setdefault('status', UserStatus.PENDING)
+        
         user = self.model(email=email, name=name, **extra_fields)
         
         if password:
@@ -16,8 +22,13 @@ class UserManager(BaseUserManager):
         else:
             user.set_unusable_password()
             
-        user.save(using=self.db)
-        return user
+        try:
+            user.save(using=self.db)
+            return user
+        except Exception as e:
+            # This will help us see the actual database error
+            print(f"Error saving user: {str(e)}")
+            raise
     
     def create_superuser(self, email, name, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)

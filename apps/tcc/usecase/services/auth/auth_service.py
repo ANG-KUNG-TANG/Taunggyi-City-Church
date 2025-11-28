@@ -8,9 +8,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 
 from apps.core.schemas.common.response import APIResponse, UserRegistrationResponse
-from apps.core.schemas.schemas.users import UserCreateSchema, UserLoginSchema
-from apps.tcc.models.audit.audit import AuditLog, SecurityEvent
-from usecase.domain_exception.u_exceptions import (
+from apps.core.schemas.input_schemas.users import UserCreateSchema, UserLoginSchema
+from apps.tcc.models.base.auditlog import AuditLog, SecurityEvent
+from apps.tcc.usecase.domain_exception.u_exceptions import (
     InvalidUserInputException,
     UserAlreadyExistsException, 
     UserNotFoundException,

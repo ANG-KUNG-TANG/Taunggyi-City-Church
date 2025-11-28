@@ -1,7 +1,6 @@
 from typing import Dict, Any, Optional, List
 from contextlib import contextmanager
 
-
 class ValidationContext:
     """
     Context manager for validation operations
@@ -39,10 +38,8 @@ class ValidationContext:
         self.errors.clear()
         self.context.clear()
 
-
 # Global validation context manager
 _global_validation_context = ValidationContext()
-
 
 @contextmanager
 def validation_context():
@@ -53,10 +50,13 @@ def validation_context():
         with validation_context() as ctx:
             ctx.add_error('field', 'Error message')
             if ctx.has_errors():
+                from .exceptions import ValidationError
                 raise ValidationError("Validation failed", ctx.get_errors())
     """
     ctx = ValidationContext()
     try:
         yield ctx
     finally:
-        pass
+        if ctx.has_errors():
+            from .exceptions import ValidationError
+            raise ValidationError("Validation failed", ctx.get_errors())

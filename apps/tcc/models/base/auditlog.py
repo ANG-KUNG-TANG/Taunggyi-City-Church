@@ -5,7 +5,6 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from apps.tcc.models.base.base_model import BaseModel
 
-# Enhanced AuditLog model
 class AuditLog(BaseModel):
     """
     Comprehensive audit logging for all user actions
@@ -76,3 +75,24 @@ class AuditLog(BaseModel):
             'PERMISSION_DENIED': f"Permission denied for {self.resource_type}",
         }
         return descriptions.get(self.action, f"{self.action} on {self.resource_type}")
+
+class SecurityEvent(BaseModel):
+    EVENT_CHOICES = [
+        ('INVALID_CREDENTIALS', 'Invalid Credentials'),
+        ('ACCOUNT_LOCKOUT', 'Account Lockout'),
+        ('SUSPICIOUS_ACTIVITY', 'Suspicious Activity'),
+        ('TOKEN_REVOKED', 'Token Revoked'),
+        ('PASSWORD_RESET_REQUEST', 'Password Reset Request'),
+    ]
+    
+    user = models.ForeignKey('User', on_delete=models.CASCADE, null=True, blank=True)
+    event_type = models.CharField(max_length=50, choices=EVENT_CHOICES)
+    severity = models.CharField(max_length=10, choices=[('LOW', 'Low'), ('MEDIUM', 'Medium'), ('HIGH', 'High')], default='MEDIUM')
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    description = models.TextField()
+    timestamp = models.DateTimeField(default=timezone.now)
+    resolved = models.BooleanField(default=False)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        db_table = 'security_events'

@@ -8,7 +8,7 @@ import threading
 import json
 from django.db import models
 
-from apps.tcc.models.base. auditlog import AuditLog
+from apps.tcc.models.base.auditlog import AuditLog
 from apps.tcc.models.base.base_model import BaseModel
 
 User = get_user_model()

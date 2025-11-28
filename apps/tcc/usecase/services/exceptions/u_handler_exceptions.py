@@ -1,11 +1,7 @@
 from functools import wraps
 from typing import Dict, Any, Optional
 import logging
-from apps.core.schemas.common.response import (
-    UserRegistrationResponse,
-    LoginResponse,
-    APIResponse
-)
+from apps.core.schemas.common.response import APIResponse
 from apps.tcc.usecase.domain_exception.u_exceptions import ( 
     UserAlreadyExistsException,
     UserNotFoundException,
@@ -17,7 +13,6 @@ from apps.tcc.usecase.domain_exception.u_exceptions import (
     PasswordValidationException,
     UserException
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -102,13 +97,6 @@ class UserExceptionHandler:
     def handle_user_exceptions(cls, func):
         """
         Comprehensive decorator for handling user-domain exceptions.
-        
-        Features:
-        - Automatic status code mapping
-        - Structured error responses
-        - Comprehensive logging
-        - Security event tracking
-        - Performance monitoring
         """
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -118,29 +106,24 @@ class UserExceptionHandler:
                 
             except UserAlreadyExistsException as e:
                 cls._log_exception(e, func.__name__)
-                status_code = cls._get_status_code(e)
                 error_data = cls._get_error_data(e)
                 
-                return UserRegistrationResponse.error_response(
+                return APIResponse.error_response(
                     message=e.user_message or "User already exists",
-                    data=error_data,
-                    status_code=status_code
+                    data=error_data
                 )
                 
             except (InvalidCredentialsException, AccountLockedException) as e:
                 cls._log_exception(e, func.__name__)
-                status_code = cls._get_status_code(e)
                 error_data = cls._get_error_data(e)
                 
-                return LoginResponse.error_response(
+                return APIResponse.error_response(
                     message=e.user_message or "Authentication failed",
-                    data=error_data,
-                    status_code=status_code
+                    data=error_data
                 )
                 
             except (InvalidUserInputException, PasswordValidationException) as e:
                 cls._log_exception(e, func.__name__)
-                status_code = cls._get_status_code(e)
                 error_data = cls._get_error_data(e)
                 
                 # Ensure field_errors is included
@@ -149,22 +132,18 @@ class UserExceptionHandler:
                 
                 return APIResponse.error_response(
                     message=e.user_message or "Validation failed",
-                    data=error_data,
-                    status_code=status_code
+                    data=error_data
                 )
                 
             except (UserNotFoundException, EmailVerificationException, 
                    InsufficientPermissionsException, UserException) as e:
                 cls._log_exception(e, func.__name__)
-                status_code = cls._get_status_code(e)
                 error_data = cls._get_error_data(e)
                 
-            return APIResponse(
-                success=False,
-                message=e.user_message or "Error message",
-                data=error_data,
-                status_code=status_code
-            )
+                return APIResponse.error_response(
+                    message=e.user_message or "Operation failed",
+                    data=error_data
+                )
                             
         return wrapper
 

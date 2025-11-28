@@ -1,18 +1,24 @@
-# config/middleware.py
 import uuid
 import logging
+import threading
+import traceback
+from time import time
 from typing import Callable
 from django.http import HttpRequest, HttpResponse
 from django.utils.deprecation import MiddlewareMixin
+from django.db import connection
 
-logger = logging.getLogger(__name__)
+# ──────────────────────────────────────────────
+# Logger
+# ──────────────────────────────────────────────
+logger = logging.getLogger("config.middleware")
+
 
 # ──────────────────────────────────────────────
 # 1. Request ID Middleware
 # ──────────────────────────────────────────────
 class RequestIDMiddleware(MiddlewareMixin):
-    def __init__(self, get_response: Callable):
-        self.get_response = get_response
+    """Generates or extracts a request ID for logging purposes."""
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         request_id = self._get_request_id(request)
@@ -33,19 +39,19 @@ class RequestIDMiddleware(MiddlewareMixin):
 
     def _set_request_id(self, request_id: str):
         try:
-            import threading
             threading.local().request_id = request_id
         except Exception as e:
             logger.warning(f"Failed to set request_id: {e}")
 
     def _log_request(self, request: HttpRequest, response: HttpResponse):
         log_data = {
-            'request_id': request.request_id,
+            'request_id': getattr(request, 'request_id', 'no-request-id'),
             'method': request.method,
             'path': request.path,
             'status_code': response.status_code,
             'ip': self._get_client_ip(request),
         }
+
         if response.status_code >= 500:
             logger.error("Server Error", extra=log_data)
         elif response.status_code >= 400:
@@ -59,12 +65,13 @@ class RequestIDMiddleware(MiddlewareMixin):
 
 
 # ──────────────────────────────────────────────
-# 2. Request ID Filter (FOR LOGGING)
+# 2. Request ID Filter for Logging
 # ──────────────────────────────────────────────
 class RequestIDFilter(logging.Filter):
+    """Attach request_id from thread-local to each log record."""
+
     def filter(self, record):
         try:
-            import threading
             record.request_id = getattr(threading.local(), 'request_id', 'no-request-id')
         except Exception:
             record.request_id = 'no-request-id'
@@ -72,25 +79,24 @@ class RequestIDFilter(logging.Filter):
 
 
 # ──────────────────────────────────────────────
-# 3. Slow Query Logger
+# 3. Slow Query Logger Middleware
 # ──────────────────────────────────────────────
 class DatabaseQueryLoggingMiddleware(MiddlewareMixin):
-    def __init__(self, get_response: Callable):
-        self.get_response = get_response
-        self.logger = logging.getLogger('db.performance')
+    """Logs slow database queries and slow requests."""
+
+    SLOW_QUERY_THRESHOLD = 1.0  # seconds
+    SLOW_REQUEST_THRESHOLD = 5.0  # seconds
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        from django.db import connection
-        from time import time
-
-        start = time()
+        start_time = time()
         response = self.get_response(request)
-        total_time = time() - start
+        total_time = time() - start_time
 
+        # Log slow queries
         for query in connection.queries:
             qtime = float(query.get('time', 0))
-            if qtime > 1.0:
-                self.logger.warning(
+            if qtime > self.SLOW_QUERY_THRESHOLD:
+                logger.warning(
                     "SLOW QUERY",
                     extra={
                         'request_id': getattr(request, 'request_id', 'unknown'),
@@ -100,8 +106,9 @@ class DatabaseQueryLoggingMiddleware(MiddlewareMixin):
                     }
                 )
 
-        if total_time > 5.0:
-            self.logger.warning(
+        # Log slow requests
+        if total_time > self.SLOW_REQUEST_THRESHOLD:
+            logger.warning(
                 "SLOW REQUEST",
                 extra={
                     'request_id': getattr(request, 'request_id', 'unknown'),
@@ -114,9 +121,11 @@ class DatabaseQueryLoggingMiddleware(MiddlewareMixin):
 
 
 # ──────────────────────────────────────────────
-# 4. Security Headers
+# 4. Security Headers Middleware
 # ──────────────────────────────────────────────
 class SecurityHeadersMiddleware(MiddlewareMixin):
+    """Adds common security headers."""
+
     def __call__(self, request: HttpRequest) -> HttpResponse:
         response = self.get_response(request)
         response['X-Content-Type-Options'] = 'nosniff'
@@ -130,3 +139,15 @@ class SecurityHeadersMiddleware(MiddlewareMixin):
             "img-src 'self' data: https:"
         )
         return response
+
+
+# ──────────────────────────────────────────────
+# 5. Global Exception Middleware
+# ──────────────────────────────────────────────
+class GlobalExceptionMiddleware(MiddlewareMixin):
+    """Catch all unhandled exceptions and log full traceback."""
+
+    def process_exception(self, request, exception):
+        tb = traceback.format_exc()
+        logger.error("UNCAUGHT EXCEPTION:\n%s", tb, extra={'request_id': getattr(request, 'request_id', 'no-request-id')})
+        return None  # Let Django handle the response (500)

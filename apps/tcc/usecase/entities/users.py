@@ -1,21 +1,22 @@
-import html
 from datetime import datetime
 from typing import Optional
-from apps.core.schemas.schemas.users import UserCreateSchema
+from apps.core.schemas.input_schemas.users import UserCreateSchema
 from apps.tcc.models.base.enums import UserRole, UserStatus
+from .base_entity import BaseEntity
 
-class UserEntity:
+
+class UserEntity(BaseEntity):
     """Domain entity for User with business logic"""
     
     def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
         # Core personal info
-        self.id = kwargs.get('id')
         self.name = kwargs.get('name', '')
         self.email = kwargs.get('email', '')
         self.phone_number = kwargs.get('phone_number')
         
         # Demographic info
-        self.age = kwargs.get('age')
         self.gender = kwargs.get('gender')
         self.marital_status = kwargs.get('marital_status')
         self.date_of_birth = kwargs.get('date_of_birth')
@@ -37,12 +38,6 @@ class UserEntity:
         # Preferences
         self.email_notifications = kwargs.get('email_notifications', True)
         self.sms_notifications = kwargs.get('sms_notifications', False)
-        
-        # Timestamps
-        self.created_at = kwargs.get('created_at')
-        self.updated_at = kwargs.get('updated_at')
-        self.created_by = kwargs.get('created_by')
-        self.updated_by = kwargs.get('updated_by')
     
     @classmethod
     def from_create_schema(cls, schema: UserCreateSchema) -> 'UserEntity':
@@ -58,7 +53,6 @@ class UserEntity:
             name=model.name,
             email=model.email,
             phone_number=model.phone_number,
-            age=model.age,
             gender=model.gender,
             marital_status=model.marital_status,
             date_of_birth=model.date_of_birth,
@@ -80,19 +74,19 @@ class UserEntity:
     
     def sanitize_inputs(self):
         """Sanitize user data to prevent XSS"""
-        if self.name:
-            self.name = html.escape(self.name.strip())
+        self.name = self.sanitize_string(self.name)
+        self.email = self.sanitize_string(self.email)
+        self.phone_number = self.sanitize_string(self.phone_number)
+        self.testimony = self.sanitize_string(self.testimony)
+        
+        # Ensure email is lowercase
         if self.email:
-            self.email = html.escape(self.email.strip()).lower()
-        if self.phone_number:
-            self.phone_number = html.escape(self.phone_number.strip())
-        if self.testimony:
-            self.testimony = html.escape(self.testimony.strip())
+            self.email = self.email.lower()
     
     def prepare_for_persistence(self):
         """Prepare entity for database storage"""
         self.sanitize_inputs()
-        self.updated_at = datetime.now()
+        self.update_timestamps()
     
     def can_manage_users(self) -> bool:
         """Check if user can manage other users"""
@@ -112,12 +106,12 @@ class UserEntity:
     
     def validate_for_creation(self) -> list:
         """Validate entity for creation, return list of errors"""
-        errors = []
+        errors = self.validate_required_fields(['name', 'email'])
         
-        if not self.name or len(self.name.strip()) < 2:
+        if self.name and len(self.name.strip()) < 2:
             errors.append("Name must be at least 2 characters")
         
-        if not self.email or '@' not in self.email:
+        if self.email and '@' not in self.email:
             errors.append("Valid email is required")
         
         if self.date_of_birth and self.date_of_birth > datetime.now().date():
@@ -126,4 +120,4 @@ class UserEntity:
         return errors
     
     def __str__(self):
-        return f"{self.name} ({self.email})"
+        return f"UserEntity(id={self.id}, name='{self.name}', email='{self.email}')"

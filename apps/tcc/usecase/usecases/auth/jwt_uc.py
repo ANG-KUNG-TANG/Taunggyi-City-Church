@@ -1,9 +1,9 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from apps.core.security.jwt_manager import JWTManager, TokenType
-from usecases.base.base_uc import BaseUseCase
-from usecase.domain_exception.u_exceptions import InvalidUserInputException
-from apps.core.schemas.common.response import TokenSchema
+from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
+from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
+# from apps.core.schemas.common.response import TokenSchema
 import logging
 import uuid
 

@@ -3,13 +3,11 @@ from pydantic import BaseModel
 
 _registry: Dict[str, Type[BaseModel]] = {}
 
-
 def register_schema(name: str, schema: Type[BaseModel]) -> None:
-    
+    """Register a schema in the global registry."""
     if name in _registry:
         raise ValueError(f"Schema '{name}' is already registered")
     _registry[name] = schema
-
 
 def get_schema(name: str) -> Type[BaseModel]:
     """
@@ -28,7 +26,6 @@ def get_schema(name: str) -> Type[BaseModel]:
         raise ValueError(f"Schema '{name}' not found in registry")
     return _registry[name]
 
-
 def unregister_schema(name: str) -> bool:
     """
     Unregister a schema
@@ -44,27 +41,37 @@ def unregister_schema(name: str) -> bool:
         return True
     return False
 
-
 def get_registered_schemas() -> List[str]:
     """Get list of all registered schema names"""
     return list(_registry.keys())
-
 
 def clear_registry() -> None:
     """Clear all registered schemas"""
     _registry.clear()
 
-
 def schema_exists(name: str) -> bool:
     """Check if a schema is registered"""
     return name in _registry
 
-
-# Register default schemas
+# Register new schemas
 try:
-    from apps.tcc.usecase.schemas.base import UserCreateSchema, UserUpdateSchema
-    register_schema("user_create", UserCreateSchema)
-    register_schema("user_update", UserUpdateSchema)
-except ImportError:
+    from apps.core.schemas.input_schemas.users import (
+        UserCreateInputSchema, UserUpdateInputSchema, UserQueryInputSchema
+    )
+    from apps.core.schemas.input_schemas.auth import (
+        LoginInputSchema, RegisterInputSchema, RefreshTokenInputSchema
+    )
+    
+    # User schemas
+    register_schema("user_create", UserCreateInputSchema)
+    register_schema("user_update", UserUpdateInputSchema)
+    register_schema("user_query", UserQueryInputSchema)
+    
+    # Auth schemas
+    register_schema("login", LoginInputSchema)
+    register_schema("register", RegisterInputSchema)
+    register_schema("refresh_token", RefreshTokenInputSchema)
+    
+except ImportError as e:
     # Schemas module might not be available during initial setup
-    pass
+    print(f"Warning: Could not register schemas: {e}")

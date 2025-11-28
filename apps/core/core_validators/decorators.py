@@ -1,151 +1,135 @@
 from functools import wraps
-from typing import Any, Dict, Callable, Optional
+from typing import Type, Any, Dict
+from pydantic import BaseModel, ValidationError
+from django.http import JsonResponse
+from rest_framework import status
 
-from registry import get_schema
-from exceptions import ValidationError, SchemaNotFoundError
+from apps.core.schemas.input_schemas.auth import (
+    LoginInputSchema, RegisterInputSchema, RefreshTokenInputSchema,
+    LogoutInputSchema, ForgotPasswordInputSchema, ResetPasswordInputSchema,
+    ChangePasswordInputSchema, VerifyEmailInputSchema, ResendVerificationInputSchema
+)
+from apps.core.schemas.input_schemas.users import (
+    UserCreateInputSchema, UserUpdateInputSchema, UserQueryInputSchema
+)
 
-
-def validate(schema_name: str, data_key: str = "data"):
+def validate_input(schema_class: Type[BaseModel]):
     """
-    Decorator to validate input data against a registered schema
-    
-    Args:
-        schema_name: Name of the schema in registry
-        data_key: Key in kwargs that contains the data to validate
-    
-    Returns:
-        Decorated function with validated data
+    Decorator to validate input data against a Pydantic schema
     """
-    
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Get schema from registry
+    def decorator(view_func):
+        @wraps(view_func)
+        async def _wrapped_view(self, *args, **kwargs):
             try:
-                schema = get_schema(schema_name)
-            except ValueError as e:
-                raise SchemaNotFoundError(schema_name) from e
-            
-            # Extract data from kwargs
-            raw_data = kwargs.get(data_key) or {}
-            
-            # Validate data against schema
-            try:
-                validated_data = schema(**raw_data)
-            except Exception as e:
-                # Convert Pydantic validation errors to our format
-                error_details = _extract_pydantic_errors(e)
-                raise ValidationError(
-                    message="Data validation failed",
-                    errors=error_details
-                )
-            
-            # Replace original data with validated data
-            kwargs[data_key] = validated_data.dict()
-            
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def validate_optional(schema_name: str, data_key: str = "data"):
-    """
-    Decorator to validate input data if present, but allow None/empty data
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            raw_data = kwargs.get(data_key)
-            
-            # Skip validation if data is None or empty
-            if not raw_data:
-                return func(*args, **kwargs)
-            
-            # Proceed with normal validation
-            try:
-                schema = get_schema(schema_name)
-            except ValueError as e:
-                raise SchemaNotFoundError(schema_name) from e
-            
-            try:
-                validated_data = schema(**raw_data)
-                kwargs[data_key] = validated_data.dict()
-            except Exception as e:
-                error_details = _extract_pydantic_errors(e)
-                raise ValidationError(
-                    message="Data validation failed",
-                    errors=error_details
-                )
-            
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def _extract_pydantic_errors(validation_error: Exception) -> Dict[str, Any]:
-    """
-    Extract and format Pydantic validation errors
-    
-    Args:
-        validation_error: The caught Pydantic validation exception
-        
-    Returns:
-        Formatted error dictionary
-    """
-    errors = {}
-    
-    if hasattr(validation_error, 'errors'):
-        # Pydantic V2 style errors
-        for error in validation_error.errors():
-            field = ".".join(str(loc) for loc in error['loc'])
-            errors[field] = {
-                'message': error['msg'],
-                'type': error['type'],
-                'input': error.get('input')
-            }
-    elif hasattr(validation_error, 'raw_errors'):
-        # Pydantic V1 style errors or other format
-        errors['_form'] = {
-            'message': str(validation_error),
-            'type': type(validation_error).__name__
-        }
-    else:
-        # Fallback for other exceptions
-        errors['_form'] = {
-            'message': str(validation_error),
-            'type': 'unknown_error'
-        }
-    
-    return errors
-
-
-# Additional validation decorators
-def validate_query_params(schema_name: str):
-    """Decorator to validate query parameters"""
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                schema = get_schema(schema_name)
-            except ValueError as e:
-                raise SchemaNotFoundError(schema_name) from e
-            
-            # Extract query params from request (assuming first arg is request)
-            if args and hasattr(args[0], 'GET'):
-                request = args[0]
-                query_params = dict(request.GET)
+                # Extract input data from appropriate location
+                request = None
+                input_data = {}
                 
-                try:
-                    validated_params = schema(**query_params)
-                    # Add validated params to kwargs
-                    kwargs['validated_query'] = validated_params.dict()
-                except Exception as e:
-                    error_details = _extract_pydantic_errors(e)
-                    raise ValidationError(
-                        message="Query parameter validation failed",
-                        errors=error_details
-                    )
-            
-            return func(*args, **kwargs)
-        return wrapper
+                # Find request object in args or kwargs
+                for arg in args:
+                    if hasattr(arg, 'data'):
+                        request = arg
+                        break
+                
+                if not request:
+                    for key, value in kwargs.items():
+                        if hasattr(value, 'data'):
+                            request = value
+                            break
+                
+                if request and hasattr(request, 'data'):
+                    input_data = request.data
+                
+                # Validate data against schema
+                validated_data = schema_class(**input_data)
+                
+                # Replace the input data with validated data
+                if 'input_data' in kwargs:
+                    kwargs['input_data'] = validated_data
+                else:
+                    # If using self, we need to handle differently
+                    if args and hasattr(args[0], 'validated_data'):
+                        args[0].validated_data = validated_data
+                
+                return await view_func(self, *args, **kwargs)
+                
+            except ValidationError as e:
+                return JsonResponse(
+                    {
+                        "error": "Validation failed",
+                        "details": e.errors(),
+                        "message": "Invalid input data"
+                    },
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY
+                )
+            except Exception as e:
+                return JsonResponse(
+                    {
+                        "error": "Validation error",
+                        "details": str(e),
+                        "message": "Input validation failed"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        return _wrapped_view
     return decorator
+
+# Specific validation decorators for common operations
+def validate_user_create(view_func):
+    """Validate user creation input"""
+    return validate_input(UserCreateInputSchema)(view_func)
+
+def validate_user_update(view_func):
+    """Validate user update input"""
+    return validate_input(UserUpdateInputSchema)(view_func)
+
+def validate_user_query(view_func):
+    """Validate user query parameters"""
+    return validate_input(UserQueryInputSchema)(view_func)
+
+def validate_login(view_func):
+    """Validate login input"""
+    return validate_input(LoginInputSchema)(view_func)
+
+def validate_register(view_func):
+    """Validate registration input"""
+    return validate_input(RegisterInputSchema)(view_func)
+
+def validate_refresh_token(view_func):
+    """Validate refresh token input"""
+    return validate_input(RefreshTokenInputSchema)(view_func)
+
+def validate_logout(view_func):
+    """Validate logout input"""
+    return validate_input(LogoutInputSchema)(view_func)
+
+def validate_forgot_password(view_func):
+    """Validate forgot password input"""
+    return validate_input(ForgotPasswordInputSchema)(view_func)
+
+def validate_reset_password(view_func):
+    """Validate reset password input"""
+    return validate_input(ResetPasswordInputSchema)(view_func)
+
+def validate_change_password(view_func):
+    """Validate change password input"""
+    return validate_input(ChangePasswordInputSchema)(view_func)
+
+# Permission decorators
+def require_admin(view_func):
+    """Require admin permissions"""
+    @wraps(view_func)
+    async def _wrapped_view(self, *args, **kwargs):
+        # This would typically check user permissions
+        # For now, it's a placeholder that passes through
+        return await view_func(self, *args, **kwargs)
+    return _wrapped_view
+
+def require_member(view_func):
+    """Require member permissions"""
+    @wraps(view_func)
+    async def _wrapped_view(self, *args, **kwargs):
+        # This would typically check user is authenticated
+        # For now, it's a placeholder that passes through
+        return await view_func(self, *args, **kwargs)
+    return _wrapped_view

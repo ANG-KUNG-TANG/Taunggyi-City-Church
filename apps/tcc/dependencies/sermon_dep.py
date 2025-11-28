@@ -1,6 +1,6 @@
 from functools import lru_cache
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
-from apps.tcc.usecase.usecases.base.jwt_uc import JWTCreateUseCase
+from apps.tcc.usecase.usecases.auth.jwt_uc import JWTCreateUseCase
 
 # Import all user use cases
 from apps.tcc.usecase.usecases.users.user_create_uc import CreateUserUseCase

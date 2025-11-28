@@ -3,242 +3,197 @@ from typing import Dict, Any, Optional
 from apps.core.schemas.common.response import APIResponse
 from apps.tcc.usecase.services.auth.base_controller import BaseController
 from apps.tcc.usecase.services.exceptions.auth_exceptions import AuthExceptionHandler
-from apps.tcc.usecase.usecases.auth.login_uc import LoginUseCase
-from apps.tcc.usecase.usecases.auth.logout_uc import LogoutUseCase
-from apps.tcc.usecase.usecases.auth.refresh_uc import RefreshTokenUseCase
-from apps.tcc.usecase.usecases.auth.verify_uc import VerifyTokenUseCase
-from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
-from apps.tcc.usecase.services.auth.auth_service import AsyncAuthDomainService
+from apps.core.schemas.input_schemas.auth import (
+    LoginInputSchema, RegisterInputSchema, RefreshTokenInputSchema,
+    LogoutInputSchema, ForgotPasswordInputSchema, ResetPasswordInputSchema
+)
+from apps.core.schemas.out_schemas.aut_out_schemas import (
+    LoginResponseSchema, RegisterResponseSchema, TokenRefreshResponseSchema,
+    LogoutResponseSchema, PasswordResetResponseSchema, AuthSuccessResponseSchema
+)
+from apps.core.core_validators.decorators import validate_input
 
 logger = logging.getLogger(__name__)
 
 
 class AuthController(BaseController):
     """
-    Authentication Controller
-    Handles all authentication operations using auth use cases
-    Integrated with AsyncAuthDomainService for audit logging and token management
+    Authentication Controller with input validation and standardized output schemas
     """
 
-    def __init__(
-        self,
-        user_repository: UserRepository,
-        auth_service: AsyncAuthDomainService,
-        jwt_provider
-    ):
-        self.user_repository = user_repository
-        self.auth_service = auth_service
-        self.jwt_provider = jwt_provider
+    def __init__(self):
+        # Initialize use cases as None, will be set via dependency injection
+        self.login_uc = None
+        self.logout_uc = None
+        self.refresh_uc = None
+        self.verify_uc = None
+        self.auth_service = None
+
+    async def initialize(self):
+        """Initialize use cases using dependency injection"""
+        from apps.tcc.dependencies.auth_dep import (
+            get_login_uc, get_logout_uc, get_refresh_uc, get_verify_uc,
+            get_auth_service
+        )
         
-        # Initialize all auth use cases with the shared auth service
-        self.login_uc = LoginUseCase(jwt_provider, auth_service)
-        self.logout_uc = LogoutUseCase(auth_service)
-        self.refresh_uc = RefreshTokenUseCase(user_repository, jwt_provider)
-        self.verify_uc = VerifyTokenUseCase()
+        self.login_uc = await get_login_uc()
+        self.logout_uc = await get_logout_uc()
+        self.refresh_uc = await get_refresh_uc()
+        self.verify_uc = await get_verify_uc()
+        self.auth_service = await get_auth_service()
 
     # LOGIN Operation
     @BaseController.handle_exceptions
+    @AuthExceptionHandler.handle_auth_exceptions
+    @validate_input(LoginInputSchema)
     async def login(
         self, 
-        input_data: Dict[str, Any], 
+        input_data: LoginInputSchema, 
         context: Dict[str, Any] = None
-    ) -> APIResponse:
+    ) -> LoginResponseSchema:
         """
         User login with email and password
-        Uses: LoginUseCase (which uses AsyncAuthDomainService internally)
         """
-        # Extract request metadata for audit logging
-        request_meta = self._extract_request_meta(context)
-        
-        # Pass context to use case for comprehensive audit logging
-        enhanced_context = {**(context or {}), 'request_meta': request_meta}
-        result = await self.login_uc.execute(input_data, None, enhanced_context)
-        return result
+        if not self.login_uc:
+            await self.initialize()
+
+        result = await self.login_uc.execute(input_data.model_dump(), None, context or {})
+        return LoginResponseSchema(**result.model_dump() if hasattr(result, 'model_dump') else result)
+
+    # REGISTER Operation
+    @BaseController.handle_exceptions
+    @AuthExceptionHandler.handle_auth_exceptions
+    @validate_input(RegisterInputSchema)
+    async def register(
+        self, 
+        input_data: RegisterInputSchema, 
+        context: Dict[str, Any] = None
+    ) -> RegisterResponseSchema:
+        """
+        User registration
+        """
+        # Note: You'll need to create a RegisterUseCase or use CreateUserUseCase
+        # For now, this is a placeholder
+        from apps.tcc.dependencies.auth_dep import get_register_uc
+        register_uc = await get_register_uc()
+        result = await register_uc.execute(input_data.model_dump(), None, context or {})
+        return RegisterResponseSchema(**result.model_dump() if hasattr(result, 'model_dump') else result)
 
     # LOGOUT Operation  
     @BaseController.handle_exceptions
+    @AuthExceptionHandler.handle_auth_exceptions
+    @validate_input(LogoutInputSchema)
     async def logout(
         self,
-        input_data: Dict[str, Any],
+        input_data: LogoutInputSchema,
         current_user: Any,
         context: Dict[str, Any] = None
-    ) -> APIResponse:
+    ) -> LogoutResponseSchema:
         """
         User logout with token revocation
-        Uses: LogoutUseCase (which uses AsyncAuthDomainService internally)
         """
-        # Extract request metadata for audit logging
-        request_meta = self._extract_request_meta(context)
-        
-        enhanced_context = {**(context or {}), 'request_meta': request_meta}
-        result = await self.logout_uc.execute(input_data, current_user, enhanced_context)
-        return result
+        if not self.logout_uc:
+            await self.initialize()
+
+        result = await self.logout_uc.execute(input_data.model_dump(), current_user, context or {})
+        return LogoutResponseSchema(**result.model_dump() if hasattr(result, 'model_dump') else result)
 
     # REFRESH Operation
     @BaseController.handle_exceptions
+    @AuthExceptionHandler.handle_auth_exceptions
+    @validate_input(RefreshTokenInputSchema)
     async def refresh_token(
         self, 
-        input_data: Dict[str, Any], 
+        input_data: RefreshTokenInputSchema, 
         context: Dict[str, Any] = None
-    ) -> APIResponse:
+    ) -> TokenRefreshResponseSchema:
         """
         Refresh access token using refresh token
-        Uses: RefreshTokenUseCase
         """
-        result = await self.refresh_uc.execute(input_data, None, context or {})
-        return result
+        if not self.refresh_uc:
+            await self.initialize()
+
+        result = await self.refresh_uc.execute(input_data.model_dump(), None, context or {})
+        return TokenRefreshResponseSchema(**result.model_dump() if hasattr(result, 'model_dump') else result)
 
     # VERIFY Operation
     @BaseController.handle_exceptions
+    @AuthExceptionHandler.handle_auth_exceptions
     async def verify_token(
         self,
         current_user: Any,
         context: Dict[str, Any] = None
-    ) -> APIResponse:
+    ) -> AuthSuccessResponseSchema:
         """
         Verify token validity and get user data
-        Uses: VerifyTokenUseCase
         """
-        result = await self.verify_uc.execute({}, current_user, context or {})
-        return result
+        if not self.verify_uc:
+            await self.initialize()
 
-    # DIRECT SERVICE OPERATIONS (using AsyncAuthDomainService directly when needed)
-    
+        result = await self.verify_uc.execute({}, current_user, context or {})
+        return AuthSuccessResponseSchema(**result.model_dump() if hasattr(result, 'model_dump') else result)
+
+    # PASSWORD RESET Operations
+    @BaseController.handle_exceptions
+    @AuthExceptionHandler.handle_auth_exceptions
+    @validate_input(ForgotPasswordInputSchema)
+    async def forgot_password(
+        self,
+        input_data: ForgotPasswordInputSchema,
+        context: Dict[str, Any] = None
+    ) -> PasswordResetResponseSchema:
+        """
+        Request password reset
+        """
+        # Note: You'll need to create a ForgotPasswordUseCase
+        # For now, this is a placeholder
+        return PasswordResetResponseSchema(message="Password reset instructions sent to your email")
+
+    @BaseController.handle_exceptions
+    @AuthExceptionHandler.handle_auth_exceptions
+    @validate_input(ResetPasswordInputSchema)
+    async def reset_password(
+        self,
+        input_data: ResetPasswordInputSchema,
+        context: Dict[str, Any] = None
+    ) -> PasswordResetResponseSchema:
+        """
+        Reset password with token
+        """
+        # Note: You'll need to create a ResetPasswordUseCase
+        # For now, this is a placeholder
+        return PasswordResetResponseSchema(message="Password reset successfully")
+
+    # DIRECT SERVICE OPERATIONS
     async def revoke_token_direct(
         self,
         token: str,
         user_id: Optional[int] = None,
         context: Dict[str, Any] = None
-    ) -> APIResponse:
+    ) -> LogoutResponseSchema:
         """
         Direct token revocation using AsyncAuthDomainService
-        Useful for admin operations or bulk token management
         """
+        if not self.auth_service:
+            await self.initialize()
+
         try:
             success = await self.auth_service.revoke_token_async(token, user_id)
             
             if success:
-                return APIResponse.success_response(
-                    message="Token revoked successfully",
-                    data={"token_revoked": True}
-                )
+                return LogoutResponseSchema(message="Token revoked successfully")
             else:
-                return APIResponse.error_response(
-                    message="Token revocation failed",
-                    error_code="TOKEN_REVOCATION_FAILED",
-                    status_code=400
-                )
+                # For error cases, we still return the schema but with appropriate message
+                return LogoutResponseSchema(message="Token revocation failed")
                 
         except Exception as e:
             logger.error(f"Direct token revocation failed: {str(e)}")
-            return APIResponse.error_response(
-                message="Token revocation error",
-                error_code="REVOCATION_ERROR",
-                status_code=500
-            )
-
-    async def audit_security_event(
-        self,
-        user_id: int,
-        event_type: str,
-        description: str,
-        severity: str = "MEDIUM",
-        context: Dict[str, Any] = None
-    ) -> APIResponse:
-        """
-        Log security events directly using AsyncAuthDomainService
-        Useful for custom security monitoring
-        """
-        try:
-            await self.auth_service._create_security_event_async(
-                user_id=user_id,
-                event_type=event_type,
-                description=description,
-                severity=severity
-            )
-            
-            return APIResponse.success_response(
-                message="Security event logged successfully"
-            )
-            
-        except Exception as e:
-            logger.error(f"Security event logging failed: {str(e)}")
-            return APIResponse.error_response(
-                message="Security event logging failed",
-                error_code="AUDIT_LOG_ERROR",
-                status_code=500
-            )
-
-    # HELPER METHODS
-    def _extract_request_meta(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract request metadata from context for audit logging"""
-        if not context or 'request' not in context:
-            return {}
-            
-        request = context.get('request')
-        if not request:
-            return {}
-            
-        return {
-            'HTTP_X_FORWARDED_FOR': request.META.get('HTTP_X_FORWARDED_FOR'),
-            'REMOTE_ADDR': request.META.get('REMOTE_ADDR'),
-            'HTTP_USER_AGENT': request.META.get('HTTP_USER_AGENT'),
-            'HTTP_REFERER': request.META.get('HTTP_REFERER'),
-            'SERVER_NAME': request.META.get('SERVER_NAME'),
-        }
+            return LogoutResponseSchema(message="Token revocation error")
 
 
-# Enhanced factory function with proper service initialization
-def create_auth_controller(
-    user_repository: UserRepository,
-    auth_service: AsyncAuthDomainService,
-    jwt_provider
-) -> AuthController:
-    """Factory function to create auth controller with integrated services"""
-    return AuthController(user_repository, auth_service, jwt_provider)
-
-
-# Legacy compatibility - maintain the existing AuthController interface if needed
-class LegacyAuthController:
-    """
-    Maintains compatibility with existing code that uses the old AuthController interface
-    Can be deprecated over time
-    """
-    
-    def __init__(self, create_user_uc, login_user_uc, get_user_uc=None, update_user_uc=None):
-        # Initialize with minimal dependencies for backward compatibility
-        self.create_user_uc = create_user_uc
-        self.login_user_uc = login_user_uc
-        self.get_user_uc = get_user_uc
-        self.update_user_uc = update_user_uc
-        self.auth_domain_service = AsyncAuthDomainService()
-    
-    async def register_user(self, user_data: dict) -> APIResponse:
-        """Legacy registration method - delegates to user controller"""
-        # This would typically call user creation use cases
-        # Maintained for backward compatibility
-        pass
-    
-    async def login_user(self, login_data: dict, request_meta: Optional[Dict] = None) -> APIResponse:
-        """Legacy login method"""
-        # Create a minimal context for the legacy interface
-        context = {'request_meta': request_meta} if request_meta else {}
-        
-        # Use the new unified controller internally
-        controller = create_auth_controller(
-            user_repository=UserRepository(),
-            auth_service=AsyncAuthDomainService(),
-            jwt_provider=None  # Would need to be provided
-        )
-        
-        return await controller.login(login_data, context)
-    
-    async def logout_user(self, token: str, user_id: Optional[int] = None) -> APIResponse:
-        """Legacy logout method"""
-        controller = create_auth_controller(
-            user_repository=UserRepository(),
-            auth_service=AsyncAuthDomainService(),
-            jwt_provider=None
-        )
-        
-        return await controller.revoke_token_direct(token, user_id)
+# Factory function
+async def create_auth_controller() -> AuthController:
+    """Create and initialize auth controller using dependency injection"""
+    controller = AuthController()
+    await controller.initialize()
+    return controller

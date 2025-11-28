@@ -25,11 +25,29 @@ class UnauthorizedActionException(BaseAppException):
         )
 
 
+
 class AuthenticationException(UnauthorizedActionException):
     """Authentication-related exceptions (401)"""
     pass
 
 
+class UnauthorizedException(AuthenticationException):
+    def __init__(
+        self,
+        message: str = "Unauthorized access",
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None
+    ):
+        super().__init__(
+            message=message,
+            error_code="UNAUTHORIZED_ACCESS",
+            status_code=401,
+            details=details,
+            context=context,
+            cause=cause
+        )
+        
 class AuthorizationException(UnauthorizedActionException):
     """Authorization-related exceptions (403)"""
     

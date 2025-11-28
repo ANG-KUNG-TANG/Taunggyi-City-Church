@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from typing import Optional, Any, Generic, TypeVar, Dict
+from typing import Optional, Any, Generic, TypeVar, Dict, List
 from datetime import datetime
 
 T = TypeVar('T')
@@ -60,69 +60,95 @@ class ErrorResponse(BaseModel):
             data['timestamp'] = datetime.now()
         super().__init__(**data)
 
-# --- User Registration Specific Schemas ---
+# ========== AUTHENTICATION RESPONSES ==========
 
-class UserRegistrationData(BaseModel):
-    """Complete user registration response data"""
-    user: Dict[str, Any]  # User data as dict
-    tokens: Dict[str, Any]  # Token data as dict
+class AuthData(BaseModel):
+    """Authentication data structure"""
+    user: Dict[str, Any]
+    tokens: Dict[str, Any]
 
-class UserRegistrationResponse(APIResponse[UserRegistrationData]):
-    """API response for user registration"""
+class LoginResponse(APIResponse[AuthData]):
+    """API response for login"""
     
     @classmethod
-    def from_user_and_tokens(cls, 
-                           user_data: Dict[str, Any], 
-                           tokens_data: Dict[str, Any],
-                           message: str = "User created successfully") -> 'UserRegistrationResponse':
-        """Convenience method to create response from user and token data"""
-        data = UserRegistrationData(user=user_data, tokens=tokens_data)
+    def from_auth_data(cls, 
+                      user_data: Dict[str, Any], 
+                      tokens_data: Dict[str, Any],
+                      message: str = "Login successful") -> 'LoginResponse':
+        """Create login response from user and token data"""
+        data = AuthData(user=user_data, tokens=tokens_data)
         return cls.success_response(message=message, data=data)
 
-# --- Login / Logout related schemas ---
+class RegisterResponse(APIResponse[AuthData]):
+    """API response for registration"""
+    
+    @classmethod
+    def from_auth_data(cls, 
+                      user_data: Dict[str, Any], 
+                      tokens_data: Dict[str, Any],
+                      message: str = "Registration successful") -> 'RegisterResponse':
+        """Create registration response from user and token data"""
+        data = AuthData(user=user_data, tokens=tokens_data)
+        return cls.success_response(message=message, data=data)
 
-class TokenSchema(BaseModel):
-    """Token details returned on login."""
-    access_token: str
-    refresh_token: Optional[str] = None
-    token_type: str = "bearer"
-    expires_in: Optional[int] = None  # seconds
-
-class UserSchema(BaseModel):
-    """Basic public user info included in login responses."""
-    id: Optional[int] = None
-    username: Optional[str] = None
-    email: Optional[str] = None
-    meta: Optional[Dict[str, Any]] = None
-
-class LoginData(BaseModel):
-    """Payload for login response: tokens and optional user info."""
-    token: TokenSchema
-    user: Optional[UserSchema] = None
-
-class LoginResponse(APIResponse[LoginData]):
-    """API response returned after a successful login."""
-    pass
+class TokenRefreshResponse(APIResponse[Dict[str, Any]]):
+    """API response for token refresh"""
+    
+    @classmethod
+    def from_tokens(cls, 
+                   tokens_data: Dict[str, Any],
+                   message: str = "Token refreshed successfully") -> 'TokenRefreshResponse':
+        """Create token refresh response"""
+        return cls.success_response(message=message, data=tokens_data)
 
 class LogoutResponse(APIResponse[None]):
-    """API response returned after logout (usually just success/message)."""
+    """API response for logout"""
+    pass
+
+class PasswordResetResponse(APIResponse[None]):
+    """API response for password reset"""
+    pass
+
+class EmailVerificationResponse(APIResponse[None]):
+    """API response for email verification"""
+    pass
+
+class TwoFactorResponse(APIResponse[Dict[str, Any]]):
+    """API response for 2FA operations"""
+    pass
+
+class SessionListResponse(APIResponse[List[Dict[str, Any]]]):
+    """API response for session list"""
     pass
 
 # Convenience constructors
 
-def make_login_response(access_token: str,
-                        refresh_token: Optional[str] = None,
-                        expires_in: Optional[int] = None,
-                        user: Optional[Dict[str, Any]] = None,
-                        message: str = "Login successful") -> LoginResponse:
-    token = TokenSchema(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_in=expires_in
-    )
-    user_obj = UserSchema(**user) if user else None
-    data = LoginData(token=token, user=user_obj)
-    return LoginResponse.success_response(message=message, data=data)
+def make_auth_response(user: Dict[str, Any], 
+                      tokens: Dict[str, Any],
+                      message: str = "Success") -> LoginResponse:
+    """Convenience function to create auth response"""
+    return LoginResponse.from_auth_data(user, tokens, message)
 
-def make_logout_response(message: str = "Logout successful") -> LogoutResponse:
-    return LogoutResponse.success_response(message=message, data=None)
+def make_token_response(access_token: str,
+                       refresh_token: Optional[str] = None,
+                       expires_in: Optional[int] = None,
+                       message: str = "Success") -> TokenRefreshResponse:
+    """Convenience function to create token response"""
+    tokens = {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_in": expires_in,
+        "token_type": "bearer"
+    }
+    return TokenRefreshResponse.from_tokens(tokens, message)
+
+def make_simple_response(success: bool = True, 
+                        message: str = "Success") -> APIResponse[None]:
+    """Convenience function for simple responses"""
+    if success:
+        return APIResponse.success_response(message=message)
+    else:
+        return APIResponse.error_response(message=message)
+    
+class TokenResponseSchema():
+    pass

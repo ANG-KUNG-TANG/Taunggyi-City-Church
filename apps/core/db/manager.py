@@ -6,11 +6,11 @@ from datetime import datetime
 from apps.tcc.usecase.domain_exception.u_exceptions import UserNotFoundException
 from core.core_exceptions.domain import (
     EntityNotFoundException, 
-    ValidationException as DomainValidationException,
+    DomainValidationException,  
     BusinessRuleException
 )
 from .db_handler import db_error_handler
-from .decorators import with_retry, atomic_operation
+from .decorators import with_retry, atomic_operation, read_operation, write_operation
 
 T = TypeVar('T', bound=models.Model)
 
@@ -21,11 +21,10 @@ class SafeManager(models.Manager):
     and integration with the new exception structure
     """
     
+    # Common database operations with unified error handling
     @db_error_handler.handle_operation
     def safe_get(self, **kwargs):
-        """
-        Get single object with proper exception handling
-        """
+        """Get single object with proper exception handling"""
         try:
             return self.get(**kwargs)
         except ObjectDoesNotExist as e:
@@ -49,21 +48,17 @@ class SafeManager(models.Manager):
                 }
             ) from e
     
-    @db_error_handler.handle_operation
+    @read_operation
     def safe_get_or_none(self, **kwargs):
-        """
-        Get single object or return None if not found
-        """
+        """Get single object or return None if not found"""
         try:
             return self.get(**kwargs)
         except (ObjectDoesNotExist, MultipleObjectsReturned):
             return None
     
-    @db_error_handler.handle_operation
+    @write_operation
     def safe_create(self, **kwargs):
-        """
-        Create object with validation and error handling
-        """
+        """Create object with validation and error handling"""
         try:
             return self.create(**kwargs)
         except ValidationError as e:
@@ -77,48 +72,20 @@ class SafeManager(models.Manager):
                 }
             ) from e
     
-    @db_error_handler.handle_operation
-    def safe_bulk_create(self, objects: List[T], batch_size: int = 1000, ignore_conflicts: bool = False) -> List[T]:
-        """
-        Bulk create with comprehensive error handling and conflict management
-        """
-        if not objects:
-            return []
-        
-        try:
-            return self.bulk_create(objects, batch_size=batch_size, ignore_conflicts=ignore_conflicts)
-        except Exception as e:
-            # Handle partial failures gracefully
-            successful_objects = []
-            failed_objects = []
-            
-            for obj in objects:
-                try:
-                    obj.save()
-                    successful_objects.append(obj)
-                except Exception as individual_error:
-                    failed_objects.append({
-                        'object_repr': str(obj),
-                        'error': str(individual_error),
-                        'error_type': type(individual_error).__name__
-                    })
-            
-            if failed_objects:
-                model_name = self.model.__name__
-                raise BusinessRuleException(
-                    rule_name="bulk_operation_partial_failure",
-                    message=f"Bulk create completed with {len(successful_objects)} successes and {len(failed_objects)} failures",
-                    details={
-                        'model': model_name,
-                        'successful_count': len(successful_objects),
-                        'failed_count': len(failed_objects),
-                        'failed_objects': failed_objects,
-                        'batch_size': batch_size
-                    }
-                )
-            
-            # If we get here, re-raise the original exception
-            raise
+    @read_operation
+    def safe_filter(self, **kwargs):
+        """Safe filter operation with query optimization hints"""
+        return self.filter(**kwargs)
+    
+    @read_operation  
+    def safe_count(self, **kwargs) -> int:
+        """Safe count operation"""
+        return self.filter(**kwargs).count()
+    
+    @read_operation
+    def safe_exists(self, **kwargs) -> bool:
+        """Safe exists check"""
+        return self.filter(**kwargs).exists()
     
     @with_retry(max_retries=3)
     def atomic_update(self, **kwargs) -> T:
@@ -169,8 +136,7 @@ class SafeManager(models.Manager):
             return obj
         except ValidationError as e:
             model_name = self.model.__name__
-            raise DomainValidationException(
-                message=f"Validation failed in update_or_create for {model_name}",
+            raise DomainValidationException(message=f"Validation failed in update_or_create for {model_name}",
                 field_errors=e.message_dict,
                 details={
                     'model': model_name,
@@ -346,6 +312,67 @@ class DonationManager(SafeManager):
             total_amount=Sum('amount'),
             total_donations=Count('id'),
             average_amount=Sum('amount') / Count('id')
+        )
+        
+        return summary
+
+class MemberManager(SafeManager):
+    """
+    Specialized manager for Member model
+    """
+    
+    @db_error_handler.handle_operation
+    def find_active_members(self):
+        """
+        Find all active members
+        """
+        return self.filter(is_active=True).select_related('user', 'family')
+    
+    @db_error_handler.handle_operation
+    def find_members_by_family(self, family_id: int):
+        """
+        Find members by family ID
+        """
+        return self.filter(family_id=family_id, is_active=True).order_by('first_name')
+    
+    @db_error_handler.handle_operation
+    def find_members_by_role(self, role: str):
+        """
+        Find members by role
+        """
+        return self.filter(role=role, is_active=True)
+
+class FamilyManager(SafeManager):
+    """
+    Specialized manager for Family model
+    """
+    
+    @db_error_handler.handle_operation
+    def find_active_families(self):
+        """
+        Find all active families
+        """
+        return self.filter(is_active=True).prefetch_related('members')
+    
+    @db_error_handler.handle_operation
+    def find_families_by_head(self, head_member_id: int):
+        """
+        Find families by head member ID
+        """
+        return self.filter(head_member_id=head_member_id, is_active=True)
+    
+    @db_error_handler.handle_operation
+    def get_family_summary(self) -> Dict[str, Any]:
+        """
+        Get family summary statistics
+        """
+        from django.db.models import Count, Avg
+        from django.db.models.functions import ExtractYear
+        
+        summary = self.filter(is_active=True).aggregate(
+            total_families=Count('id'),
+            average_members=Avg('members__count'),
+            total_members=Count('members', distinct=True)
         )
         
         return summary
