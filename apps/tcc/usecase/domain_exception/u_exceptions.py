@@ -3,44 +3,6 @@ from apps.core.core_exceptions.base import BaseAppException, ErrorContext
 from apps.core.core_exceptions.domain import BusinessRuleException, EntityNotFoundException, DomainValidationException
 
 
-class InvalidUserInputError(BaseAppException):
-    """Backward-compatible alias for InvalidUserInputException."""
-    def __init__(
-        self,
-        field_errors: Dict[str, List[str]],
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None,
-        user_message: Optional[str] = None
-    ):
-        super().__init__(
-            field_errors=field_errors,
-            details=details,
-            context=context,
-            cause=cause,
-            user_message=user_message
-        )
-
-
-class UserAuthenticationError(BaseAppException):
-    """Backward-compatible alias for InvalidCredentialsException."""
-    def __init__(
-        self,
-        email: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None,
-        user_message: Optional[str] = None
-    ):
-        super().__init__(
-            email=email,
-            details=details,
-            context=context,
-            cause=cause,
-            user_message=user_message
-        )
-
-
 class UserException(BaseAppException):
     """Base exception for user-related errors."""
     
@@ -64,7 +26,10 @@ class UserException(BaseAppException):
             user_message=user_message
         )
 
+
 class InvalidUserInputException(DomainValidationException):
+    """Exception for invalid user input validation."""
+    
     def __init__(
         self,
         field_errors: Dict[str, List[str]],
@@ -73,7 +38,6 @@ class InvalidUserInputException(DomainValidationException):
         cause: Optional[Exception] = None,
         user_message: Optional[str] = None
     ):
-        # Call parent constructor correctly
         super().__init__(
             message="Invalid user input",
             field_errors=field_errors,
@@ -82,8 +46,8 @@ class InvalidUserInputException(DomainValidationException):
             cause=cause,
             user_message=user_message
         )
-        
-        
+
+
 class UserNotFoundException(EntityNotFoundException):
     """Exception when user is not found."""
     
@@ -159,37 +123,6 @@ class UserAlreadyExistsException(BusinessRuleException):
         )
 
 
-class InvalidCredentialsException(UserException):
-    """Exception for invalid login credentials."""
-    
-    def __init__(
-        self,
-        email: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None,
-        user_message: Optional[str] = None
-    ):
-        details = details or {}
-        details.update({
-            "email": email,
-            "reason": "Invalid email or password"
-        })
-        
-        if not user_message:
-            user_message = "Invalid email or password. Please try again."
-            
-        super().__init__(
-            message="Invalid login credentials",
-            error_code="INVALID_CREDENTIALS",
-            status_code=401,
-            details=details,
-            context=context,
-            cause=cause,
-            user_message=user_message
-        )
-
-
 class AccountLockedException(BusinessRuleException):
     """Exception when user account is locked."""
     
@@ -222,41 +155,6 @@ class AccountLockedException(BusinessRuleException):
             rule_name="ACCOUNT_SECURITY",
             message=f"User account {user_id} is locked",
             rule_description="Accounts are locked after multiple security violations",
-            details=details,
-            context=context,
-            cause=cause,
-            user_message=user_message
-        )
-
-
-class InsufficientPermissionsException(BusinessRuleException):
-    """Exception when user lacks required permissions."""
-    
-    def __init__(
-        self,
-        user_id: str,
-        required_permission: str,
-        user_permissions: List[str],
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None,
-        user_message: Optional[str] = None
-    ):
-        details = details or {}
-        details.update({
-            "user_id": user_id,
-            "required_permission": required_permission,
-            "user_permissions": user_permissions,
-            "reason": "User lacks required permissions"
-        })
-        
-        if not user_message:
-            user_message = "You don't have permission to perform this action."
-            
-        super().__init__(
-            rule_name="PERMISSION_REQUIREMENT",
-            message=f"User {user_id} lacks permission: {required_permission}",
-            rule_description="Users must have appropriate permissions for actions",
             details=details,
             context=context,
             cause=cause,

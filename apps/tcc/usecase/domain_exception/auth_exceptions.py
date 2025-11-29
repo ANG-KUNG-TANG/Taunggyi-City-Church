@@ -1,5 +1,4 @@
 from typing import Dict, Any, Optional, List
-
 from apps.core.core_exceptions.base import BaseAppException, ErrorContext
 
 
@@ -25,29 +24,11 @@ class UnauthorizedActionException(BaseAppException):
         )
 
 
-
 class AuthenticationException(UnauthorizedActionException):
     """Authentication-related exceptions (401)"""
     pass
 
 
-class UnauthorizedException(AuthenticationException):
-    def __init__(
-        self,
-        message: str = "Unauthorized access",
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        super().__init__(
-            message=message,
-            error_code="UNAUTHORIZED_ACCESS",
-            status_code=401,
-            details=details,
-            context=context,
-            cause=cause
-        )
-        
 class AuthorizationException(UnauthorizedActionException):
     """Authorization-related exceptions (403)"""
     
@@ -142,33 +123,6 @@ class AccountInactiveException(AuthenticationException):
         )
 
 
-class AccountSuspendedException(AuthenticationException):
-    def __init__(
-        self,
-        username: str,
-        suspension_reason: Optional[str] = None,
-        suspension_end: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "username": username,
-            "suspension_reason": suspension_reason,
-            "suspension_end": suspension_end
-        })
-        
-        super().__init__(
-            message=f"Account '{username}' is suspended",
-            error_code="ACCOUNT_SUSPENDED",
-            status_code=401,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
 class TokenExpiredException(AuthenticationException):
     def __init__(
         self,
@@ -214,49 +168,6 @@ class InvalidTokenException(AuthenticationException):
         )
 
 
-class TokenRevokedException(AuthenticationException):
-    def __init__(
-        self,
-        token_type: str = "access",
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({"token_type": token_type})
-            
-        super().__init__(
-            message=f"{token_type.capitalize()} token has been revoked",
-            error_code="TOKEN_REVOKED",
-            status_code=401,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class SessionExpiredException(AuthenticationException):
-    def __init__(
-        self,
-        session_id: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        if session_id:
-            details["session_id"] = session_id
-            
-        super().__init__(
-            message="Session has expired",
-            error_code="SESSION_EXPIRED",
-            status_code=401,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
 # ============ AUTHORIZATION EXCEPTIONS (403) ============
 
 class InsufficientPermissionsException(AuthorizationException):
@@ -290,37 +201,6 @@ class InsufficientPermissionsException(AuthorizationException):
         )
 
 
-class RoleBasedAccessException(AuthorizationException):
-    def __init__(
-        self,
-        user_id: int,
-        username: str,
-        user_role: str,
-        required_roles: List[str],
-        resource: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "user_id": user_id,
-            "username": username,
-            "user_role": user_role,
-            "required_roles": required_roles,
-            "resource": resource
-        })
-        
-        super().__init__(
-            message=f"User '{username}' with role '{user_role}' cannot access this resource. Required roles: {required_roles}",
-            error_code="ROLE_ACCESS_DENIED",
-            status_code=403,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
 class ResourceAccessException(AuthorizationException):
     def __init__(
         self,
@@ -345,35 +225,6 @@ class ResourceAccessException(AuthorizationException):
         super().__init__(
             message=f"User '{username}' cannot {action} {resource_type} with ID {resource_id}",
             error_code="RESOURCE_ACCESS_DENIED",
-            status_code=403,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class OperationNotAllowedException(AuthorizationException):
-    def __init__(
-        self,
-        user_id: int,
-        username: str,
-        operation: str,
-        reason: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "user_id": user_id,
-            "username": username,
-            "operation": operation,
-            "reason": reason
-        })
-        
-        super().__init__(
-            message=f"User '{username}' is not allowed to perform operation '{operation}'",
-            error_code="OPERATION_NOT_ALLOWED",
             status_code=403,
             details=details,
             context=context,
@@ -416,122 +267,6 @@ class MinistryAccessException(ChurchDomainAuthorizationException):
         )
 
 
-class FamilyAccessException(ChurchDomainAuthorizationException):
-    def __init__(
-        self,
-        user_id: int,
-        username: str,
-        family_id: int,
-        family_name: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "user_id": user_id,
-            "username": username,
-            "family_id": family_id,
-            "family_name": family_name
-        })
-        
-        super().__init__(
-            message=f"User '{username}' does not have access to family '{family_name}'",
-            error_code="FAMILY_ACCESS_DENIED",
-            status_code=403,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class SacramentAccessException(ChurchDomainAuthorizationException):
-    def __init__(
-        self,
-        user_id: int,
-        username: str,
-        sacrament_type: str,
-        required_role: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "user_id": user_id,
-            "username": username,
-            "sacrament_type": sacrament_type,
-            "required_role": required_role
-        })
-        
-        super().__init__(
-            message=f"User '{username}' cannot administer sacrament '{sacrament_type}'. Required role: {required_role}",
-            error_code="SACRAMENT_ACCESS_DENIED",
-            status_code=403,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class DonationManagementException(ChurchDomainAuthorizationException):
-    def __init__(
-        self,
-        user_id: int,
-        username: str,
-        action: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "user_id": user_id,
-            "username": username,
-            "action": action
-        })
-        
-        super().__init__(
-            message=f"User '{username}' is not authorized to {action} donations",
-            error_code="DONATION_MANAGEMENT_DENIED",
-            status_code=403,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
-class EventManagementException(ChurchDomainAuthorizationException):
-    def __init__(
-        self,
-        user_id: int,
-        username: str,
-        event_id: int,
-        event_name: str,
-        action: str,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "user_id": user_id,
-            "username": username,
-            "event_id": event_id,
-            "event_name": event_name,
-            "action": action
-        })
-        
-        super().__init__(
-            message=f"User '{username}' is not authorized to {action} event '{event_name}'",
-            error_code="EVENT_MANAGEMENT_DENIED",
-            status_code=403,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-
 # ============ RATE LIMITING EXCEPTIONS ============
 
 class RateLimitExceededException(AuthorizationException):
@@ -565,62 +300,3 @@ class RateLimitExceededException(AuthorizationException):
             context=context,
             cause=cause
         )
-
-
-class ConcurrentRequestLimitException(AuthorizationException):
-    def __init__(
-        self,
-        user_id: int,
-        username: str,
-        current_requests: int,
-        max_requests: int,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None
-    ):
-        details = details or {}
-        details.update({
-            "user_id": user_id,
-            "username": username,
-            "current_requests": current_requests,
-            "max_requests": max_requests
-        })
-        
-        super().__init__(
-            message=f"Concurrent request limit exceeded. Current: {current_requests}, Max: {max_requests}",
-            error_code="CONCURRENT_REQUEST_LIMIT_EXCEEDED",
-            status_code=429,
-            details=details,
-            context=context,
-            cause=cause
-        )
-
-class InvalidUserInputError(Exception):
-    def __init__(self, message="Invalid input", field_errors=None):
-        self.message = message
-        self.field_errors = field_errors or {}
-        super().__init__(self.message)
-
-
-class UserAuthenticationError(Exception):
-    def __init__(self, message="Invalid email or password"):
-        self.message = message
-        super().__init__(self.message)
-
-
-class InvalidTokenError(Exception):
-    def __init__(self, message="Invalid or expired token"):
-        self.message = message
-        super().__init__(self.message)
-
-
-class UnauthorizedError(Exception):
-    def __init__(self, message="Unauthorized access"):
-        self.message = message
-        super().__init__(self.message)
-
-
-class ForbiddenError(Exception):
-    def __init__(self, message="You do not have permission to perform this action"):
-        self.message = message
-        super().__init__(self.message)

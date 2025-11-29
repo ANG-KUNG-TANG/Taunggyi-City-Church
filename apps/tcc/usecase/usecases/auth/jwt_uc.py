@@ -1,9 +1,9 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-from apps.core.jwt.jwt_manager import JWTManager, TokenType
+from apps.core.jwt.jwt_backend import JWTManager, TokenType
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
-# from apps.core.schemas.common.response import TokenSchema
+from apps.core.schemas.out_schemas.aut_out_schemas import TokenResponseSchema
 import logging
 import uuid
 
@@ -254,32 +254,24 @@ class JWTCreateUseCase(BaseUseCase):
             return {}
 
     def _format_token_response(self, 
-                             token: str, 
-                             metadata: Dict[str, Any],
-                             token_type: TokenType) -> Dict[str, Any]:
-        """Format token response according to business requirements"""
+                         token: str, 
+                         metadata: Dict[str, Any],
+                         token_type: TokenType) -> TokenResponseSchema:
+        """Format token response using output schema"""
         
-        response = {
-            "token": token,
-            "token_type": "bearer",
-            "jti": metadata.get('jti'),
-            "user_id": metadata.get('user_id'),
-            "session_id": metadata.get('session_id'),
-            "issued_at": metadata.get('issued_at'),
-            "expires_at": metadata.get('expires_at')
-        }
+        # Calculate expires_in from timestamps
+        expires_at = metadata.get('expires_at')
+        issued_at = metadata.get('issued_at')
+        expires_in = int((expires_at - issued_at).total_seconds()) if expires_at and issued_at else 3600
         
-        # Add type-specific response fields
-        if token_type == TokenType.ACCESS:
-            response.update({
-                "roles": metadata.get('roles', []),
-                "permissions": metadata.get('permissions', [])
-            })
-        elif token_type == TokenType.REFRESH:
-            response["rotation_count"] = metadata.get('rotation_count', 0)
+        return TokenResponseSchema(
+            access_token=token,
+            refresh_token=metadata.get('refresh_token'),  # Only for access token responses
+            token_type="bearer",
+            expires_in=expires_in,
+            expires_at=expires_at or datetime.utcnow() + timedelta(seconds=expires_in)
+        )
         
-        return response
-
     # Business Rule Implementation Methods
     async def _is_token_blacklisted(self, jti: str) -> bool:
         """Check if token is blacklisted (implement based on your storage)"""

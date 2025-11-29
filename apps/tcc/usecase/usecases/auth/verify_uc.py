@@ -2,26 +2,29 @@ from apps.core.schemas.out_schemas.aut_out_schemas import AuthSuccessResponseSch
 from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 
-
 class VerifyTokenUseCase(BaseUseCase):
-    """Token verification use case with output schema support"""
+    """Token verification use case with proper schema usage"""
 
     def _setup_configuration(self):
         self.config.require_authentication = True
 
     async def _on_execute(self, data, user, ctx):
+        """Execute token verification business logic"""
+        # Business Rule: Token is already validated by authentication middleware
+        # This use case just returns user information
+        
         # Build user data for UserResponseSchema
         user_data = {
             "id": user.id,
             "email": user.email,
-            "name": user.name,
-            "role": user.role,
+            "name": getattr(user, 'name', ''),
+            "role": getattr(user, 'role', 'user'),
             "is_active": user.is_active,
-            "created_at": user.created_at if hasattr(user, 'created_at') else None,
-            "updated_at": user.updated_at if hasattr(user, 'updated_at') else None
+            "created_at": getattr(user, 'created_at', None),
+            "updated_at": getattr(user, 'updated_at', None)
         }
         
-        # Return AuthSuccessResponseSchema directly
+        # Return response using output schema
         return AuthSuccessResponseSchema(
             message="Token is valid",
             user=UserResponseSchema(**user_data),

@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any, List
-from .base import BaseAppException, ErrorContext
+from .base import BaseAppException
+from apps.core.core_exceptions.logging.context import ErrorContext
 
 
 class DomainException(BaseAppException):
@@ -15,6 +16,11 @@ class DomainException(BaseAppException):
         cause: Optional[Exception] = None,
         user_message: Optional[str] = None
     ):
+        # Ensure context is properly handled
+        if context is None:
+            from apps.core.core_exceptions.logging.context import context_manager
+            context = context_manager.get_context()
+            
         super().__init__(
             message=message,
             error_code=error_code,

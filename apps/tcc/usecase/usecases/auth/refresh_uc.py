@@ -1,15 +1,15 @@
 from datetime import datetime, timedelta
-from rest_framework_simplejwt.tokens import RefreshToken
+from apps.core.schemas.input_schemas.auth import RefreshTokenInputSchema
 from apps.core.schemas.out_schemas.aut_out_schemas import TokenRefreshResponseSchema, TokenResponseSchema
-from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema
-from apps.tcc.usecase.domain_exception.auth_exceptions import AccountInactiveException, InvalidTokenException, InvalidUserInputError
+from apps.tcc.usecase.domain_exception.auth_exceptions import AccountInactiveException, InvalidTokenException
+from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 from apps.core.core_exceptions.base import ErrorContext
 
 
 class RefreshTokenUseCase(BaseUseCase):
-    """Token refresh use case with output schema support"""
+    """Token refresh use case with proper schema usage"""
 
     def __init__(self, user_repository: UserRepository, jwt_provider):
         super().__init__()
@@ -20,17 +20,36 @@ class RefreshTokenUseCase(BaseUseCase):
         self.config.require_authentication = False
 
     async def _validate_input(self, data, ctx):
-        if "refresh" not in data:
-            raise InvalidUserInputError(
-                message="Refresh token is required",
-                field_errors={"refresh": ["Refresh token is required"]}
+        """Validate input using RefreshTokenInputSchema"""
+        try:
+            self.validated_input = RefreshTokenInputSchema(**data)
+        except Exception as e:
+            field_errors = {}
+            if hasattr(e, 'errors'):
+                for error in e.errors():
+                    field = error['loc'][0] if error['loc'] else 'general'
+                    message = error['msg']
+                    if field not in field_errors:
+                        field_errors[field] = []
+                    field_errors[field].append(message)
+            else:
+                field_errors['general'] = [str(e)]
+            
+            raise InvalidUserInputException(
+                field_errors=field_errors,
+                user_message="Please check your input and try again."
             )
 
     async def _on_execute(self, data, user, ctx):
-        try:
-            token = RefreshToken(data["refresh"])
-            user_id = token["user_id"]
+        """Execute token refresh business logic"""
+        refresh_token = self.validated_input.refresh_token
 
+        try:
+            # Business Rule: Validate refresh token and extract user_id
+            # This depends on your JWT implementation
+            user_id = await self._validate_refresh_token(refresh_token)
+            
+            # Business Rule: Verify user exists and is active
             user_model = await self.user_repository.get_by_id(user_id)
             if not user_model or not user_model.is_active:
                 context = ErrorContext(
@@ -44,30 +63,17 @@ class RefreshTokenUseCase(BaseUseCase):
                     context=context
                 )
 
-            # Sync: Token generation
+            # Business Rule: Generate new tokens (token rotation)
             new_tokens = self.jwt_provider.generate_tokens(user_model)
             
-            # Build token data for TokenResponseSchema
-            expires_in = new_tokens.get("expires_in", 3600)  # Default 1 hour
-            token_data = {
-                "access_token": new_tokens["access"],
-                "refresh_token": new_tokens.get("refresh"),
-                "token_type": "bearer",
-                "expires_in": expires_in,
-                "expires_at": datetime.utcnow() + timedelta(seconds=expires_in)
-            }
-            
-            # Return TokenRefreshResponseSchema directly
-            return TokenRefreshResponseSchema(
-                message="Token refreshed successfully",
-                tokens=TokenResponseSchema(**token_data)
-            )
+            # Build response using output schemas
+            return self._build_refresh_response(new_tokens)
 
+        except (AccountInactiveException, InvalidTokenException):
+            # Re-raise domain exceptions
+            raise
         except Exception as e:
-            # Check if it's already one of our custom exceptions
-            if isinstance(e, (InvalidTokenException, AccountInactiveException)):
-                raise e
-                
+            # Wrap other exceptions in domain exception
             context = ErrorContext(
                 operation="TOKEN_REFRESH",
                 endpoint="auth/refresh"
@@ -78,3 +84,39 @@ class RefreshTokenUseCase(BaseUseCase):
                 context=context,
                 cause=e
             )
+
+    async def _validate_refresh_token(self, refresh_token: str) -> str:
+        """Business Rule: Validate refresh token and extract user_id"""
+        # Implement based on your JWT provider
+        # This should validate the token and return user_id
+        # Raise InvalidTokenException if validation fails
+        try:
+            # Example implementation - adjust based on your JWT provider
+            from rest_framework_simplejwt.tokens import RefreshToken
+            token = RefreshToken(refresh_token)
+            return token["user_id"]
+        except Exception as e:
+            context = ErrorContext(operation="TOKEN_VALIDATION")
+            raise InvalidTokenException(
+                token_type="refresh",
+                reason="Invalid or expired refresh token",
+                context=context,
+                cause=e
+            )
+
+    def _build_refresh_response(self, tokens: dict) -> TokenRefreshResponseSchema:
+        """Build response using output schemas"""
+        
+        expires_in = tokens.get("expires_in", 3600)
+        token_data = {
+            "access_token": tokens["access"],
+            "refresh_token": tokens.get("refresh"),
+            "token_type": "bearer",
+            "expires_in": expires_in,
+            "expires_at": datetime.utcnow() + timedelta(seconds=expires_in)
+        }
+        
+        return TokenRefreshResponseSchema(
+            message="Token refreshed successfully",
+            tokens=TokenResponseSchema(**token_data)
+        )

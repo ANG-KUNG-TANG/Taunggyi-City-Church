@@ -1,16 +1,18 @@
 import asyncio
 from datetime import datetime, timedelta
 from django.contrib.auth import authenticate
+from apps.core.schemas.input_schemas.auth import LoginInputSchema
 from apps.core.schemas.out_schemas.aut_out_schemas import LoginResponseSchema, TokenResponseSchema
 from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema
-from apps.tcc.usecase.domain_exception.auth_exceptions import AccountInactiveException, InvalidCredentialsException, InvalidUserInputError
+from apps.tcc.usecase.domain_exception.auth_exceptions import AccountInactiveException, InvalidCredentialsException
+from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
 from apps.tcc.usecase.services.auth.auth_service import AsyncAuthDomainService
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 from apps.core.core_exceptions.base import ErrorContext
 
 
 class LoginUseCase(BaseUseCase):
-    """User login use case with output schema support"""
+    """User login use case with proper schema usage"""
 
     def __init__(self, jwt_provider, auth_service: AsyncAuthDomainService):
         super().__init__()
@@ -22,62 +24,99 @@ class LoginUseCase(BaseUseCase):
         self.config.required_roles = []
 
     async def _validate_input(self, data, ctx):
-        if not data.get("email") or not data.get("password"):
-            raise InvalidUserInputError(
-                message="Email and password required",
-                field_errors={
-                    "email": ["Email is required"],
-                    "password": ["Password is required"]
-                }
+        """Validate input using LoginInputSchema"""
+        try:
+            # Validate against schema
+            self.validated_input = LoginInputSchema(**data)
+        except Exception as e:
+            # Convert Pydantic validation errors to domain exception
+            field_errors = {}
+            if hasattr(e, 'errors'):
+                for error in e.errors():
+                    field = error['loc'][0] if error['loc'] else 'general'
+                    message = error['msg']
+                    if field not in field_errors:
+                        field_errors[field] = []
+                    field_errors[field].append(message)
+            else:
+                field_errors['general'] = [str(e)]
+            
+            raise InvalidUserInputException(
+                field_errors=field_errors,
+                user_message="Please check your input and try again."
             )
 
     async def _on_execute(self, data, user, ctx):
-        # Sync: Credential verification
-        user_model = authenticate(username=data["email"], password=data["password"])
+        """Execute login business logic"""
+        # Use validated input
+        email = self.validated_input.email
+        password = self.validated_input.password
+        remember_me = self.validated_input.remember_me
+
+        # Business Rule: Credential verification (sync operation)
+        user_model = authenticate(username=email, password=password)
 
         if not user_model:
             context = ErrorContext(
                 operation="LOGIN",
-                user_identifier=data["email"],
+                user_identifier=email,
                 endpoint="auth/login"
             )
             raise InvalidCredentialsException(
-                username=data["email"],
+                username=email,
                 reason="Invalid email or password",
                 context=context
             )
 
-        # Check if user is active
+        # Business Rule: Check if user is active
         if not user_model.is_active:
             context = ErrorContext(
                 operation="LOGIN",
-                user_identifier=data["email"],
+                user_identifier=email,
                 endpoint="auth/login"
             )
             raise AccountInactiveException(
-                username=data["email"],
+                username=email,
                 user_id=user_model.id,
                 context=context
             )
 
-        # Sync: Token generation
+        # Business Rule: Generate tokens according to remember_me preference
         tokens = self.jwt_provider.generate_tokens(user_model)
+        
+        # Apply remember_me business rule for refresh token expiry
+        if remember_me:
+            # Generate longer-lived refresh token
+            tokens = self._apply_remember_me_rules(tokens, user_model)
 
-        # Async: Audit logging with context
+        # Business Rule: Audit logging (async fire-and-forget)
         request_meta = ctx.get('request_meta', {}) if ctx else {}
         asyncio.create_task(
             self.auth_service.audit_login_async(user_model.id, "LOGIN", request_meta)
         )
         
+        # Build response using output schemas
+        return self._build_login_response(user_model, tokens)
+
+    def _apply_remember_me_rules(self, tokens: dict, user_model) -> dict:
+        """Apply remember_me business rules to tokens"""
+        # Business Rule: Extended session for remember_me
+        # This depends on your JWT provider implementation
+        # You might need to regenerate tokens with longer expiry
+        return tokens  # Implement based on your JWT provider
+
+    def _build_login_response(self, user_model, tokens: dict) -> LoginResponseSchema:
+        """Build response using output schemas"""
+        
         # Build user data for UserResponseSchema
         user_data = {
             "id": user_model.id,
             "email": user_model.email,
-            "name": user_model.name,
-            "role": user_model.role,
+            "name": getattr(user_model, 'name', ''),
+            "role": getattr(user_model, 'role', 'user'),
             "is_active": user_model.is_active,
-            "created_at": user_model.created_at,
-            "updated_at": user_model.updated_at
+            "created_at": getattr(user_model, 'created_at', None),
+            "updated_at": getattr(user_model, 'updated_at', None)
         }
         
         # Build token data for TokenResponseSchema
@@ -95,5 +134,5 @@ class LoginUseCase(BaseUseCase):
             message="Login successful",
             user=UserResponseSchema(**user_data),
             tokens=TokenResponseSchema(**token_data),
-            requires_2fa=False  # Set based on your 2FA logic
+            requires_2fa=getattr(user_model, 'requires_2fa', False)
         )
