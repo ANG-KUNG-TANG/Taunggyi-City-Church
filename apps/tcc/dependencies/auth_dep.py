@@ -16,7 +16,7 @@ async def get_auth_service() -> AsyncAuthDomainService:
 
 async def get_jwt_provider():
     # This should return your JWT provider instance
-    from apps.core.security.jwt_manager import JWTManager
+    from apps.core.jwt.jwt_manager import JWTManager
     return JWTManager()
 
 # Use Cases

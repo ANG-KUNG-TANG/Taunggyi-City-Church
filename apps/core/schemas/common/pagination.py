@@ -1,10 +1,11 @@
-from pydantic import BaseModel, field_validator
-from typing import Generic, TypeVar, List
+from pydantic import field_validator
+from typing import Generic, TypeVar, List, Optional
 from math import ceil
+from apps.core.schemas.input_schemas.base import BaseSchema
 
 T = TypeVar('T')
 
-class PaginationParams(BaseModel):
+class PaginationParams(BaseSchema):
     """Schema for pagination parameters."""
     
     page: int = 1
@@ -31,28 +32,41 @@ class PaginationParams(BaseModel):
         """Calculate number of records to skip."""
         return (self.page - 1) * self.page_size
 
-class PaginatedResponse(BaseModel, Generic[T]):
-    """Schema for paginated response."""
-    
-    items: List[T]
+class PaginationInfo(BaseSchema):
+    """Pagination metadata for responses."""
     total: int
     page: int
     page_size: int
     total_pages: int
     has_next: bool
     has_prev: bool
+
+class PaginatedResponse(BaseSchema, Generic[T]):
+    """Generic paginated response schema."""
+    
+    items: List[T]
+    pagination: PaginationInfo
     
     @classmethod
-    def create(cls, items: List[T], total: int, params: PaginationParams) -> 'PaginatedResponse[T]':
+    def create(
+        cls, 
+        items: List[T], 
+        total: int, 
+        params: PaginationParams
+    ) -> 'PaginatedResponse[T]':
         """Create a paginated response."""
-        total_pages = ceil(total / params.page_size) if total > 0 else 1
+        total_pages = ceil(total / params.page_size) if total > 0 and params.page_size > 0 else 1
         
-        return cls(
-            items=items,
+        pagination_info = PaginationInfo(
             total=total,
             page=params.page,
             page_size=params.page_size,
             total_pages=total_pages,
             has_next=params.page < total_pages,
             has_prev=params.page > 1,
+        )
+        
+        return cls(
+            items=items,
+            pagination=pagination_info
         )

@@ -6,38 +6,6 @@ from enum import Enum
 
 T = TypeVar('T')
 
-class BaseSchema(BaseModel):
-    """Base schema for all input schemas with common configuration."""
-    
-    model_config = ConfigDict(
-        from_attributes=True,
-        str_strip_whitespace=True,
-        use_enum_values=True,
-        validate_assignment=True,
-        arbitrary_types_allowed=True,
-        json_encoders={
-            datetime: lambda v: v.isoformat(),
-            Decimal: lambda v: str(v),
-        }
-    )
-
-class BaseResponseSchema(BaseModel):
-    """All API response models inherit from this."""
-    id: int
-    created_at: datetime
-    updated_at: datetime
-    created_by: Optional[int] = None
-    updated_by: Optional[int] = None
-
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={
-            datetime: lambda v: v.isoformat(),
-            Decimal: lambda v: str(v),  
-        },
-        populate_by_name=True,
-    )
-
 class BaseOutputSchema(BaseModel):
     """Base schema for all output DTOs with common configuration."""
     
@@ -52,6 +20,14 @@ class BaseOutputSchema(BaseModel):
         str_strip_whitespace=True,
         validate_assignment=True,
     )
+
+class BaseResponseSchema(BaseOutputSchema):
+    """Base response schema with common audit fields."""
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    created_by: Optional[int] = None
+    updated_by: Optional[int] = None
 
 class TimestampMixin(BaseModel):
     """Mixin for timestamp fields."""

@@ -1,59 +1,40 @@
 from functools import wraps
-from typing import Type, Any, Dict
+from typing import Type, Any, Dict, Optional, Union
 from pydantic import BaseModel, ValidationError
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpRequest
 from rest_framework import status
+from rest_framework.request import Request
+import logging
 
-from apps.core.schemas.input_schemas.auth import (
-    LoginInputSchema, RegisterInputSchema, RefreshTokenInputSchema,
-    LogoutInputSchema, ForgotPasswordInputSchema, ResetPasswordInputSchema,
-    ChangePasswordInputSchema, VerifyEmailInputSchema, ResendVerificationInputSchema
-)
-from apps.core.schemas.input_schemas.users import (
-    UserCreateInputSchema, UserUpdateInputSchema, UserQueryInputSchema
-)
+logger = logging.getLogger(__name__)
 
-def validate_input(schema_class: Type[BaseModel]):
+def validate_input(
+    schema_class: Type[BaseModel],
+    data_source: str = 'body'  # 'body', 'query', or 'all'
+):
     """
     Decorator to validate input data against a Pydantic schema
+    
+    Args:
+        schema_class: Pydantic schema class to validate against
+        data_source: Where to extract data from - 'body', 'query', or 'all'
     """
     def decorator(view_func):
         @wraps(view_func)
-        async def _wrapped_view(self, *args, **kwargs):
+        async def _wrapped_view(request, *args, **kwargs):
             try:
-                # Extract input data from appropriate location
-                request = None
-                input_data = {}
-                
-                # Find request object in args or kwargs
-                for arg in args:
-                    if hasattr(arg, 'data'):
-                        request = arg
-                        break
-                
-                if not request:
-                    for key, value in kwargs.items():
-                        if hasattr(value, 'data'):
-                            request = value
-                            break
-                
-                if request and hasattr(request, 'data'):
-                    input_data = request.data
+                input_data = _extract_input_data(request, data_source)
                 
                 # Validate data against schema
                 validated_data = schema_class(**input_data)
                 
-                # Replace the input data with validated data
-                if 'input_data' in kwargs:
-                    kwargs['input_data'] = validated_data
-                else:
-                    # If using self, we need to handle differently
-                    if args and hasattr(args[0], 'validated_data'):
-                        args[0].validated_data = validated_data
+                # Pass validated data to view
+                kwargs['validated_data'] = validated_data
                 
-                return await view_func(self, *args, **kwargs)
+                return await view_func(request, *args, **kwargs)
                 
             except ValidationError as e:
+                logger.warning(f"Validation failed for {schema_class.__name__}: {e.errors()}")
                 return JsonResponse(
                     {
                         "error": "Validation failed",
@@ -63,6 +44,7 @@ def validate_input(schema_class: Type[BaseModel]):
                     status=status.HTTP_422_UNPROCESSABLE_ENTITY
                 )
             except Exception as e:
+                logger.error(f"Unexpected validation error: {e}", exc_info=True)
                 return JsonResponse(
                     {
                         "error": "Validation error",
@@ -74,62 +56,65 @@ def validate_input(schema_class: Type[BaseModel]):
         return _wrapped_view
     return decorator
 
-# Specific validation decorators for common operations
-def validate_user_create(view_func):
-    """Validate user creation input"""
-    return validate_input(UserCreateInputSchema)(view_func)
+def _extract_input_data(
+    request: Union[HttpRequest, Request], 
+    data_source: str
+) -> Dict[str, Any]:
+    """Extract input data from request based on data_source"""
+    input_data = {}
+    
+    if data_source in ['body', 'all'] and hasattr(request, 'data'):
+        input_data.update(request.data)
+    
+    if data_source in ['query', 'all'] and hasattr(request, 'query_params'):
+        input_data.update(dict(request.query_params))
+    elif data_source in ['query', 'all'] and hasattr(request, 'GET'):
+        input_data.update(dict(request.GET))
+    
+    return input_data
 
-def validate_user_update(view_func):
-    """Validate user update input"""
-    return validate_input(UserUpdateInputSchema)(view_func)
+# Schema-specific validation decorators
+def create_schema_validator(schema_class: Type[BaseModel], data_source: str = 'body'):
+    """Factory function to create schema-specific validators"""
+    def decorator(view_func):
+        return validate_input(schema_class, data_source)(view_func)
+    return decorator
 
-def validate_user_query(view_func):
-    """Validate user query parameters"""
-    return validate_input(UserQueryInputSchema)(view_func)
+# Import schemas only when needed to avoid circular imports
+def _get_schema_class(schema_name: str) -> Type[BaseModel]:
+    """Get schema class by name from registry"""
+    from .registry import get_schema
+    return get_schema(schema_name)
 
-def validate_login(view_func):
-    """Validate login input"""
-    return validate_input(LoginInputSchema)(view_func)
+# Dynamic validators using registry
+def validate_with_schema(schema_name: str, data_source: str = 'body'):
+    """Validate using schema from registry by name"""
+    def decorator(view_func):
+        @wraps(view_func)
+        def _wrapped_view(request, *args, **kwargs):
+            schema_class = _get_schema_class(schema_name)
+            return validate_input(schema_class, data_source)(view_func)(request, *args, **kwargs)
+        return _wrapped_view
+    return decorator
 
-def validate_register(view_func):
-    """Validate registration input"""
-    return validate_input(RegisterInputSchema)(view_func)
+# Permission decorators with basic implementation
+def require_permission(permission: str):
+    """Require specific permission"""
+    def decorator(view_func):
+        @wraps(view_func)
+        async def _wrapped_view(request, *args, **kwargs):
+            # TODO: Implement actual permission checking
+            # For now, this is a placeholder
+            if not hasattr(request, 'user') or not request.user.is_authenticated:
+                return JsonResponse(
+                    {"error": "Authentication required"},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            return await view_func(request, *args, **kwargs)
+        return _wrapped_view
+    return decorator
 
-def validate_refresh_token(view_func):
-    """Validate refresh token input"""
-    return validate_input(RefreshTokenInputSchema)(view_func)
-
-def validate_logout(view_func):
-    """Validate logout input"""
-    return validate_input(LogoutInputSchema)(view_func)
-
-def validate_forgot_password(view_func):
-    """Validate forgot password input"""
-    return validate_input(ForgotPasswordInputSchema)(view_func)
-
-def validate_reset_password(view_func):
-    """Validate reset password input"""
-    return validate_input(ResetPasswordInputSchema)(view_func)
-
-def validate_change_password(view_func):
-    """Validate change password input"""
-    return validate_input(ChangePasswordInputSchema)(view_func)
-
-# Permission decorators
-def require_admin(view_func):
-    """Require admin permissions"""
-    @wraps(view_func)
-    async def _wrapped_view(self, *args, **kwargs):
-        # This would typically check user permissions
-        # For now, it's a placeholder that passes through
-        return await view_func(self, *args, **kwargs)
-    return _wrapped_view
-
-def require_member(view_func):
-    """Require member permissions"""
-    @wraps(view_func)
-    async def _wrapped_view(self, *args, **kwargs):
-        # This would typically check user is authenticated
-        # For now, it's a placeholder that passes through
-        return await view_func(self, *args, **kwargs)
-    return _wrapped_view
+# Common permission decorators
+require_admin = require_permission('admin')
+require_member = require_permission('member')
+require_authenticated = require_permission('authenticated')

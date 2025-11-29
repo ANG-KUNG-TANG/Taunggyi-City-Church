@@ -12,3 +12,15 @@ __all__ = [
     'CacheSerializer',
     'SerializationType'
 ]
+
+import logging
+from django.core.cache import cache as django_cache
+
+logger = logging.getLogger(__name__)
+
+def get_cache_client():
+    """
+    Get cache client for JWT services
+    Returns Django cache instance that can be adapted for async use
+    """
+    return django_cache

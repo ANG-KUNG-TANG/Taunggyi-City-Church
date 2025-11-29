@@ -1,8 +1,3 @@
-"""
-Token Blacklist Service with Redis backend
-Security Level: HIGH
-Compliance: OWASP Session Management
-"""
 import time
 from typing import Any, Optional, List, Dict, Tuple
 from datetime import datetime, timedelta

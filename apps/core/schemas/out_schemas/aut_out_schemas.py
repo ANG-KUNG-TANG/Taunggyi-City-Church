@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from apps.core.schemas.out_schemas.base import BaseOutputSchema
 from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema
 
-class TokenResponseSchema(BaseModel):
+class TokenResponseSchema(BaseOutputSchema):
     """Token response schema."""
     
     access_token: str = Field(..., description="JWT access token")
@@ -12,41 +13,36 @@ class TokenResponseSchema(BaseModel):
     expires_in: int = Field(..., description="Token expiration in seconds")
     expires_at: datetime = Field(..., description="Token expiration timestamp")
 
-class AuthSuccessResponseSchema(BaseModel):
+class AuthSuccessResponseSchema(BaseOutputSchema):
     """Authentication success response."""
     
-    message: str = Field(default="Authentication successful", description="Response message")
     user: UserResponseSchema = Field(..., description="User information")
     tokens: TokenResponseSchema = Field(..., description="Authentication tokens")
 
 class LoginResponseSchema(AuthSuccessResponseSchema):
     """Login specific response."""
     
-    message: str = Field(default="Login successful", description="Login message")
     requires_2fa: bool = Field(default=False, description="Whether 2FA is required")
 
 class RegisterResponseSchema(AuthSuccessResponseSchema):
     """Registration specific response."""
     
-    message: str = Field(default="Registration successful", description="Registration message")
     email_verification_required: bool = Field(default=True, description="Whether email verification is required")
 
-class TokenRefreshResponseSchema(BaseModel):
+class TokenRefreshResponseSchema(BaseOutputSchema):
     """Token refresh response."""
     
-    message: str = Field(default="Token refreshed successfully", description="Response message")
     tokens: TokenResponseSchema = Field(..., description="New tokens")
 
-class LogoutResponseSchema(BaseModel):
+class LogoutResponseSchema(BaseOutputSchema):
     """Logout response."""
     
     message: str = Field(default="Logout successful", description="Logout message")
 
-class PasswordResetResponseSchema(BaseModel):
+class PasswordResetResponseSchema(BaseOutputSchema):
     """Password reset response."""
     
     message: str = Field(default="Password reset successful", description="Response message")
-
 class EmailVerificationResponseSchema(BaseModel):
     """Email verification response."""
     

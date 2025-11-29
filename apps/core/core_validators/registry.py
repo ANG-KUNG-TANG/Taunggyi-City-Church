@@ -5,6 +5,12 @@ _registry: Dict[str, Type[BaseModel]] = {}
 
 def register_schema(name: str, schema: Type[BaseModel]) -> None:
     """Register a schema in the global registry."""
+    if not name or not isinstance(name, str):
+        raise ValueError("Schema name must be a non-empty string")
+    
+    if not issubclass(schema, BaseModel):
+        raise TypeError("Schema must be a Pydantic BaseModel")
+    
     if name in _registry:
         raise ValueError(f"Schema '{name}' is already registered")
     _registry[name] = schema
@@ -53,25 +59,31 @@ def schema_exists(name: str) -> bool:
     """Check if a schema is registered"""
     return name in _registry
 
-# Register new schemas
-try:
-    from apps.core.schemas.input_schemas.users import (
-        UserCreateInputSchema, UserUpdateInputSchema, UserQueryInputSchema
-    )
-    from apps.core.schemas.input_schemas.auth import (
-        LoginInputSchema, RegisterInputSchema, RefreshTokenInputSchema
-    )
-    
-    # User schemas
-    register_schema("user_create", UserCreateInputSchema)
-    register_schema("user_update", UserUpdateInputSchema)
-    register_schema("user_query", UserQueryInputSchema)
-    
-    # Auth schemas
-    register_schema("login", LoginInputSchema)
-    register_schema("register", RegisterInputSchema)
-    register_schema("refresh_token", RefreshTokenInputSchema)
-    
-except ImportError as e:
-    # Schemas module might not be available during initial setup
-    print(f"Warning: Could not register schemas: {e}")
+# Register core schemas
+def register_core_schemas() -> None:
+    """Register all core schemas in one place"""
+    try:
+        from apps.core.schemas.input_schemas.u_input_schema import (
+            UserCreateInputSchema, UserUpdateInputSchema, UserQueryInputSchema
+        )
+        from apps.core.schemas.input_schemas.auth import (
+            LoginInputSchema, RegisterInputSchema, RefreshTokenInputSchema
+        )
+        
+        # User schemas
+        register_schema("user_create", UserCreateInputSchema)
+        register_schema("user_update", UserUpdateInputSchema)
+        register_schema("user_query", UserQueryInputSchema)
+        
+        # Auth schemas
+        register_schema("login", LoginInputSchema)
+        register_schema("register", RegisterInputSchema)
+        register_schema("refresh_token", RefreshTokenInputSchema)
+        
+    except ImportError as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Could not register schemas: {e}")
+
+# Auto-register on import
+register_core_schemas()

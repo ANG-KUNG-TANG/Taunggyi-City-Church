@@ -1,8 +1,3 @@
-"""
-Production Rate Limiter with Sliding Window Algorithm
-Security Level: HIGH
-Compliance: OWASP Rate Limiting
-"""
 from datetime import datetime
 import time
 import asyncio
@@ -18,7 +13,6 @@ class RateLimitStrategy(Enum):
     """Rate limiting strategies"""
     SLIDING_WINDOW = "sliding_window"
     FIXED_WINDOW = "fixed_window"
-    TOKEN_BUCKET = "token_bucket"
 
 @dataclass(frozen=True)
 class RateLimitConfig:
@@ -71,9 +65,9 @@ class RateLimiter:
             "errors": 0
         }
 
-    def _get_key(self, identifier: str, action: str, strategy: RateLimitStrategy) -> str:
+    def _get_key(self, identifier: str, action: str) -> str:
         """Generate rate limit key"""
-        return f"{self.prefix}:{strategy.value}:{action}:{identifier}"
+        return f"{self.prefix}:{action}:{identifier}"
 
     async def check_rate_limit(self, 
                              identifier: str, 
@@ -82,14 +76,6 @@ class RateLimiter:
         """
         Check rate limit for identifier and action
         Security Level: HIGH
-        
-        Args:
-            identifier: Client identifier (IP, user ID, etc.)
-            action: Action being limited (login, api_call, etc.)
-            config: Rate limit configuration
-            
-        Returns:
-            RateLimitResult with decision and details
         """
         self._metrics["checks"] += 1
         
@@ -114,41 +100,28 @@ class RateLimiter:
         """
         Sliding window rate limit implementation
         Security Level: HIGH
-        Algorithm: Sorted set with timestamp scores
         """
-        key = self._get_key(identifier, action, config.strategy)
+        key = self._get_key(identifier, action)
         now = time.time()
         window_start = now - config.window_seconds
         
         try:
-            # Use Redis sorted set for efficient window management
-            pipeline = self.cache.get_pipeline()
+            # Get current requests in window
+            current_requests = await self._get_current_requests(key, window_start)
             
-            # Remove expired requests
-            pipeline.zremrangebyscore(key, 0, window_start)
-            
-            # Count current window requests
-            pipeline.zcard(key)
-            
-            # Add current request
-            pipeline.zadd(key, {str(now): now})
-            
-            # Set expiry
-            pipeline.expire(key, config.window_seconds)
-            
-            results = await pipeline.execute()
-            
-            current_requests = results[1] if len(results) > 1 else 0
-            remaining = max(0, config.max_requests - current_requests)
-            reset_time = int(now + config.window_seconds)
-            
-            allowed = current_requests < config.max_requests
-            
-            if allowed:
+            # Add current request if under limit
+            if current_requests < config.max_requests:
+                await self._add_request(key, now, config.window_seconds)
+                current_requests += 1
                 self._metrics["allowed"] += 1
+                allowed = True
             else:
                 self._metrics["denied"] += 1
+                allowed = False
                 logger.warning(f"Rate limit exceeded: {identifier}/{action}, requests={current_requests}")
+            
+            remaining = max(0, config.max_requests - current_requests)
+            reset_time = int(now + config.window_seconds)
             
             details = {
                 "limit": config.max_requests,
@@ -165,6 +138,30 @@ class RateLimiter:
             logger.error(f"Sliding window check failed: {e}")
             raise
 
+    async def _get_current_requests(self, key: str, window_start: float) -> int:
+        """Get number of requests in current window"""
+        # This is a simplified implementation
+        # In production, you might use Redis sorted sets
+        window_data = await self.cache.get(key)
+        if not window_data:
+            return 0
+        
+        requests = window_data.get("requests", [])
+        # Filter requests within current window
+        valid_requests = [ts for ts in requests if ts >= window_start]
+        return len(valid_requests)
+
+    async def _add_request(self, key: str, timestamp: float, window_seconds: int):
+        """Add request to rate limit window"""
+        window_data = await self.cache.get(key) or {"requests": []}
+        window_data["requests"].append(timestamp)
+        
+        # Keep only recent requests to prevent memory issues
+        window_start = timestamp - window_seconds
+        window_data["requests"] = [ts for ts in window_data["requests"] if ts >= window_start]
+        
+        await self.cache.set(key, window_data, window_seconds)
+
     async def get_rate_limit_info(self, 
                                 identifier: str, 
                                 action: str, 
@@ -174,27 +171,18 @@ class RateLimiter:
         Security Level: MEDIUM
         """
         try:
-            key = self._get_key(identifier, action, config.strategy)
+            key = self._get_key(identifier, action)
             now = time.time()
             window_start = now - config.window_seconds
             
-            pipeline = self.cache.get_pipeline()
-            pipeline.zremrangebyscore(key, 0, window_start)
-            pipeline.zcard(key)
-            pipeline.zrange(key, 0, -1, withscores=True)
-            
-            results = await pipeline.execute()
-            
-            current_requests = results[1] if len(results) > 1 else 0
-            request_timestamps = results[2] if len(results) > 2 else []
+            current_requests = await self._get_current_requests(key, window_start)
             
             return {
                 "limit": config.max_requests,
                 "remaining": max(0, config.max_requests - current_requests),
                 "reset_time": int(now + config.window_seconds),
                 "current_requests": current_requests,
-                "window_seconds": config.window_seconds,
-                "request_timestamps": request_timestamps
+                "window_seconds": config.window_seconds
             }
         except Exception as e:
             logger.error(f"Failed to get rate limit info: {e}")
@@ -206,13 +194,11 @@ class RateLimiter:
         Security Level: HIGH
         """
         try:
-            # Reset for all strategies
-            for strategy in RateLimitStrategy:
-                key = self._get_key(identifier, action, strategy)
-                await self.cache.delete(key)
+            key = self._get_key(identifier, action)
+            success = await self.cache.delete(key)
                 
             logger.info(f"Rate limit reset: {identifier}/{action}")
-            return True
+            return success
         except Exception as e:
             logger.error(f"Rate limit reset failed: {e}")
             return False

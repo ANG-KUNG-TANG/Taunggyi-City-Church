@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, Optional, List
 from apps.core.schemas.common.response import APIResponse
-from apps.core.schemas.input_schemas.users import UserCreateInputSchema, UserUpdateInputSchema
+from apps.core.schemas.input_schemas.u_input_schema import UserCreateInputSchema, UserUpdateInputSchema
 from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema
 from apps.tcc.usecase.services.auth.base_controller import BaseController
 from apps.tcc.usecase.services.exceptions.u_handler_exceptions import UserExceptionHandler

@@ -4,7 +4,7 @@ from typing import Optional, Any
 from decimal import Decimal
 
 class BaseSchema(BaseModel):
-    """Base schema with common configuration."""
+    """Base schema for all input schemas with common configuration."""
     
     model_config = ConfigDict(
         from_attributes=True,
@@ -17,12 +17,3 @@ class BaseSchema(BaseModel):
             Decimal: lambda v: str(v),
         }
     )
-
-class BaseResponseSchema(BaseSchema):
-    """Base response schema with common fields."""
-    
-    id: int
-    created_at: datetime
-    updated_at: datetime
-    created_by: Optional[int] = None
-    updated_by: Optional[int] = None

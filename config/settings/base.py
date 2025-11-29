@@ -57,6 +57,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    'apps.core.jwt.middleware.JWTAuthMiddleware',
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -137,10 +138,13 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'apps.core.core_exceptions.handlers.django_handler.django_handler',
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication', 
+        # Remove simplejwt if using custom middleware
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
@@ -152,18 +156,27 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle'
     ],
-    'DEFAULT_THROTTLE_RATES': {'anon': '100/day', 'user': '1000/day'}
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/day', 
+        'user': '1000/day'
+    },
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_PARSER_CLASSSES': [
+        'rest_framework.parsers.JSONParser',
+        'rest_framework.parsers.FormParser',
+        'rest_framework.parsers.MultiPartParser',
+    ],
 }
-
-# Enhanced JWT settings - FIXED: Use proper env calls
-SIMPLE_JWT = {
-    'SIGNING_KEY': env('JWT_SECRET'),
-    'ALGORITHM': env('JWT_ALGORITHM', default='HS256'),
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=env.int('JWT_ACCESS_MINUTES', default=15)),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=env.int('JWT_REFRESH_DAYS', default=7)),
-    'AUTH_HEADER_TYPES': ('Bearer',),
+JWT_CONFIG = {
+    'ACCESS_TOKEN_EXPIRY': env.int('JWT_ACCESS_EXPIRY', 900),
+    'REFRESH_TOKEN_EXPIRY': env.int('JWT_REFRESH_EXPIRY', 604800), 
+    'RESET_TOKEN_EXPIRY': env.int('JWT_RESET_EXPIRY', 1800),
+    'ALGORITHM': env('JWT_ALGORITHM', 'RS256'),
+    'ISSUER': env('JWT_ISSUER', 'auth-service'),
+    'AUDIENCE': env.list('JWT_AUDIENCE', default=['api']),
 }
-
 # ──────────────────────────────
 # Cache (Redis / Async Ready)
 # ──────────────────────────────

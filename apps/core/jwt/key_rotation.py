@@ -1,8 +1,3 @@
-"""
-Production Key Rotation Manager for JWT
-Security Level: CRITICAL
-Compliance: NIST Key Management
-"""
 import time
 import secrets
 from typing import Any, Dict, List, Optional, Tuple
@@ -11,6 +6,7 @@ import logging
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
+from apps.core.cache.async_cache import AsyncRedisCache
 
 logger = logging.getLogger(__name__)
 
