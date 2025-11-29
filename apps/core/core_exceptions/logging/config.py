@@ -102,9 +102,6 @@ def setup_logging(
             },
             "json": {
                 "()": "core.exceptions.logging.formatters.JSONFormatter",
-            },
-            "simple": {
-                "format": "%(levelname)s - %(message)s"
             }
         },
         "handlers": log_handlers,

@@ -1,12 +1,12 @@
 from typing import Optional, Dict, Any
 from .base import BaseAppException, ErrorContext
 
+from typing import Optional, Dict, Any
+from .base import BaseAppException, ErrorContext
+
 
 class IntegrationException(BaseAppException):
-    """
-    Base class for integration-related exceptions.
-    These exceptions occur when external services fail.
-    """
+    """Base class for integration-related exceptions."""
     
     def __init__(
         self,

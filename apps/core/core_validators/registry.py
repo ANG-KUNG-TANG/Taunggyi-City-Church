@@ -63,7 +63,7 @@ def schema_exists(name: str) -> bool:
 def register_core_schemas() -> None:
     """Register all core schemas in one place"""
     try:
-        from apps.core.schemas.input_schemas.u_input_schema import (
+        from apps.core.schemas.input_schemas.users import (
             UserCreateInputSchema, UserUpdateInputSchema, UserQueryInputSchema
         )
         from apps.core.schemas.input_schemas.auth import (

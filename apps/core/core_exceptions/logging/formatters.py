@@ -18,12 +18,6 @@ class JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """
         Format log record as JSON.
-        
-        Args:
-            record: Log record to format
-            
-        Returns:
-            JSON string representation of log record
         """
         log_entry = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -42,7 +36,7 @@ class JSONFormatter(logging.Formatter):
             log_entry["exception"] = self.formatException(record.exc_info)
             log_entry["stack_trace"] = traceback.format_exc()
         
-        # Add custom attributes
+        # Add custom attributes (including context)
         for key, value in record.__dict__.items():
             if key not in [
                 'name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
@@ -75,19 +69,10 @@ class DetailedFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """
         Format log record with detailed information.
-        
-        Args:
-            record: Log record to format
-            
-        Returns:
-            Formatted log string
         """
-        # Ensure context fields are present
+        # Ensure context fields are present with defaults
         if not hasattr(record, 'request_id'):
             record.request_id = 'N/A'
-            
-        if not hasattr(record, 'exception_id'):
-            record.exception_id = 'N/A'
         
         if not hasattr(record, 'user_id'):
             record.user_id = 'N/A'
@@ -103,9 +88,6 @@ class DetailedFormatter(logging.Formatter):
         if hasattr(record, 'user_id') and record.user_id != 'N/A':
             context_parts.append(f"user:{record.user_id}")
         
-        if hasattr(record, 'exception_id') and record.exception_id != 'N/A':
-            context_parts.append(f"ex:{record.exception_id}")
-        
         if context_parts:
             formatted += f" [{', '.join(context_parts)}]"
         
@@ -114,44 +96,3 @@ class DetailedFormatter(logging.Formatter):
             formatted += f"\n{self.formatException(record.exc_info)}"
         
         return formatted
-
-
-class ColoredFormatter(logging.Formatter):
-    """
-    Colored formatter for console output.
-    Adds ANSI color codes to log levels for better readability.
-    """
-    
-    # ANSI color codes
-    COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[32m',       # Green
-        'WARNING': '\033[33m',    # Yellow
-        'ERROR': '\033[31m',      # Red
-        'CRITICAL': '\033[41m',   # Red background
-        'RESET': '\033[0m'        # Reset
-    }
-    
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s | %(levelname)-8s | %(name)-15s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-    
-    def format(self, record: logging.LogRecord) -> str:
-        """
-        Format log record with colors.
-        
-        Args:
-            record: Log record to format
-            
-        Returns:
-            Colored log string
-        """
-        # Colorize the level name
-        levelname = record.levelname
-        if levelname in self.COLORS:
-            colored_levelname = f"{self.COLORS[levelname]}{levelname}{self.COLORS['RESET']}"
-            record.levelname = colored_levelname
-        
-        return super().format(record)

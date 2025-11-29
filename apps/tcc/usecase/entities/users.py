@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from apps.core.schemas.input_schemas.u_input_schema import UserCreateSchema
+from apps.core.schemas.input_schemas.users import UserCreateSchema
 from apps.tcc.models.base.enums import UserRole, UserStatus
 from .base_entity import BaseEntity
 

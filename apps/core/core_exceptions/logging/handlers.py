@@ -1,16 +1,12 @@
 import logging
 import asyncio
-import smtplib
-from typing import Any, Dict, List, Optional
+from typing import Any
 from logging import Handler
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 
 class AsyncLogHandler(Handler):
     """
     Asynchronous log handler for non-blocking logging.
-    Processes log records in background to avoid blocking the main thread.
     """
     
     def __init__(self, level: int = logging.NOTSET, max_queue_size: int = 1000):
@@ -22,33 +18,23 @@ class AsyncLogHandler(Handler):
     def emit(self, record: logging.LogRecord) -> None:
         """
         Emit a log record asynchronously.
-        
-        Args:
-            record: Log record to emit
         """
         if not self._is_running:
             return
         
         try:
-            # Put the record in the queue for async processing
             asyncio.create_task(self._queue.put(record))
-        except Exception as e:
-            # If async processing fails, fall back to sync logging
+        except Exception:
             self.handleError(record)
     
     async def _process_record(self, record: logging.LogRecord) -> None:
         """
         Process a log record asynchronously.
-        
-        Args:
-            record: Log record to process
         """
         try:
-            # This is where you'd send logs to external services
-            # For now, we'll just format and use a fallback handler
             msg = self.format(record)
             
-            # Use a fallback console handler for critical errors
+            # Use fallback for critical errors
             if record.levelno >= logging.ERROR:
                 fallback_handler = logging.StreamHandler()
                 fallback_handler.setFormatter(self.formatter)
@@ -94,7 +80,7 @@ class AsyncLogHandler(Handler):
 class ErrorMonitoringHandler(Handler):
     """
     Log handler for error monitoring services (Sentry, DataDog, etc.).
-    Sends critical errors to external monitoring systems.
+    Integrated Sentry functionality from removed sentry.py.
     """
     
     def __init__(self, level: int = logging.ERROR):
@@ -105,25 +91,36 @@ class ErrorMonitoringHandler(Handler):
     def _setup_monitoring(self) -> None:
         """Setup error monitoring integration."""
         try:
-            # Check if Sentry is configured
             import sentry_sdk
-            if sentry_sdk.Hub.current.client:
+            from sentry_sdk.integrations.logging import LoggingIntegration
+            
+            # Check if Sentry is configured
+            dsn = getattr(sentry_sdk.Hub.current.client, 'dsn', None)
+            if dsn:
                 self._monitoring_enabled = True
-                return
+                
+                # Configure Sentry logging integration
+                sentry_logging = LoggingIntegration(
+                    level=logging.INFO,  # Capture info and above as breadcrumbs
+                    event_level=logging.ERROR  # Send errors as events
+                )
+                
+                # Re-init with logging integration if not already done
+                if not any(isinstance(i, LoggingIntegration) for i in sentry_sdk.Hub.current.client.integrations):
+                    sentry_sdk.init(
+                        dsn=dsn,
+                        integrations=[sentry_logging],
+                        before_send=self._before_send,
+                        before_breadcrumb=self._before_breadcrumb,
+                    )
+                    
         except ImportError:
+            # Sentry not available
             pass
-        
-        # Check for other monitoring services
-        # Add integration with DataDog, New Relic, etc.
-        
-        self._monitoring_enabled = False
     
     def emit(self, record: logging.LogRecord) -> None:
         """
         Emit log record to error monitoring service.
-        
-        Args:
-            record: Log record to emit
         """
         if not self._monitoring_enabled or record.levelno < self.level:
             return
@@ -136,13 +133,10 @@ class ErrorMonitoringHandler(Handler):
     def _send_to_monitoring(self, record: logging.LogRecord) -> None:
         """
         Send log record to error monitoring service.
-        
-        Args:
-            record: Log record to send
         """
         extra_data = {}
         
-        # Extract extra fields
+        # Extract context and extra fields
         for key, value in record.__dict__.items():
             if key not in [
                 'name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
@@ -155,95 +149,43 @@ class ErrorMonitoringHandler(Handler):
         # Send to Sentry
         try:
             import sentry_sdk
+            
+            # Set context
+            with sentry_sdk.configure_scope() as scope:
+                for key, value in extra_data.items():
+                    scope.set_extra(key, value)
+            
             if record.exc_info:
-                sentry_sdk.capture_exception(
-                    record.exc_info[1],
-                    extra=extra_data
-                )
+                sentry_sdk.capture_exception(record.exc_info[1])
             else:
                 sentry_sdk.capture_message(
                     record.getMessage(),
-                    level=record.levelname.lower(),
-                    extra=extra_data
+                    level=record.levelname.lower()
                 )
+                
         except ImportError:
             # Sentry not available
             pass
-
-
-class EmailAlertHandler(Handler):
-    """
-    Email alert handler for critical errors.
-    Sends email notifications for critical application errors.
-    """
     
-    def __init__(
-        self,
-        smtp_server: str,
-        smtp_port: int,
-        username: str,
-        password: str,
-        from_addr: str,
-        to_addrs: List[str],
-        subject_prefix: str = "[CMS Alert]",
-        level: int = logging.ERROR
-    ):
-        super().__init__(level)
-        self.smtp_server = smtp_server
-        self.smtp_port = smtp_port
-        self.username = username
-        self.password = password
-        self.from_addr = from_addr
-        self.to_addrs = to_addrs
-        self.subject_prefix = subject_prefix
+    def _before_send(self, event, hint):
+        """Filter or modify events before sending to Sentry."""
+        # Filter out specific exceptions if needed
+        exception = hint.get('exc_info')
+        if exception:
+            # Don't send specific exception types
+            pass
+        
+        # Add custom tags
+        event.setdefault('tags', {}).update({
+            'handler': 'ErrorMonitoringHandler'
+        })
+        
+        return event
     
-    def emit(self, record: logging.LogRecord) -> None:
-        """
-        Send email alert for critical errors.
+    def _before_breadcrumb(self, crumb, hint):
+        """Filter or modify breadcrumbs before adding them."""
+        # Filter out noisy breadcrumbs
+        if crumb.get('category') in ['http', 'console']:
+            return None
         
-        Args:
-            record: Log record to send as alert
-        """
-        try:
-            self._send_email_alert(record)
-        except Exception:
-            self.handleError(record)
-    
-    def _send_email_alert(self, record: logging.LogRecord) -> None:
-        """
-        Send email alert.
-        
-        Args:
-            record: Log record to send
-        """
-        # Create email message
-        msg = MIMEMultipart()
-        msg['From'] = self.from_addr
-        msg['To'] = ', '.join(self.to_addrs)
-        msg['Subject'] = f"{self.subject_prefix} {record.levelname}: {record.getMessage()}"
-        
-        # Create email body
-        body = f"""
-Critical Error Alert
-
-Time: {record.asctime}
-Level: {record.levelname}
-Logger: {record.name}
-Location: {record.pathname}:{record.lineno}
-Message: {record.getMessage()}
-
-Exception:
-{self.format(record)}
-
-Additional Context:
-{getattr(record, 'request_id', 'N/A')}
-{getattr(record, 'user_id', 'N/A')}
-"""
-        
-        msg.attach(MIMEText(body, 'plain'))
-        
-        # Send email
-        with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-            server.starttls()
-            server.login(self.username, self.password)
-            server.send_message(msg)
+        return crumb
