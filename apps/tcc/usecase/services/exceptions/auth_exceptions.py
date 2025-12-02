@@ -1,24 +1,18 @@
 from functools import wraps
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 from apps.core.schemas.common.response import APIResponse
 from apps.tcc.usecase.domain_exception.auth_exceptions import (
-    # Authentication exceptions (401)
     UnauthenticatedException,
     InvalidCredentialsException,
     AccountInactiveException,
     TokenExpiredException,
     InvalidTokenException,
-    
-    # Authorization exceptions (403)
+    InvalidResetTokenException,
     InsufficientPermissionsException,
     ResourceAccessException,
     MinistryAccessException,
-    
-    # Rate limiting exceptions (429)
     RateLimitExceededException,
-    
-    # Base exceptions
     AuthenticationException,
     AuthorizationException
 )
@@ -93,6 +87,8 @@ class AuthExceptionHandler:
     def handle_auth_exceptions(cls, func):
         """
         Comprehensive decorator for handling auth-domain exceptions.
+        
+        Returns: Either domain schema (success) or APIResponse (error)
         """
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -104,19 +100,20 @@ class AuthExceptionHandler:
                 status_code = getattr(e, 'status_code', 401)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse.error_response(
+                # Return APIResponse for errors (controller will handle this)
+                return APIResponse.error(
                     message=getattr(e, 'message', None) or "Authentication required",
                     data=error_data,
                     status_code=status_code
                 )
                 
             except (InvalidCredentialsException, AccountInactiveException,
-                   TokenExpiredException, InvalidTokenException) as e:
+                   TokenExpiredException, InvalidTokenException, InvalidResetTokenException) as e:
                 cls._log_exception(e, func.__name__)
                 status_code = getattr(e, 'status_code', 401)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse.error_response(
+                return APIResponse.error(
                     message=getattr(e, 'message', None) or "Authentication failed",
                     data=error_data,
                     status_code=status_code
@@ -128,7 +125,7 @@ class AuthExceptionHandler:
                 status_code = getattr(e, 'status_code', 403)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse.error_response(
+                return APIResponse.error(
                     message=getattr(e, 'message', None) or "Access denied",
                     data=error_data,
                     status_code=status_code
@@ -139,16 +136,10 @@ class AuthExceptionHandler:
                 status_code = getattr(e, 'status_code', 429)
                 error_data = cls._get_error_data(e)
                 
-                # Add retry-after header for rate limiting
-                headers = {}
-                if hasattr(e, 'retry_after') and e.retry_after:
-                    headers['Retry-After'] = str(e.retry_after)
-                
-                return APIResponse.error_response(
+                return APIResponse.error(
                     message=getattr(e, 'message', None) or "Rate limit exceeded",
                     data=error_data,
-                    status_code=status_code,
-                    headers=headers
+                    status_code=status_code
                 )
                 
         return wrapper

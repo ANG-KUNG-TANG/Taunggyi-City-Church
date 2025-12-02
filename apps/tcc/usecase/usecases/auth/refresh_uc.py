@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Dict, Any
 from apps.core.schemas.input_schemas.auth import RefreshTokenInputSchema
 from apps.core.schemas.out_schemas.aut_out_schemas import TokenRefreshResponseSchema, TokenResponseSchema
 from apps.tcc.usecase.domain_exception.auth_exceptions import AccountInactiveException, InvalidTokenException
@@ -9,7 +10,7 @@ from apps.core.core_exceptions.base import ErrorContext
 
 
 class RefreshTokenUseCase(BaseUseCase):
-    """Token refresh use case with proper schema usage"""
+    """Token refresh use case - returns TokenRefreshResponseSchema"""
 
     def __init__(self, user_repository: UserRepository, jwt_provider):
         super().__init__()
@@ -41,12 +42,11 @@ class RefreshTokenUseCase(BaseUseCase):
             )
 
     async def _on_execute(self, data, user, ctx):
-        """Execute token refresh business logic"""
+        """Execute token refresh business logic - returns TokenRefreshResponseSchema"""
         refresh_token = self.validated_input.refresh_token
 
         try:
             # Business Rule: Validate refresh token and extract user_id
-            # This depends on your JWT implementation
             user_id = await self._validate_refresh_token(refresh_token)
             
             # Business Rule: Verify user exists and is active
@@ -66,14 +66,12 @@ class RefreshTokenUseCase(BaseUseCase):
             # Business Rule: Generate new tokens (token rotation)
             new_tokens = self.jwt_provider.generate_tokens(user_model)
             
-            # Build response using output schemas
+            # Return TokenRefreshResponseSchema (domain schema)
             return self._build_refresh_response(new_tokens)
 
         except (AccountInactiveException, InvalidTokenException):
-            # Re-raise domain exceptions
             raise
         except Exception as e:
-            # Wrap other exceptions in domain exception
             context = ErrorContext(
                 operation="TOKEN_REFRESH",
                 endpoint="auth/refresh"
@@ -87,9 +85,6 @@ class RefreshTokenUseCase(BaseUseCase):
 
     async def _validate_refresh_token(self, refresh_token: str) -> str:
         """Business Rule: Validate refresh token and extract user_id"""
-        # Implement based on your JWT provider
-        # This should validate the token and return user_id
-        # Raise InvalidTokenException if validation fails
         try:
             # Example implementation - adjust based on your JWT provider
             from rest_framework_simplejwt.tokens import RefreshToken
@@ -104,12 +99,11 @@ class RefreshTokenUseCase(BaseUseCase):
                 cause=e
             )
 
-    def _build_refresh_response(self, tokens: dict) -> TokenRefreshResponseSchema:
-        """Build response using output schemas"""
-        
+    def _build_refresh_response(self, tokens: Dict[str, Any]) -> TokenRefreshResponseSchema:
+        """Build TokenRefreshResponseSchema (domain schema)"""
         expires_in = tokens.get("expires_in", 3600)
         token_data = {
-            "access_token": tokens["access"],
+            "access_token": tokens.get("access"),
             "refresh_token": tokens.get("refresh"),
             "token_type": "bearer",
             "expires_in": expires_in,
@@ -117,6 +111,5 @@ class RefreshTokenUseCase(BaseUseCase):
         }
         
         return TokenRefreshResponseSchema(
-            message="Token refreshed successfully",
             tokens=TokenResponseSchema(**token_data)
         )

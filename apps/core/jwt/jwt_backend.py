@@ -16,6 +16,7 @@ class TokenType(Enum):
     ACCESS = "access"
     REFRESH = "refresh"
     RESET = "reset"
+    EMAIL_VERIFICATION = "email_verification"  # Add this
 
 class TokenConfig:
     """JWT Configuration"""

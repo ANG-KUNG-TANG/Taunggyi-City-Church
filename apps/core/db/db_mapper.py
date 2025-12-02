@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional, Tuple, Set
 from django.db import DatabaseError, IntegrityError, OperationalError
 
 from apps.core.core_exceptions.domain import BusinessRuleException
-from core.core_exceptions.integration import (
+from apps.core.core_exceptions.integration import (
     DatabaseConnectionException,
     DatabaseTimeoutException,
     DatabaseIntegrityException,

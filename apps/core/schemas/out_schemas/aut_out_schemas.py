@@ -87,3 +87,11 @@ class AuthAuditResponseSchema(BaseModel):
     created_at: datetime = Field(..., description="Creation timestamp")
     
     model_config = ConfigDict(from_attributes=True)
+    
+class ForgotPasswordResponseSchema(BaseModel):
+    message: str
+    check_your_email: bool = True
+
+class ResetPasswordResponseSchema(BaseModel):
+    message: str
+    reset_successful: bool = True

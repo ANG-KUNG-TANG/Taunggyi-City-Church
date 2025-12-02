@@ -6,8 +6,8 @@ from apps.tcc.models.users.users import User
 from apps.tcc.models.base.enums import UserRole, UserStatus
 from apps.tcc.usecase.entities.users import UserEntity  
 from apps.tcc.usecase.repo.base.modelrepo import DomainRepository
-from core.db.decorators import with_db_error_handling, with_retry
-from core.cache.decorator import cached, cache_invalidate
+from apps.core.db.decorators import with_db_error_handling, with_retry
+from apps.core.cache.decorator import cached, cache_invalidate
 import logging
 
 logger = logging.getLogger(__name__)

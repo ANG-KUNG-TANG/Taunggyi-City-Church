@@ -42,18 +42,13 @@ class JWTCreateUseCase(BaseUseCase):
                 'require_session': True,
                 'rotation_required': True  # Refresh tokens should be rotated
             },
-            TokenType.RESET_PASSWORD: {
+            TokenType.RESET: {  # Changed from RESET_PASSWORD to RESET
                 'expiry': timedelta(hours=1),  # Short-lived for security
                 'allowed_claims': ['sub', 'email', 'token_type', 'purpose'],
                 'require_session': False,
                 'single_use': True  # One-time use only
-            },
-            TokenType.EMAIL_VERIFICATION: {
-                'expiry': timedelta(hours=24),  # Longer for user convenience
-                'allowed_claims': ['sub', 'email', 'token_type', 'purpose'],
-                'require_session': False,
-                'single_use': True
             }
+            # Note: EMAIL_VERIFICATION is not in TokenType enum, so removed
         }
 
     async def execute(self, 
@@ -166,9 +161,9 @@ class JWTCreateUseCase(BaseUseCase):
                 'session_id': session_id,
                 'rotation_count': await self._get_rotation_count(session_id)
             })
-        elif token_type in [TokenType.RESET_PASSWORD, TokenType.EMAIL_VERIFICATION]:
+        elif token_type == TokenType.RESET:  # Changed from RESET_PASSWORD/EMAIL_VERIFICATION
             base_claims.update({
-                'purpose': purpose,
+                'purpose': purpose or 'password_reset',
                 'single_use': True
             })
         
@@ -187,17 +182,10 @@ class JWTCreateUseCase(BaseUseCase):
             return self.jwt_manager.create_access_token(**claims)
         elif token_type == TokenType.REFRESH:
             return self.jwt_manager.create_refresh_token(**claims)
-        elif token_type == TokenType.RESET_PASSWORD:
-            return self.jwt_manager.create_token(
-                claims, 
-                expires_delta=expiry,
-                token_type=token_type
-            )
-        elif token_type == TokenType.EMAIL_VERIFICATION:
-            return self.jwt_manager.create_token(
-                claims,
-                expires_delta=expiry,
-                token_type=token_type
+        elif token_type == TokenType.RESET:  # Changed from RESET_PASSWORD to RESET
+            return self.jwt_manager.create_reset_token(
+                user_id=claims['sub'],
+                email=claims['email']
             )
         else:
             raise InvalidUserInputException(f"Unsupported token type: {token_type}")

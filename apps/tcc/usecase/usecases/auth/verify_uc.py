@@ -28,5 +28,5 @@ class VerifyTokenUseCase(BaseUseCase):
         return AuthSuccessResponseSchema(
             message="Token is valid",
             user=UserResponseSchema(**user_data),
-            tokens=None  # No new tokens in verify endpoint
+            tokens=None  
         )

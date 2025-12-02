@@ -7,12 +7,12 @@ from functools import wraps
 from django.db import DatabaseError, IntegrityError, OperationalError, transaction
 from django.core.exceptions import ObjectDoesNotExist, ValidationError, MultipleObjectsReturned
 
-from core.core_exceptions.domain import (
+from apps.core.core_exceptions.domain import (
     EntityNotFoundException, 
     DomainValidationException,  
     BusinessRuleException
 )
-from core.core_exceptions.integration import (
+from apps.core.core_exceptions.integration import (
     DatabaseConnectionException,
     DatabaseTimeoutException,
     DatabaseIntegrityException

@@ -7,7 +7,7 @@ from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 
 
 class LogoutUseCase(BaseUseCase):
-    """User logout use case with proper schema usage"""
+    """User logout use case - returns LogoutResponseSchema"""
 
     def __init__(self, auth_service: AsyncAuthDomainService):
         super().__init__()
@@ -38,20 +38,20 @@ class LogoutUseCase(BaseUseCase):
             )
 
     async def _on_execute(self, data, user, ctx):
-        """Execute logout business logic"""
+        """Execute logout business logic - returns LogoutResponseSchema"""
         token_str = self.validated_input.refresh_token
         
-        # Business Rule: Token revocation (if provided) - fire and forget
+        # Business Rule: Token revocation (if provided)
         if token_str:
             asyncio.create_task(
                 self.auth_service.revoke_token_async(token_str, user.id)
             )
         
-        # Business Rule: Audit logging with context - fire and forget
+        # Business Rule: Audit logging
         request_meta = ctx.get('request_meta', {}) if ctx else {}
         asyncio.create_task(
             self.auth_service.audit_login_async(user.id, "LOGOUT", request_meta)
         )
 
-        # Return response using output schema
+        # Return LogoutResponseSchema (domain schema)
         return LogoutResponseSchema(message="Logout successful")

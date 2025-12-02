@@ -1,8 +1,10 @@
+import base64
 from logging import config
 import os
 from pathlib import Path
 import environ
 from datetime import timedelta
+import re
 
 env = environ.Env(
     DEBUG=(bool, False),
@@ -32,6 +34,8 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    'daphne',
+    'channels',
     "django.contrib.staticfiles",
 
     "rest_framework",
@@ -43,13 +47,14 @@ INSTALLED_APPS = [
     "crispy_bootstrap5",
     'request_id',
     "apps.tcc",
+    
 ]
 AUTH_USER_MODEL = 'tcc.User'
 MIDDLEWARE = [
+    'config.middleware.AsyncMiddleware',
     'config.middleware.RequestIDMiddleware',
     'config.middleware.GlobalExceptionMiddleware',
     'config.middleware.DatabaseQueryLoggingMiddleware',
-    'config.middleware.SecurityHeadersMiddleware',
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -57,15 +62,20 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    'apps.core.jwt.middleware.JWTAuthMiddleware',
+    # 'apps.core.jwt.middleware.JWTAuthMiddleware',  # Comment out for now
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 
 ROOT_URLCONF = "config.urls"
-WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 # ──────────────────────────────
 # Templates
 # ──────────────────────────────
@@ -88,6 +98,9 @@ TEMPLATES = [
 # ──────────────────────────────
 # Database
 # ──────────────────────────────
+# ──────────────────────────────
+# Database
+# ──────────────────────────────
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
@@ -99,11 +112,16 @@ DATABASES = {
         'OPTIONS': {
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
             'charset': 'utf8mb4',
+            'connect_timeout': 30,
         },
+        'CONN_MAX_AGE': 60,
     }
 }
-DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
 
+# Add connection health check
+DATABASES["default"]["TEST"] = {
+    'NAME': 'test_tcc_db',
+}
 # ──────────────────────────────
 # Auth & Password
 # ──────────────────────────────
@@ -137,10 +155,11 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # REST Framework
 
 REST_FRAMEWORK = {
-    'EXCEPTION_HANDLER': 'apps.core.core_exceptions.handlers.django_handler.django_handler',
+    # Use default handler for now to avoid import issues
+    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
+    
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication', 
-        # Remove simplejwt if using custom middleware
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -152,56 +171,82 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
-    'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle'
-    ],
-    'DEFAULT_THROTTLE_RATES': {
-        'anon': '100/day', 
-        'user': '1000/day'
-    },
+    # Disable throttling until Redis is fixed
+    'DEFAULT_THROTTLE_CLASSES': [],
+    'DEFAULT_THROTTLE_RATES': {},
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
-    'DEFAULT_PARSER_CLASSSES': [
+    'DEFAULT_PARSER_CLASSES': [  # Fixed typo: was PARSER_CLASSSES
         'rest_framework.parsers.JSONParser',
         'rest_framework.parsers.FormParser',
         'rest_framework.parsers.MultiPartParser',
     ],
 }
+
+def decode_jwt_key_from_env(key_str):
+    """
+    Decode JWT key from environment variable for django-environ.
+    Handles escaped newlines (\n) in .env file.
+    """
+    if not key_str:
+        return None
+    
+    # If it's already a string with newlines, use it
+    if isinstance(key_str, str) and '\n' in key_str:
+        return key_str
+    
+    # If it has escaped newlines (\n), convert them
+    if isinstance(key_str, str) and '\\n' in key_str:
+        return key_str.replace('\\n', '\n')
+    
+    return key_str
+
+# Then update the JWT key loading section:
+JWT_PRIVATE_KEY = decode_jwt_key_from_env(env('JWT_PRIVATE_KEY', default=''))
+JWT_PUBLIC_KEY = decode_jwt_key_from_env(env('JWT_PUBLIC_KEY', default=''))
+
+# Change JWT_ALGORITHM to RS256 since we're using RSA keys
 JWT_CONFIG = {
-    'ACCESS_TOKEN_EXPIRY': env.int('JWT_ACCESS_EXPIRY', 900),
-    'REFRESH_TOKEN_EXPIRY': env.int('JWT_REFRESH_EXPIRY', 604800), 
-    'RESET_TOKEN_EXPIRY': env.int('JWT_RESET_EXPIRY', 1800),
-    'ALGORITHM': env('JWT_ALGORITHM', 'RS256'),
-    'ISSUER': env('JWT_ISSUER', 'auth-service'),
+    'ACCESS_TOKEN_EXPIRY': env.int('JWT_ACCESS_EXPIRY', default=900),
+    'REFRESH_TOKEN_EXPIRY': env.int('JWT_REFRESH_EXPIRY', default=604800), 
+    'RESET_TOKEN_EXPIRY': env.int('JWT_RESET_EXPIRY', default=1800),
+    'ALGORITHM': 'RS256',  # Force RS256 for RSA keys
+    'ISSUER': env('JWT_ISSUER', default='auth-service'),
     'AUDIENCE': env.list('JWT_AUDIENCE', default=['api']),
 }
+
+# Verify keys are loaded
+if not JWT_PRIVATE_KEY or not JWT_PUBLIC_KEY:
+    print("⚠️  WARNING: JWT keys not loaded properly from .env")
+    print(f"   Private key: {'Loaded' if JWT_PRIVATE_KEY else 'Missing'}")
+    print(f"   Public key: {'Loaded' if JWT_PUBLIC_KEY else 'Missing'}")
+else:
+    print(f"✅ JWT keys loaded: {len(JWT_PRIVATE_KEY)} chars private, {len(JWT_PUBLIC_KEY)} chars public")
+    
 # ──────────────────────────────
 # Cache (Redis / Async Ready)
 # ──────────────────────────────
-CACHE_BACKEND = env("CACHE_BACKEND", default="redis")
+CACHE_BACKEND = env("CACHE_BACKEND", default="locmen")
 REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379/0")
 CACHE_DEFAULT_EXPIRE = env.int("CACHE_DEFAULT_EXPIRE", default=300)
 
-if CACHE_BACKEND == "redis":
+if CACHE_BACKEND == "locmen":
     CACHES = {
-        "default": {
-            "BACKEND": "django_redis.cache.RedisCache",
-            "LOCATION": REDIS_URL,
-            "OPTIONS": {
-                "CLIENT_CLASS": "django_redis.client.DefaultClient",
-                "CONNECTION_POOL_KWARGS": {
-                    "max_connections": env.int("REDIS_MAX_CONNECTIONS", 50),
-                    "encoding": "utf-8"
-                },
-                "SOCKET_CONNECT_TIMEOUT": env.int("REDIS_CONNECT_TIMEOUT", 5),
-                "SOCKET_TIMEOUT": env.int("REDIS_SOCKET_TIMEOUT", 5),
-                "RETRY_ON_TIMEOUT": True,
-            },
-            "TIMEOUT": CACHE_DEFAULT_EXPIRE,
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "tcc-cache",
+        "TIMEOUT": 300,
+        "OPTIONS": {
+            "MAX_ENTRIES": 1000,
+            "CULL_FREQUENCY":3
         }
+    },
+    'sessions':{
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+}
+
     
     # Use cache for sessions when Redis is available
     SESSION_ENGINE = "django.contrib.sessions.backends.cache"
@@ -249,6 +294,9 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='webmaster@localhost')
 # ──────────────────────────────
 # Logging (Enhanced)
 # ──────────────────────────────
+# ──────────────────────────────
+# Logging (Enhanced)
+# ──────────────────────────────
 LOGS_DIR = BASE_DIR / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 
@@ -257,29 +305,29 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'structured': {
-            'format': '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s","req":"%(request_id)s"}'
+            'format': '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}'
         },
         'detailed': {
-            'format': '%(asctime)s %(levelname)s %(name)s [%(module)s:%(funcName)s] %(message)s req=%(request_id)s'
+            'format': '%(asctime)s %(levelname)s %(name)s [%(module)s:%(funcName)s] %(message)s'
+        },
+        'with_request_id': {
+            'format': '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s","req":"%(request_id)s"}'
         }
     },
     'filters': {
-        'request_id': {
-            '()': 'config.middleware.RequestIDFilter'},
+        # We'll add the request_id filter back once the middleware is working
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'structured',
-            'filters': ['request_id'],
+            'formatter': 'structured',  # Using simple format without request_id for now
         },
         'file': {
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': LOGS_DIR / 'app.log',
             'maxBytes': 10*1024*1024,
             'backupCount': 10,
-            'formatter': 'structured',
-            'filters': ['request_id'],
+            'formatter': 'structured',  # Using simple format without request_id for now
         },
         'error_file': {
             'class': 'logging.handlers.RotatingFileHandler',
@@ -287,8 +335,7 @@ LOGGING = {
             'level': 'ERROR',
             'maxBytes': 10*1024*1024,
             'backupCount': 10,
-            'formatter': 'detailed',
-            'filters': ['request_id'],
+            'formatter': 'detailed',  # Using simple format without request_id for now
         },
         'db_file': {
             'class': 'logging.handlers.RotatingFileHandler',
@@ -296,8 +343,7 @@ LOGGING = {
             'level': 'INFO',
             'maxBytes': 10*1024*1024,
             'backupCount': 5,
-            'formatter': 'structured',
-            'filters': ['request_id'],
+            'formatter': 'structured',  # Using simple format without request_id for now
         },
     },
     'loggers': {

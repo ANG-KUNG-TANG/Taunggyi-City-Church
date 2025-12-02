@@ -62,6 +62,10 @@ class ValidationException(DomainException):
         )
 
 
+# Add the missing DomainValidationException
+DomainValidationException = ValidationException
+
+
 class AuthenticationException(DomainException):
     """Authentication failed exception."""
     
@@ -144,6 +148,10 @@ class NotFoundException(DomainException):
             cause=cause,
             user_message=user_message
         )
+
+
+# Add the missing EntityNotFoundException
+EntityNotFoundException = NotFoundException
 
 
 class BusinessRuleException(DomainException):

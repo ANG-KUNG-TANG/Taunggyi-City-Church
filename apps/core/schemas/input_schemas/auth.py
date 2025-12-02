@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import Field, EmailStr, model_validator
+from pydantic import Field, EmailStr, constr, model_validator
 from apps.core.schemas.input_schemas.base import BaseSchema
 
 class LoginInputSchema(BaseSchema):
@@ -90,3 +90,32 @@ class TwoFactorInputSchema(BaseSchema):
     
     code: str = Field(..., min_length=6, max_length=6, description="2FA code")
     remember_device: bool = Field(default=False, description="Remember this device")
+    
+class ForgotPasswordInputSchema(BaseSchema):
+    email: EmailStr
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "email": "user@example.com"
+            }
+        }
+
+class ResetPasswordInputSchema(BaseSchema):
+    reset_token: str
+    new_password: str = Field(..., min_length=8, description="New password")
+    confirm_password: str = Field(..., min_length=8, description="Password confirmation")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "reset_token": "abc123def456...",
+                "new_password": "newSecurePassword123",
+                "confirm_password": "newSecurePassword123"
+            }
+        }
+    
+    def validate_passwords_match(self):
+        if self.new_password != self.confirm_password:
+            raise ValueError("Passwords do not match")
+        return self

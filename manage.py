@@ -2,54 +2,76 @@
 import os
 import sys
 
-# COMPREHENSIVE REDIS PATCH FOR PYTHON 3.12
-try:
-    import redis
-    import redis.connection
-    import importlib.metadata
-    
-    # Patch 1: Fix get_lib_version
-    def patched_get_lib_version():
-        try:
-            return importlib.metadata.version("redis")
-        except Exception:
-            return "5.0.1"  # Use your actual version
-    
-    if hasattr(redis, 'utils'):
-        redis.utils.get_lib_version = patched_get_lib_version
-    
-    # Patch 2: Fix AbstractConnection class variable initialization
-    if hasattr(redis.connection, 'AbstractConnection'):
-        original_init = redis.connection.AbstractConnection.__init__
-        
-        def patched_init(self, *args, **kwargs):
-            # Ensure lib_version is set before parent __init__
-            if not hasattr(self, 'lib_version'):
-                self.lib_version = patched_get_lib_version()
-            return original_init(self, *args, **kwargs)
-        
-        redis.connection.AbstractConnection.__init__ = patched_init
-
-except ImportError as e:
-    print(f"Redis import warning: {e}")
-
 def main():
     """Run administrative tasks."""
-    # Try different settings locations
-    settings_modules = [
-        'config.settings.base',  # Your current structure
-        'config.settings.prod',       # If single settings file
-        'config.settings.dev',   # If dev settings exist
-        'settings'               # Fallback
-    ]
-    
-    # Set default settings module
+    # Set Django settings module
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.base')
     
-    # Add project root to Python path
-    project_root = os.path.join(os.path.dirname(__file__), 'apps')
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
+    # Allow async in development
+    os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', 'true')
+    
+    # First, apply Redis patches (these don't need Django)
+    try:
+        import redis
+        import redis.connection
+        import importlib.metadata
+        
+        # Patch 1: Fix get_lib_version
+        def patched_get_lib_version():
+            try:
+                return importlib.metadata.version("redis")
+            except Exception:
+                return "5.0.1"  # Use your actual version
+        
+        if hasattr(redis, 'utils'):
+            redis.utils.get_lib_version = patched_get_lib_version
+        
+        # Patch 2: Fix AbstractConnection class variable initialization
+        if hasattr(redis.connection, 'AbstractConnection'):
+            original_init = redis.connection.AbstractConnection.__init__
+            
+            def patched_init(self, *args, **kwargs):
+                # Ensure lib_version is set before parent __init__
+                if not hasattr(self, 'lib_version'):
+                    self.lib_version = patched_get_lib_version()
+                return original_init(self, *args, **kwargs)
+            
+            redis.connection.AbstractConnection.__init__ = patched_init
+            
+        print("✓ Applied Redis patches for Python 3.12")
+        
+    except ImportError as e:
+        print(f"Redis import warning: {e}")
+    
+    # Now setup Django
+    try:
+        import django
+        django.setup()
+        
+        # Patch DRF's @api_view decorator for async support
+        import rest_framework.decorators
+        from asgiref.sync import async_to_sync
+        from functools import wraps
+        
+        original_api_view = rest_framework.decorators.api_view
+        
+        def patched_api_view(http_method_names=None):
+            def decorator(func):
+                import inspect
+                if inspect.iscoroutinefunction(func):
+                    @wraps(func)
+                    def sync_wrapper(request, *args, **kwargs):
+                        return async_to_sync(func)(request, *args, **kwargs)
+                    return original_api_view(http_method_names)(sync_wrapper)
+                return original_api_view(http_method_names)(func)
+            return decorator
+        
+        rest_framework.decorators.api_view = patched_api_view
+        print("✓ Patched DRF @api_view decorator for async support")
+        
+    except Exception as e:
+        print(f"Django setup warning: {e}")
+        # Continue anyway
     
     try:
         from django.core.management import execute_from_command_line
@@ -60,24 +82,7 @@ def main():
             "forget to activate a virtual environment?"
         ) from exc
     
-    # Try to execute with fallback settings
-    try:
-        execute_from_command_line(sys.argv)
-    except ModuleNotFoundError as e:
-        if "settings" in str(e):
-            print(f"Settings module not found: {e}")
-            print("Available settings options:")
-            for module in settings_modules:
-                try:
-                    __import__(module)
-                    print(f"✓ {module}")
-                except ImportError:
-                    print(f"✗ {module}")
-            print("\nPlease create the appropriate settings file.")
-        raise
-    except Exception as e:
-        print(f"Error during execution: {e}")
-        raise
+    execute_from_command_line(sys.argv)
 
 
 if __name__ == '__main__':

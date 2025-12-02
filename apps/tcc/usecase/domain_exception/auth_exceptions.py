@@ -143,7 +143,6 @@ class TokenExpiredException(AuthenticationException):
             cause=cause
         )
 
-
 class InvalidTokenException(AuthenticationException):
     def __init__(
         self,
@@ -167,6 +166,28 @@ class InvalidTokenException(AuthenticationException):
             cause=cause
         )
 
+class InvalidResetTokenException(AuthenticationException):
+    def __init__(
+        self,
+        token_type: str = "access",
+        reason: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None
+    ):
+        details = details or {}
+        details.update({"token_type": token_type})
+        if reason:
+            details["reason"] = reason
+            
+        super().__init__(
+            message=f"Invalid {token_type} token",
+            error_code="INVALID_TOKEN",
+            status_code=401,
+            details=details,
+            context=context,
+            cause=cause
+        )
 
 # ============ AUTHORIZATION EXCEPTIONS (403) ============
 

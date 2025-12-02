@@ -4,7 +4,7 @@ from typing import List, Any, Dict, Optional, TypeVar, Generic
 from datetime import datetime
 
 from apps.tcc.usecase.domain_exception.u_exceptions import UserNotFoundException
-from core.core_exceptions.domain import (
+from apps.core.core_exceptions.domain import (
     EntityNotFoundException, 
     DomainValidationException,  
     BusinessRuleException

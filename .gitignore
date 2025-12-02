@@ -41,3 +41,8 @@ docker-compose.override.yml
 # Logs
 logs/
 *.log
+
+# JWT Keys
+jwt_keys/
+*.pem
+*.key

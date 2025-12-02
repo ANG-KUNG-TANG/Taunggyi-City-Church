@@ -3,8 +3,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 
 # Import from context.py to avoid duplication
-from core.core_exceptions.logging.context import ErrorContext
-
+from apps.core.core_exceptions.logging.context import ErrorContext
 
 class BaseAppException(Exception):
     """
@@ -42,6 +41,7 @@ class BaseAppException(Exception):
             'error': {
                 'code': self.error_code,
                 'message': self.user_message,
+                "context": self.context.to_dict() if self.context else None,
                 'type': self.__class__.__name__,
                 'exception_id': self.exception_id,
                 'timestamp': self.timestamp.isoformat(),
@@ -135,3 +135,4 @@ class ConfigurationException(BaseAppException):
             cause=cause,
             user_message=user_message
         )
+

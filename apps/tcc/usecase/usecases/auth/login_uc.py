@@ -12,7 +12,7 @@ from apps.core.core_exceptions.base import ErrorContext
 
 
 class LoginUseCase(BaseUseCase):
-    """User login use case with proper schema usage"""
+    """User login use case - returns LoginResponseSchema (domain schema)"""
 
     def __init__(self, jwt_provider, auth_service: AsyncAuthDomainService):
         super().__init__()
@@ -29,7 +29,6 @@ class LoginUseCase(BaseUseCase):
             # Validate against schema
             self.validated_input = LoginInputSchema(**data)
         except Exception as e:
-            # Convert Pydantic validation errors to domain exception
             field_errors = {}
             if hasattr(e, 'errors'):
                 for error in e.errors():
@@ -47,13 +46,12 @@ class LoginUseCase(BaseUseCase):
             )
 
     async def _on_execute(self, data, user, ctx):
-        """Execute login business logic"""
-        # Use validated input
+        """Execute login business logic - returns LoginResponseSchema"""
         email = self.validated_input.email
         password = self.validated_input.password
         remember_me = self.validated_input.remember_me
 
-        # Business Rule: Credential verification (sync operation)
+        # Business Rule: Credential verification
         user_model = authenticate(username=email, password=password)
 
         if not user_model:
@@ -81,13 +79,12 @@ class LoginUseCase(BaseUseCase):
                 context=context
             )
 
-        # Business Rule: Generate tokens according to remember_me preference
+        # Business Rule: Generate tokens
         tokens = self.jwt_provider.generate_tokens(user_model)
         
         # Apply remember_me business rule for refresh token expiry
         if remember_me:
-            # Generate longer-lived refresh token
-            tokens = self._apply_remember_me_rules(tokens, user_model)
+            tokens = self._apply_remember_me_rules(tokens)
 
         # Business Rule: Audit logging (async fire-and-forget)
         request_meta = ctx.get('request_meta', {}) if ctx else {}
@@ -95,19 +92,17 @@ class LoginUseCase(BaseUseCase):
             self.auth_service.audit_login_async(user_model.id, "LOGIN", request_meta)
         )
         
-        # Build response using output schemas
+        # Return LoginResponseSchema (domain schema)
         return self._build_login_response(user_model, tokens)
 
-    def _apply_remember_me_rules(self, tokens: dict, user_model) -> dict:
+    def _apply_remember_me_rules(self, tokens: dict) -> dict:
         """Apply remember_me business rules to tokens"""
-        # Business Rule: Extended session for remember_me
-        # This depends on your JWT provider implementation
-        # You might need to regenerate tokens with longer expiry
-        return tokens  # Implement based on your JWT provider
+        # Implementation depends on your JWT provider
+        # For now, return the same tokens
+        return tokens
 
     def _build_login_response(self, user_model, tokens: dict) -> LoginResponseSchema:
-        """Build response using output schemas"""
-        
+        """Build LoginResponseSchema (domain schema)"""
         # Build user data for UserResponseSchema
         user_data = {
             "id": user_model.id,
@@ -120,16 +115,16 @@ class LoginUseCase(BaseUseCase):
         }
         
         # Build token data for TokenResponseSchema
-        expires_in = tokens.get("expires_in", 3600)  # Default 1 hour
+        expires_in = tokens.get("expires_in", 3600)
         token_data = {
-            "access_token": tokens["access"],
+            "access_token": tokens.get("access"),
             "refresh_token": tokens.get("refresh"),
             "token_type": "bearer",
             "expires_in": expires_in,
             "expires_at": datetime.utcnow() + timedelta(seconds=expires_in)
         }
         
-        # Return LoginResponseSchema directly
+        # Return LoginResponseSchema
         return LoginResponseSchema(
             message="Login successful",
             user=UserResponseSchema(**user_data),

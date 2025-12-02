@@ -1,156 +1,171 @@
-from datetime import datetime
 import uuid
 import logging
+from datetime import datetime
+from typing import Any, Dict, Optional
 from django.db import transaction
 from asgiref.sync import sync_to_async
 
 from apps.core.core_exceptions.domain import DomainException
-from apps.tcc.usecase.domain_exception.auth_exceptions import AuthorizationException, UnauthenticatedException
-from .config import UseCaseConfiguration
-from .base_context import OperationContext
+from apps.tcc.usecase.domain_exception.auth_exceptions import (
+    AuthorizationException, 
+    UnauthenticatedException
+)
+from .config import UseCaseConfiguration, OperationContext
 from .authorization import AuthorizationManager
-from apps.tcc.usecase.domain_exception.u_exceptions import DomainValidationException  # Keep if still needed elsewhere
 
 logger = logging.getLogger("app.usecase")
 
 
 class BaseUseCase:
     """
-    Base UseCase class for clean architecture.
-    Features:
-        - Async execution
-        - Transaction support
-        - Input/Output validation hooks
-        - Auth & permission checks
-        - Exception handling & logging
-        - Context tracking
+    Generic Base UseCase that works for ALL entities (User, Event, Prayer, etc.)
     """
 
     def __init__(self, **dependencies):
         self.config = UseCaseConfiguration()
+        self.authorization_manager = dependencies.get('authorization_manager', AuthorizationManager())
         self._setup_configuration()
-        # Inject dependencies dynamically
+        
+        # Inject ALL dependencies dynamically
         for key, value in dependencies.items():
             setattr(self, key, value)
 
-    # ------------------------------------------------------------------
-    # Override this in each UC to configure
-    # ------------------------------------------------------------------
     def _setup_configuration(self):
-        """
-        Example configuration:
-            self.config.transactional = True
-            self.config.require_authentication = True
-            self.config.validate_input = True
-            self.config.validate_output = True
-        """
+        """Override in subclasses to configure use case behavior"""
         pass
 
-    # ------------------------------------------------------------------
-    # Public async entry point
-    # ------------------------------------------------------------------
-    async def execute(self, input_data, user=None):
-        ctx = OperationContext(
+    async def execute(self, input_data, user=None, context=None):
+        """Main execution entry point"""
+        operation_ctx = OperationContext(
             operation_id=str(uuid.uuid4()),
             user=user,
-            input_data=input_data
+            input_data=input_data,
+            metadata={'context': context} if context else {}
         )
 
         try:
-            # Pre-execution: auth, authorization, input validation
-            await self._before(ctx)
-
-            # Execute main logic
-            if self.config.transactional:
-                async with transaction.async_atomic():
-                    result = await self._on_execute(input_data, user, ctx)
-            else:
-                result = await self._on_execute(input_data, user, ctx)
-
-            ctx.output_data = result
-
-            # Post-execution: output validation
-            await self._after(ctx)
-
+            await self._before_execute(operation_ctx)
+            result = await self._execute_main_logic(operation_ctx)
+            operation_ctx.output_data = result
+            await self._after_execute(operation_ctx)
             return result
 
         except DomainException:
-            # Domain exceptions are safe, rethrow to controller
             raise
-
         except Exception as exc:
-            # Convert technical exceptions into domain-safe exception
-            ctx.error = exc
-            raise await self._on_exception(exc, ctx)
-
+            operation_ctx.error = exc
+            raise await self._handle_exception(exc, operation_ctx)
         finally:
-            ctx.end_time = uuid.uuid4()
-            await self._finalize(ctx)
+            await self._finalize_execution(operation_ctx)
 
-    # ------------------------------------------------------------------
-    # Lifecycle hooks
-    # ------------------------------------------------------------------
-    async def _before(self, ctx: OperationContext):
-        """
-        Pre-execution hook:
-            - Authentication
-            - Authorization
-            - Input validation
-        """
+    async def _before_execute(self, ctx: OperationContext):
+        """Pre-execution: auth, authorization, validation"""
         if self.config.require_authentication and not ctx.user:
-            # Use the more specific UnauthenticatedException
             raise UnauthenticatedException("Authentication required")
 
-        authorized = await sync_to_async(
-            AuthorizationManager.is_authorized
-        )(ctx.user, self.config)
-
+        authorized = await self.authorization_manager.is_authorized(ctx.user, self.config)
         if not authorized:
-            # Use the more specific AuthorizationException
-            raise AuthorizationException("You do not have permission")
+            raise AuthorizationException("Insufficient permissions")
 
         if self.config.validate_input:
             await self._validate_input(ctx.input_data, ctx)
 
-    async def _after(self, ctx: OperationContext):
-        """Post-execution hook: output validation"""
+    async def _execute_main_logic(self, ctx: OperationContext):
+        """Execute with transaction support"""
+        if self.config.transactional:
+            async with transaction.async_atomic():
+                return await self._on_execute(ctx.input_data, ctx.user, ctx)
+        else:
+            return await self._on_execute(ctx.input_data, ctx.user, ctx)
+
+    async def _after_execute(self, ctx: OperationContext):
+        """Post-execution: output validation"""
         if self.config.validate_output:
             await self._validate_output(ctx.output_data, ctx)
 
-    async def _finalize(self, ctx: OperationContext):
-        """Always runs: logging, cleanup, audit integration"""
-        ctx.end_time= datetime.utcnow()
-        logger.info(
-            f"[{self.__class__.__name__}] Completed with operation_id={ctx.operation_id}"
-        )
+    async def _finalize_execution(self, ctx: OperationContext):
+        """Always executes: logging, cleanup"""
+        ctx.end_time = datetime.utcnow()
+        duration = (ctx.end_time - ctx.start_time).total_seconds()
+        
+        if self.config.audit_log:
+            await self._log_operation(ctx, duration)
 
-    # ------------------------------------------------------------------
-    # Methods to override in concrete UCs
-    # ------------------------------------------------------------------
-    async def _validate_input(self, input_data, ctx):
-        """Override for input validation"""
-        pass
+    async def _log_operation(self, ctx: OperationContext, duration: float):
+        """Generic logging"""
+        log_data = {
+            "operation": self.__class__.__name__,
+            "operation_id": ctx.operation_id,
+            "user_id": getattr(ctx.user, 'id', 'anonymous'),
+            "duration_seconds": round(duration, 3),
+            "success": ctx.error is None
+        }
+        
+        if ctx.error:
+            logger.warning(f"UseCase failed: {log_data}")
+        else:
+            logger.info(f"UseCase executed: {log_data}")
 
-    async def _validate_output(self, output_data, ctx):
-        """Override for output validation"""
-        pass
-
-    async def _on_execute(self, input_data, user, ctx):
-        """Override: main UC logic"""
-        raise NotImplementedError(f"{self.__class__.__name__} must implement _on_execute()")
-
-    # ------------------------------------------------------------------
-    # Exception handling
-    # ------------------------------------------------------------------
-    async def _on_exception(self, exc, ctx):
-        """
-        Convert unexpected errors into domain-safe exceptions
-        """
+    async def _handle_exception(self, exc: Exception, ctx: OperationContext) -> DomainException:
+        """Generic exception handling"""
         logger.error(
-            f"[{self.__class__.__name__}] Unexpected error: {exc}",
-            exc_info=True
+            f"Unexpected error in {self.__class__.__name__}: {exc}",
+            exc_info=True,
+            extra={"operation_id": ctx.operation_id}
         )
-        return DomainValidationException(message="Internal server error")
+        
+        return DomainException(
+            message="An unexpected error occurred",
+            error_code="INTERNAL_ERROR",
+            status_code=500
+        )
 
-# Backward compatibility alias
-OperationPortalUseCase = BaseUseCase
+    # Utility methods for ALL entities
+    async def _validate_entity_id(self, entity_id: Any, id_name: str = "ID") -> int:
+        """Generic ID validation for ANY entity"""
+        if not entity_id:
+            raise DomainException(
+                message=f"{id_name} is required",
+                error_code="MISSING_ID",
+                status_code=400
+            )
+        
+        try:
+            return int(entity_id)
+        except (ValueError, TypeError):
+            raise DomainException(
+                message=f"{id_name} must be a valid number",
+                error_code="INVALID_ID",
+                status_code=400
+            )
+
+    def _get_client_ip(self, request) -> str:
+        """Extract client IP from request"""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+
+    def _add_audit_context(self, data: Dict[str, Any], user, context) -> Dict[str, Any]:
+        """Add audit context to data"""
+        data_with_context = data.copy()
+        data_with_context['user'] = user
+        
+        if context and hasattr(context, 'request'):
+            request = context.request
+            data_with_context['ip_address'] = self._get_client_ip(request)
+            data_with_context['user_agent'] = request.META.get('HTTP_USER_AGENT', 'system')
+        
+        return data_with_context
+
+    # Template methods - override in concrete use cases
+    async def _validate_input(self, input_data, ctx: OperationContext):
+        pass
+
+    async def _validate_output(self, output_data, ctx: OperationContext):
+        pass
+
+    async def _on_execute(self, input_data, user, ctx: OperationContext):
+        raise NotImplementedError(f"{self.__class__.__name__} must implement _on_execute()")
