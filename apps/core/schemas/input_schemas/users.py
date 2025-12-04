@@ -24,10 +24,11 @@ class UserBaseInputSchema(BaseSchema):
     status: UserStatus = Field(default=UserStatus.PENDING, description="User status")
     email_notifications: bool = Field(default=True, description="Email notifications preference")
     
-    # Required system fields based on repo
-    is_active: bool = Field(default=True, description="Active status")
-    is_staff: bool = Field(default=False, description="Staff status")
-    is_superuser: bool = Field(default=False, description="Superuser status")
+    # Required system fields based on repo - REMOVED defaults
+    is_active: bool = Field(description="Active status")  # No default - let repo decide
+    
+    # ADDED: User-specific flags with better defaults
+    requires_password_change: bool = Field(default=False, description="Password change required")
 
     @model_validator(mode="after")
     def validate_birthdate(self):
@@ -48,6 +49,8 @@ class UserCreateInputSchema(UserBaseInputSchema):
         if self.password != self.password_confirm:
             raise ValueError("Passwords do not match")
         return self
+    
+    # REMOVED: is_staff and is_superuser - these should be set by system/admin
 
 class UserUpdateInputSchema(BaseSchema):
     """Schema for updating existing users (all fields optional)."""
@@ -71,19 +74,27 @@ class UserUpdateInputSchema(BaseSchema):
     
     # System fields that can be updated
     is_active: Optional[bool] = Field(None, description="Active status")
+    
+    # ADDED: User-specific update fields
+    requires_password_change: Optional[bool] = Field(None, description="Password change required")
 
 class UserQueryInputSchema(BaseSchema):
-    """Schema for querying/filtering users - matches repo get_paginated_users."""
+    """Schema for querying/filtering users - matches repo get_paginated."""
     
     name: Optional[str] = Field(None, description="Search by name")
     email: Optional[str] = Field(None, description="Search by email")
     role: Optional[UserRole] = Field(None, description="Filter by role")
     status: Optional[UserStatus] = Field(None, description="Filter by status")
     is_active: Optional[bool] = Field(default=True, description="Filter by active status")
+    gender: Optional[Gender] = Field(None, description="Filter by gender")
     
     # Pagination - matches repo parameters
     page: int = Field(default=1, ge=1, description="Page number")
     per_page: int = Field(default=20, ge=1, le=100, description="Items per page")
+    
+    # ADDED: Sorting options
+    sort_by: Optional[str] = Field(None, description="Field to sort by")
+    sort_order: Optional[str] = Field(None, pattern="^(asc|desc)$", description="Sort order: asc or desc")
 
 class UserSearchInputSchema(BaseSchema):
     """Schema for searching users - matches repo search_users."""
@@ -137,3 +148,27 @@ class PasswordVerificationInputSchema(BaseSchema):
     
     user_id: int = Field(..., ge=1, description="User ID")
     password: str = Field(..., min_length=1, description="Password to verify")
+
+# ADDED: Missing schemas for common operations
+
+class UserBulkUpdateInputSchema(BaseSchema):
+    """Schema for bulk user updates."""
+    user_ids: List[int] = Field(..., min_items=1, max_items=100, description="User IDs to update")
+    update_data: UserUpdateInputSchema = Field(..., description="Data to apply to all users")
+
+class UserBulkDeleteInputSchema(BaseSchema):
+    """Schema for bulk user deletion."""
+    user_ids: List[int] = Field(..., min_items=1, max_items=100, description="User IDs to delete")
+
+class UserLoginInputSchema(BaseSchema):
+    """Schema for user login."""
+    email: EmailStr = Field(..., description="Email address")
+    password: str = Field(..., min_length=1, description="Password")
+    remember_me: bool = Field(default=False, description="Remember login")
+
+class UserProfileUpdateInputSchema(BaseSchema):
+    """Schema for updating user profile (non-sensitive fields)."""
+    name: Optional[str] = Field(None, min_length=2, max_length=120, description="Full name")
+    phone_number: Optional[str] = Field(None, max_length=20, description="Phone number")
+    testimony: Optional[str] = Field(None, description="Personal testimony")
+    email_notifications: Optional[bool] = Field(None, description="Email notifications preference")

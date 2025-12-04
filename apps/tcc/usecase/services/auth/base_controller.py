@@ -1,67 +1,63 @@
 from functools import wraps
 import logging
-from apps.core.schemas.common.response import APIResponse
 
 # Domain-layer exceptions
 from apps.core.core_exceptions.domain import (
     BusinessRuleException,
     EntityNotFoundException,
-    DomainValidationException
+    DomainValidationException,
+    DomainException
 )
 
 logger = logging.getLogger(__name__)
 
 
 class BaseController:
-    """Centralized, clean-architecture aligned exception handler for controllers."""
+    """
+    Pure controller exception handler for Clean Architecture (Design A).
+
+    Key rules:
+    - Controller NEVER returns APIResponse.
+    - Controller returns ONLY domain schemas.
+    - Any error is raised upward as a domain exception.
+    - The VIEW layer handles HTTP + APIResponse formatting.
+    """
 
     @staticmethod
     def handle_exceptions(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
             try:
-                # Normal flow
+                # Normal controller flow → return domain object
                 return await func(*args, **kwargs)
 
             # -----------------------------
-            # Domain Exceptions (Expected)
+            # DOMAIN EXCEPTIONS (Expected)
             # -----------------------------
             except EntityNotFoundException as e:
                 logger.warning(f"[NOT FOUND] {func.__name__}: {e}")
-                return APIResponse.error_response(
-                    message=e.message,
-                    data=e.context,
-                    status_code=404
-                )
+                raise e  # Let VIEW translate to APIResponse
 
             except DomainValidationException as e:
                 logger.warning(f"[VALIDATION ERROR] {func.__name__}: {e}")
-                return APIResponse.error_response(
-                    message=e.message,
-                    data=e.context,
-                    status_code=422
-                )
+                raise e
 
             except BusinessRuleException as e:
-                logger.warning(f"[BUSINESS RULE ERROR] {func.__name__}: {e}")
-                return APIResponse.error_response(
-                    message=e.message,
-                    data=e.context,
-                    status_code=400
-                )
+                logger.warning(f"[BUSINESS RULE FAILED] {func.__name__}: {e}")
+                raise e
 
             # -----------------------------
-            # Unexpected Errors (Fail-safe)
+            # UNEXPECTED ERRORS
             # -----------------------------
             except Exception as e:
                 logger.error(
                     f"[UNEXPECTED ERROR] {func.__name__}: {str(e)}",
                     exc_info=True
                 )
-                return APIResponse.error_response(
+                # Wrap unexpected errors into a domain-safe error
+                raise DomainException(
                     message="An unexpected error occurred.",
-                    data={"error": str(e)},
-                    status_code=500
+                    context={"error": str(e)}
                 )
 
         return wrapper

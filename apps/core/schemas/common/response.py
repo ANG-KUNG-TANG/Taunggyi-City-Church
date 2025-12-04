@@ -1,124 +1,136 @@
 from typing import Generic, TypeVar, Optional, Any, Dict, List
 from datetime import datetime
-from apps.core.schemas.out_schemas.base import BaseOutputSchema
-from pydantic import ConfigDict
-import json
+from pydantic import BaseModel, Field, ConfigDict
 
-T = TypeVar('T')
+T = TypeVar("T")
 
-class APIResponse(BaseOutputSchema, Generic[T]):
-    """Standard API response schema."""
-    
-    success: bool
-    message: str
-    data: Optional[T] = None
-    timestamp: datetime
-    status_code: int = 200
-    
+
+class APIResponse(BaseModel, Generic[T]):
+    """
+    Standard API response wrapper used in the View layer.
+
+    - No HTTP logic
+    - No Django or DRF imports
+    - Pure data structure
+    """
+
+    success: bool = Field(..., description="Indicates if the operation was successful")
+    message: str = Field(..., description="Human-readable status message")
+    data: Optional[T] = Field(None, description="Payload or domain output")
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    status_code: int = Field(default=200, description="HTTP status code")
+
     model_config = ConfigDict(
         json_encoders={
             datetime: lambda v: v.isoformat() if v else None
-        }
+        },
+        arbitrary_types_allowed=True
     )
-    
-    def __init__(self, **data):
-        if 'timestamp' not in data:
-            data['timestamp'] = datetime.now()
-        super().__init__(**data)
-    
-    def dict(self, **kwargs):
-        """Override dict method to ensure proper serialization"""
-        result = super().dict(**kwargs)
-        result['status_code'] = self.status_code
-        return result
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary with proper serialization"""
-        return {
-            'success': self.success,
-            'message': self.message,
-            'data': self.data,
-            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
-            'status_code': self.status_code
-        }
-    
+
+    # ----------------------------------------
+    # SUCCESS RESPONSE
+    # ----------------------------------------
     @classmethod
-    def success(cls, message: str = "Success", data: Optional[T] = None, status_code: int = 200) -> 'APIResponse[T]':
-        """Create a success response."""
+    def create_success(
+        cls,
+        message: str = "Success",
+        data: Optional[T] = None,
+        status_code: int = 200
+    ) -> "APIResponse[T]":
         return cls(
             success=True,
             message=message,
             data=data,
-            timestamp=datetime.now(),
+            timestamp=datetime.utcnow(),
             status_code=status_code
         )
-    
+
+    # ----------------------------------------
+    # ERROR RESPONSE
+    # ----------------------------------------
     @classmethod
-    def error(cls, message: str = "Error", data: Optional[T] = None, status_code: int = 400) -> 'APIResponse[T]':
-        """Create an error response."""
+    def create_error(
+        cls,
+        message: str = "Error",
+        data: Optional[Any] = None,
+        status_code: int = 400
+    ) -> "APIResponse[Any]":
         return cls(
             success=False,
             message=message,
             data=data,
-            timestamp=datetime.now(),
+            timestamp=datetime.utcnow(),
             status_code=status_code
         )
 
-class ErrorResponse(BaseOutputSchema):
-    """Error response schema."""
-    
+    # ----------------------------------------
+    # DICT SERIALIZATION
+    # ----------------------------------------
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert response object into a JSON-safe dictionary.
+        """
+        return {
+            "success": self.success,
+            "message": self.message,
+            "data": self.data,
+            "timestamp": self.timestamp.isoformat(),
+            "status_code": self.status_code,
+        }
+
+
+class ErrorResponse(BaseModel):
+    """
+    Structured error response for internal use if needed.
+    Not used directly in views under Design A.
+    """
+
     code: str
     message: str
     details: Optional[Any] = None
-    timestamp: datetime
-    
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
     model_config = ConfigDict(
-        json_encoders={
-            datetime: lambda v: v.isoformat() if v else None
-        }
+        json_encoders={datetime: lambda v: v.isoformat()}
     )
-    
-    def __init__(self, **data):
-        if 'timestamp' not in data:
-            data['timestamp'] = datetime.now()
-        super().__init__(**data)
+
 
 class ValidationErrorResponse(ErrorResponse):
-    """Validation error response."""
-    
-    def __init__(self, errors: Dict[str, Any], message: str = "Validation failed"):
-        super().__init__(
+    """
+    Specialized error response for validation failures.
+    """
+
+    @classmethod
+    def from_errors(cls, errors: Dict[str, Any]):
+        return cls(
             code="VALIDATION_ERROR",
-            message=message,
+            message="Validation failed",
             details=errors
         )
 
-class ListResponse(BaseOutputSchema, Generic[T]):
-    """Generic list response."""
+
+class ListResponse(BaseModel, Generic[T]):
+    """
+    Generic list response wrapper for paginated or bulk data.
+    """
+
     items: List[T]
     total: int
-    
+
     model_config = ConfigDict(
-        json_encoders={
-            datetime: lambda v: v.isoformat() if v else None
-        }
+        json_encoders={datetime: lambda v: v.isoformat()}
     )
 
-class SuccessResponse(BaseOutputSchema):
-    """Simple success response."""
+
+class SuccessResponse(BaseModel):
+    """
+    Simple success response for non-domain operations.
+    """
+
     success: bool = True
     message: str
-    timestamp: datetime
-    
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
     model_config = ConfigDict(
-        json_encoders={
-            datetime: lambda v: v.isoformat() if v else None
-        }
+        json_encoders={datetime: lambda v: v.isoformat()}
     )
-    
-    def __init__(self, message: str = "Success", **data):
-        data.update({
-            'message': message,
-            'timestamp': datetime.now()
-        })
-        super().__init__(**data)

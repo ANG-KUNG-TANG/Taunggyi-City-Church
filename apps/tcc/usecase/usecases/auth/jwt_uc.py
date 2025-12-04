@@ -1,297 +1,257 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
-from apps.core.jwt.jwt_backend import JWTManager, TokenType
-from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
-from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
-from apps.core.schemas.out_schemas.aut_out_schemas import TokenResponseSchema
+import jwt
+from django.conf import settings
+from django.core.cache import cache
+from asgiref.sync import sync_to_async
 import logging
-import uuid
 
 logger = logging.getLogger(__name__)
 
-class JWTCreateUseCase(BaseUseCase):
-    """
-    UseCase Responsibility: Generate JWT tokens according to business rules.
+class JWTAuthService:
+    """JWT Authentication Service for token management"""
     
-    Key Principle: All token logic belongs in the UseCase, not in Controller or View.
+    def __init__(self):
+        self.secret_key = getattr(settings, 'SECRET_KEY', 'your-secret-key-here')
+        self.algorithm = "HS256"
+        self.access_token_expiry = timedelta(minutes=15)  # 15 minutes
+        self.refresh_token_expiry = timedelta(days=7)     # 7 days
+        self.reset_token_expiry = timedelta(hours=1)      # 1 hour
     
-    Responsibilities:
-    - Token type management (access, refresh, reset password, email verification)
-    - Expiration policies enforcement
-    - Token rotation and reuse rules
-    - Blacklist checks (optional)
-    - Business rule validation for token generation
-    """
+    # ============ TOKEN GENERATION ============
     
-    def __init__(self, jwt_manager: JWTManager):
-        super().__init__()
-        self.jwt_manager = jwt_manager
-        self._setup_token_policies()
-
-    def _setup_token_policies(self):
-        """Define token expiration policies according to business rules"""
-        self.token_policies = {
-            TokenType.ACCESS: {
-                'expiry': timedelta(minutes=15),  # Short-lived for security
-                'allowed_claims': ['sub', 'email', 'roles', 'permissions', 'session_id', 'token_type'],
-                'require_session': False
-            },
-            TokenType.REFRESH: {
-                'expiry': timedelta(days=7),  # Longer-lived for session persistence
-                'allowed_claims': ['sub', 'email', 'session_id', 'token_type'],
-                'require_session': True,
-                'rotation_required': True  # Refresh tokens should be rotated
-            },
-            TokenType.RESET: {  # Changed from RESET_PASSWORD to RESET
-                'expiry': timedelta(hours=1),  # Short-lived for security
-                'allowed_claims': ['sub', 'email', 'token_type', 'purpose'],
-                'require_session': False,
-                'single_use': True  # One-time use only
-            }
-            # Note: EMAIL_VERIFICATION is not in TokenType enum, so removed
-        }
-
-    async def execute(self, 
-                     user_id: str,
-                     email: str,
-                     token_type: TokenType = TokenType.ACCESS,
-                     roles: List[str] = None,
-                     permissions: List[str] = None,
-                     session_id: str = None,
-                     purpose: str = None,
-                     previous_token_jti: str = None) -> Dict[str, Any]:
-        """
-        Generate JWT tokens according to business rules.
-        
-        Args:
-            user_id: Unique user identifier
-            email: User email for identification
-            token_type: Type of token to generate (access, refresh, reset, verification)
-            roles: User roles for authorization
-            permissions: User permissions for fine-grained access
-            session_id: Session identifier for tracking and revocation
-            purpose: Specific purpose for special tokens (e.g., 'password_reset')
-            previous_token_jti: JTI of previous token for rotation validation
-            
-        Returns:
-            Dictionary containing tokens and metadata according to business rules
-            
-        Raises:
-            InvalidUserInputException: When business rules are violated
-        """
-        # Input validation and business rule enforcement
-        await self._validate_token_creation_rules(
-            user_id, email, token_type, session_id, previous_token_jti
-        )
-
-        # Apply token-specific business rules
-        claims = await self._build_token_claims(
-            user_id, email, token_type, roles, permissions, session_id, purpose
-        )
-
-        try:
-            # Generate token based on type
-            token = await self._generate_token_by_type(token_type, claims)
-            
-            # Extract metadata for tracking and validation
-            token_metadata = self._extract_token_metadata(token, token_type)
-            
-            # Apply post-generation rules (rotation, blacklist checks)
-            await self._apply_post_generation_rules(token_type, token_metadata, previous_token_jti)
-            
-            logger.info(f"Token generated successfully: type={token_type}, user={user_id}, session={session_id}")
-            return self._format_token_response(token, token_metadata, token_type)
-            
-        except Exception as e:
-            logger.error(f"Token generation failed: {str(e)}")
-            raise InvalidUserInputException(f"Token generation failed: {str(e)}")
-
-    async def _validate_token_creation_rules(self,
-                                           user_id: str,
-                                           email: str,
-                                           token_type: TokenType,
-                                           session_id: str,
-                                           previous_token_jti: str):
-        """Enforce business rules for token creation"""
-        
-        # Rule 1: User ID and email are required for all token types
-        if not user_id or not email:
-            raise InvalidUserInputException("User ID and email are required for token generation")
-        
-        # Rule 2: Session ID is required for refresh tokens
-        policy = self.token_policies.get(token_type, {})
-        if policy.get('require_session') and not session_id:
-            raise InvalidUserInputException("Session ID is required for refresh tokens")
-        
-        # Rule 3: Check token rotation rules
-        if token_type == TokenType.REFRESH and previous_token_jti:
-            await self._validate_token_rotation(previous_token_jti)
-        
-        # Rule 4: Check blacklist for previous tokens (if applicable)
-        if previous_token_jti and await self._is_token_blacklisted(previous_token_jti):
-            raise InvalidUserInputException("Previous token has been revoked")
-
-    async def _build_token_claims(self,
-                                user_id: str,
-                                email: str,
-                                token_type: TokenType,
-                                roles: List[str],
-                                permissions: List[str],
-                                session_id: str,
-                                purpose: str) -> Dict[str, Any]:
-        """Build token claims according to business rules and token type"""
-        
-        base_claims = {
-            'sub': user_id,
+    async def generate_access_token(self, user_id: int, email: str, roles: list = None) -> str:
+        """Generate access token for user"""
+        payload = {
+            'user_id': user_id,
             'email': email,
-            'token_type': token_type.value,
-            'jti': str(uuid.uuid4()),  # Unique token identifier
+            'type': 'access',
+            'exp': datetime.utcnow() + self.access_token_expiry,
             'iat': datetime.utcnow(),
+            'roles': roles or []
         }
         
-        # Add type-specific claims
-        if token_type == TokenType.ACCESS:
-            base_claims.update({
-                'roles': roles or [],
-                'permissions': permissions or [],
-                'session_id': session_id
-            })
-        elif token_type == TokenType.REFRESH:
-            base_claims.update({
-                'session_id': session_id,
-                'rotation_count': await self._get_rotation_count(session_id)
-            })
-        elif token_type == TokenType.RESET:  # Changed from RESET_PASSWORD/EMAIL_VERIFICATION
-            base_claims.update({
-                'purpose': purpose or 'password_reset',
-                'single_use': True
-            })
+        token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
+        return token
+    
+    async def generate_refresh_token(self, user_id: int) -> Tuple[str, str]:
+        """Generate refresh token and store in cache"""
+        payload = {
+            'user_id': user_id,
+            'type': 'refresh',
+            'exp': datetime.utcnow() + self.refresh_token_expiry,
+            'iat': datetime.utcnow(),
+            'jti': self._generate_jti()  # Unique token ID
+        }
         
-        # Filter claims based on allowed claims for token type
-        policy = self.token_policies.get(token_type, {})
-        allowed_claims = policy.get('allowed_claims', [])
-        return {k: v for k, v in base_claims.items() if k in allowed_claims}
-
-    async def _generate_token_by_type(self, token_type: TokenType, claims: Dict[str, Any]) -> str:
-        """Generate token based on type with appropriate expiration"""
+        token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
+        token_id = payload['jti']
         
-        policy = self.token_policies.get(token_type, {})
-        expiry = policy.get('expiry', timedelta(hours=1))
-        
-        if token_type == TokenType.ACCESS:
-            return self.jwt_manager.create_access_token(**claims)
-        elif token_type == TokenType.REFRESH:
-            return self.jwt_manager.create_refresh_token(**claims)
-        elif token_type == TokenType.RESET:  # Changed from RESET_PASSWORD to RESET
-            return self.jwt_manager.create_reset_token(
-                user_id=claims['sub'],
-                email=claims['email']
-            )
-        else:
-            raise InvalidUserInputException(f"Unsupported token type: {token_type}")
-
-    async def _validate_token_rotation(self, previous_token_jti: str):
-        """Enforce token rotation rules to prevent token reuse"""
-        
-        # Rule: Check if previous token was recently used
-        last_rotation = await self._get_last_rotation_time(previous_token_jti)
-        if last_rotation and datetime.utcnow() - last_rotation < timedelta(seconds=30):
-            raise InvalidUserInputException("Token rotation too frequent")
-        
-        # Rule: Check rotation count limit
-        rotation_count = await self._get_rotation_count_by_jti(previous_token_jti)
-        if rotation_count >= 5:  # Maximum 5 rotations per session
-            raise InvalidUserInputException("Maximum token rotations exceeded")
-
-    async def _apply_post_generation_rules(self, 
-                                         token_type: TokenType,
-                                         token_metadata: Dict[str, Any],
-                                         previous_token_jti: str):
-        """Apply business rules after token generation"""
-        
-        # Rule: For refresh token rotation, revoke previous token
-        if token_type == TokenType.REFRESH and previous_token_jti:
-            await self._revoke_previous_token(previous_token_jti)
-        
-        # Rule: Track token generation for audit purposes
-        await self._track_token_generation(token_metadata, token_type)
-        
-        # Rule: For single-use tokens, mark as used immediately in storage
-        policy = self.token_policies.get(token_type, {})
-        if policy.get('single_use'):
-            await self._mark_token_as_used(token_metadata['jti'])
-
-    def _extract_token_metadata(self, token: str, token_type: TokenType) -> Dict[str, Any]:
-        """Extract metadata from generated token for tracking"""
-        
-        try:
-            payload = self.jwt_manager.get_token_metadata(token)
-            return {
-                'jti': payload.get('jti'),
-                'user_id': payload.get('sub'),
-                'email': payload.get('email'),
-                'token_type': token_type,
-                'session_id': payload.get('session_id'),
-                'issued_at': payload.get('iat'),
-                'expires_at': payload.get('exp'),
-                'roles': payload.get('roles', []),
-                'permissions': payload.get('permissions', [])
-            }
-        except Exception as e:
-            logger.error(f"Failed to extract token metadata: {str(e)}")
-            return {}
-
-    def _format_token_response(self, 
-                         token: str, 
-                         metadata: Dict[str, Any],
-                         token_type: TokenType) -> TokenResponseSchema:
-        """Format token response using output schema"""
-        
-        # Calculate expires_in from timestamps
-        expires_at = metadata.get('expires_at')
-        issued_at = metadata.get('issued_at')
-        expires_in = int((expires_at - issued_at).total_seconds()) if expires_at and issued_at else 3600
-        
-        return TokenResponseSchema(
-            access_token=token,
-            refresh_token=metadata.get('refresh_token'),  # Only for access token responses
-            token_type="bearer",
-            expires_in=expires_in,
-            expires_at=expires_at or datetime.utcnow() + timedelta(seconds=expires_in)
+        # Store refresh token in cache
+        cache_key = f"refresh_token:{user_id}:{token_id}"
+        await sync_to_async(cache.set)(
+            cache_key, 
+            token, 
+            timeout=int(self.refresh_token_expiry.total_seconds())
         )
         
-    # Business Rule Implementation Methods
-    async def _is_token_blacklisted(self, jti: str) -> bool:
-        """Check if token is blacklisted (implement based on your storage)"""
-        # Implementation depends on your blacklist storage (Redis, DB, etc.)
-        return False  # Placeholder
-
-    async def _get_rotation_count(self, session_id: str) -> int:
-        """Get current rotation count for session"""
-        # Implementation depends on your storage
-        return 0  # Placeholder
-
-    async def _get_last_rotation_time(self, jti: str) -> Optional[datetime]:
-        """Get last rotation time for token"""
-        # Implementation depends on your storage
-        return None  # Placeholder
-
-    async def _get_rotation_count_by_jti(self, jti: str) -> int:
-        """Get rotation count by token JTI"""
-        # Implementation depends on your storage
-        return 0  # Placeholder
-
-    async def _revoke_previous_token(self, jti: str):
-        """Revoke previous token during rotation"""
-        # Implementation: Add to blacklist or mark as revoked in storage
-        logger.info(f"Revoking previous token: {jti}")
-
-    async def _track_token_generation(self, metadata: Dict[str, Any], token_type: TokenType):
-        """Track token generation for audit and security"""
-        # Implementation: Log to audit trail or security monitoring system
-        logger.info(f"Token generated - Type: {token_type}, User: {metadata.get('user_id')}, JTI: {metadata.get('jti')}")
-
-    async def _mark_token_as_used(self, jti: str):
-        """Mark single-use token as used"""
-        # Implementation: Store in used tokens table or similar
-        logger.info(f"Marking token as used: {jti}")
+        return token, token_id
+    
+    async def generate_reset_token(self, user_id: int, email: str) -> str:
+        """Generate password reset token"""
+        payload = {
+            'user_id': user_id,
+            'email': email,
+            'type': 'reset',
+            'exp': datetime.utcnow() + self.reset_token_expiry,
+            'iat': datetime.utcnow()
+        }
+        
+        token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
+        
+        # Store reset token in cache
+        cache_key = f"reset_token:{user_id}"
+        await sync_to_async(cache.set)(
+            cache_key, 
+            token, 
+            timeout=int(self.reset_token_expiry.total_seconds())
+        )
+        
+        return token
+    
+    # ============ TOKEN VERIFICATION ============
+    
+    async def verify_access_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Verify access token and return payload if valid"""
+        try:
+            payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            
+            if payload.get('type') != 'access':
+                return None
+            
+            # Check expiration
+            exp_timestamp = payload.get('exp')
+            if exp_timestamp and datetime.fromtimestamp(exp_timestamp) < datetime.utcnow():
+                return None
+            
+            return {
+                'user_id': payload['user_id'],
+                'email': payload.get('email'),
+                'roles': payload.get('roles', []),
+                'exp': exp_timestamp
+            }
+            
+        except jwt.ExpiredSignatureError:
+            logger.warning("Access token expired")
+            return None
+        except jwt.InvalidTokenError as e:
+            logger.warning(f"Invalid access token: {str(e)}")
+            return None
+    
+    async def verify_refresh_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Verify refresh token and return payload if valid"""
+        try:
+            payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            
+            if payload.get('type') != 'refresh':
+                return None
+            
+            user_id = payload.get('user_id')
+            token_id = payload.get('jti')
+            
+            if not user_id or not token_id:
+                return None
+            
+            # Check if token exists in cache (not blacklisted)
+            cache_key = f"refresh_token:{user_id}:{token_id}"
+            cached_token = await sync_to_async(cache.get)(cache_key)
+            
+            if not cached_token or cached_token != token:
+                return None
+            
+            return {
+                'user_id': user_id,
+                'jti': token_id
+            }
+            
+        except jwt.ExpiredSignatureError:
+            logger.warning("Refresh token expired")
+            return None
+        except jwt.InvalidTokenError as e:
+            logger.warning(f"Invalid refresh token: {str(e)}")
+            return None
+    
+    async def verify_reset_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Verify password reset token"""
+        try:
+            payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            
+            if payload.get('type') != 'reset':
+                return None
+            
+            user_id = payload.get('user_id')
+            email = payload.get('email')
+            
+            # Check if token exists in cache
+            cache_key = f"reset_token:{user_id}"
+            cached_token = await sync_to_async(cache.get)(cache_key)
+            
+            if not cached_token or cached_token != token:
+                return None
+            
+            return {
+                'user_id': user_id,
+                'email': email
+            }
+            
+        except jwt.ExpiredSignatureError:
+            logger.warning("Reset token expired")
+            return None
+        except jwt.InvalidTokenError as e:
+            logger.warning(f"Invalid reset token: {str(e)}")
+            return None
+    
+    # ============ TOKEN MANAGEMENT ============
+    
+    async def refresh_access_token(self, refresh_token: str) -> Optional[Tuple[str, str]]:
+        """Generate new access token using refresh token"""
+        payload = await self.verify_refresh_token(refresh_token)
+        
+        if not payload:
+            return None
+        
+        # Get user data from repository (injected via use case)
+        user_id = payload['user_id']
+        
+        # In real implementation, you'd fetch user from repository
+        # For now, return None - use case will handle user fetching
+        return user_id
+    
+    async def blacklist_refresh_token(self, user_id: int, token_id: str):
+        """Blacklist/remove refresh token"""
+        cache_key = f"refresh_token:{user_id}:{token_id}"
+        await sync_to_async(cache.delete)(cache_key)
+    
+    async def blacklist_all_user_tokens(self, user_id: int):
+        """Blacklist all tokens for a user"""
+        # Find and delete all refresh tokens for this user
+        pattern = f"refresh_token:{user_id}:*"
+        
+        # Note: Django cache doesn't support pattern delete directly
+        # This is a simplified version - in production, use Redis or similar
+        # For now, we'll use a separate tracking mechanism
+        
+        # Store list of active token IDs for each user
+        active_tokens_key = f"user_active_tokens:{user_id}"
+        token_ids = await sync_to_async(cache.get)(active_tokens_key) or []
+        
+        for token_id in token_ids:
+            cache_key = f"refresh_token:{user_id}:{token_id}"
+            await sync_to_async(cache.delete)(cache_key)
+        
+        # Clear the tracking list
+        await sync_to_async(cache.delete)(active_tokens_key)
+    
+    async def invalidate_reset_token(self, user_id: int):
+        """Invalidate password reset token"""
+        cache_key = f"reset_token:{user_id}"
+        await sync_to_async(cache.delete)(cache_key)
+    
+    async def extract_token_payload(self, token: str) -> Optional[Dict[str, Any]]:
+        """Extract payload from token without verification"""
+        try:
+            # Decode without verification to get payload
+            payload = jwt.decode(token, options={"verify_signature": False})
+            return payload
+        except jwt.DecodeError:
+            return None
+    
+    # ============ UTILITY METHODS ============
+    
+    def _generate_jti(self) -> str:
+        """Generate unique JWT ID"""
+        import secrets
+        return secrets.token_hex(16)
+    
+    def get_token_expiry(self, token_type: str) -> int:
+        """Get token expiry in seconds"""
+        if token_type == 'access':
+            return int(self.access_token_expiry.total_seconds())
+        elif token_type == 'refresh':
+            return int(self.refresh_token_expiry.total_seconds())
+        elif token_type == 'reset':
+            return int(self.reset_token_expiry.total_seconds())
+        return 0
+    
+    async def is_token_expired(self, token: str) -> bool:
+        """Check if token is expired"""
+        payload = await self.extract_token_payload(token)
+        
+        if not payload:
+            return True
+        
+        exp_timestamp = payload.get('exp')
+        if not exp_timestamp:
+            return True
+        
+        return datetime.fromtimestamp(exp_timestamp) < datetime.utcnow()

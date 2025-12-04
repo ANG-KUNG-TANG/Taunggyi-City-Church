@@ -1,43 +1,82 @@
+import asyncio
 from typing import Dict, Any
+from apps.core.core_exceptions.domain import DomainException, DomainValidationException
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.domain_exception.u_exceptions import UserNotFoundException
-from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
+from apps.core.schemas.input_schemas.users import UserUpdateInputSchema
+from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema
+import logging
 
+logger = logging.getLogger(__name__)
 
 class UpdateUserUseCase(BaseUseCase):
-    """Update user using repository's update with caching invalidation"""
+    """Update user - Returns UserResponseSchema"""
     
-    def __init__(self, user_repository: UserRepository, **dependencies):
-        super().__init__(user_repository=user_repository, **dependencies)
-        self.user_repository = user_repository
+    def __init__(self, user_repository: UserRepository = None, **dependencies):
+        super().__init__(**dependencies)
+        self.user_repository = user_repository or UserRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
         self.config.validate_input = True
         self.config.audit_log = True
+        self.config.transactional = True
 
-    async def _validate_input(self, input_data, ctx):
+    async def _validate_input(self, input_data: Dict[str, Any], ctx):
+        """Validate update input with business rules"""
         user_id = input_data.get('user_id')
+        update_data = input_data.get('update_data', {})
+        
         if not user_id:
-            raise UserNotFoundException(
-                user_id=user_id,
-                user_message="User ID is required."
-            )
+            raise DomainValidationException("User ID is required.")
+        
+        if not update_data:
+            raise DomainValidationException("Update data is required.")
         
         try:
-            int(user_id)
-        except (ValueError, TypeError):
-            raise UserNotFoundException(
-                user_id=user_id,
-                user_message="Invalid user ID format."
-            )
+            # Validate update schema
+            UserUpdateInputSchema(**update_data)
+            
+            # Business rule: User can only update their own profile unless admin
+            if not await self._can_update_user(ctx.user, user_id):
+                raise DomainValidationException(
+                    "You can only update your own profile",
+                    user_message="You do not have permission to update this user."
+                )
+                
+        except Exception as e:
+            logger.error(f"Update validation failed: {str(e)}")
+            raise
+
+    async def _can_update_user(self, current_user, target_user_id: int) -> bool:
+        """Business rule: Check if user can update target user"""
+        if not current_user:
+            return False
+            
+        # Admin can update anyone
+        if hasattr(current_user, 'is_superuser') and current_user.is_superuser:
+            return True
+            
+        # User can update their own profile
+        if hasattr(current_user, 'id') and current_user.id == target_user_id:
+            return True
+            
+        # Managers can update users in their department
+        if hasattr(current_user, 'department_id') and hasattr(current_user, 'can_manage_department'):
+            target_user = await self.user_repository.get_by_id(target_user_id)
+            if target_user and hasattr(target_user, 'department_id'):
+                return (current_user.department_id == target_user.department_id and 
+                        current_user.can_manage_department)
+        
+        return False
 
     async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> UserResponseSchema:
+        """Update user with business logic - Returns Schema"""
         user_id = int(input_data['user_id'])
         update_data = input_data.get('update_data', {})
         
-        # Check if user exists using repository
+        # 1. Check if user exists
         existing_user = await self.user_repository.get_by_id(user_id)
         if not existing_user:
             raise UserNotFoundException(
@@ -45,117 +84,98 @@ class UpdateUserUseCase(BaseUseCase):
                 user_message="User not found."
             )
         
-        # Add audit context and update using repository (includes cache invalidation)
-        update_data_with_context = self._add_audit_context(update_data, user, ctx)
-        updated_user = await self.user_repository.update(user_id, update_data_with_context)
-        
-        if not updated_user:
-            raise UserNotFoundException(
+        # 2. Business rule: Prevent email change without verification
+        if 'email' in update_data and update_data['email'] != existing_user.email:
+            if not hasattr(self, 'email_verification_service'):
+                raise DomainException(
+                    "Email change requires verification service",
+                    user_message="Email change is temporarily unavailable."
+                )
+            
+            # Trigger email verification workflow
+            await self.email_verification_service.initiate_email_change(
                 user_id=user_id,
-                user_message="Failed to update user."
+                old_email=existing_user.email,
+                new_email=update_data['email']
+            )
+            # Remove email from immediate update
+            del update_data['email']
+        
+        # 3. Add audit context
+        update_data_with_context = self._add_audit_context(update_data, user, ctx)
+        
+        # 4. Update via repository
+        updated_entity = await self.user_repository.update(user_id, update_data_with_context)
+        
+        if not updated_entity:
+            raise DomainException(
+                "Failed to update user",
+                user_message="Unable to update user profile. Please try again."
             )
         
-        return UserResponseSchema.model_validate(updated_user)
-
+        # 5. Async side effect: Log update
+        if hasattr(self, 'audit_service'):
+            asyncio.create_task(
+                self.audit_service.log_user_update(
+                    user_id=user_id,
+                    updated_by=user.id if user else None,
+                    changes=update_data
+                )
+            )
+        
+        # 6. Return response schema
+        return UserResponseSchema.model_validate(updated_entity)
 
 class ChangeUserStatusUseCase(BaseUseCase):
-    """Change user status using repository's update with audit context"""
+    """Change user status - Returns UserResponseSchema"""
     
-    def __init__(self, user_repository: UserRepository, **dependencies):
-        super().__init__(user_repository=user_repository, **dependencies)
-        self.user_repository = user_repository
+    def __init__(self, user_repository: UserRepository = None, **dependencies):
+        super().__init__(**dependencies)
+        self.user_repository = user_repository or UserRepository()
     
     def _setup_configuration(self):
         self.config.require_authentication = True
+        self.config.required_permissions = ['can_manage_users']
         self.config.validate_input = True
         self.config.audit_log = True
 
-    async def _validate_input(self, input_data, ctx):
-        user_id = input_data.get('user_id')
-        if not user_id:
-            raise UserNotFoundException(
-                user_id=user_id,
-                user_message="User ID is required."
-            )
-        
-        status = input_data.get('status')
-        if not status:
-            raise UserNotFoundException(
-                user_message="Status is required."
-            )
-        
-        try:
-            int(user_id)
-        except (ValueError, TypeError):
-            raise UserNotFoundException(
-                user_id=user_id,
-                user_message="Invalid user ID format."
-            )
-
     async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> UserResponseSchema:
+        """Change status with business rules - Returns Schema"""
         user_id = int(input_data['user_id'])
         new_status = input_data['status']
         
-        # Check if user exists using repository
-        existing_user = await self.user_repository.get_by_id(user_id)
-        if not existing_user:
-            raise UserNotFoundException(
-                user_id=user_id,
-                user_message="User not found."
+        # Business rule: Cannot deactivate self
+        if user and user.id == user_id and new_status == 'inactive':
+            raise DomainValidationException(
+                "Cannot deactivate your own account",
+                user_message="You cannot deactivate your own account."
             )
         
-        # Prepare update data with audit context
+        # Business rule: Cannot change status of super admin
+        target_user = await self.user_repository.get_by_id(user_id)
+        if target_user and hasattr(target_user, 'is_superuser') and target_user.is_superuser:
+            if user and not hasattr(user, 'is_superuser') or not user.is_superuser:
+                raise DomainValidationException(
+                    "Cannot change status of super admin",
+                    user_message="You do not have permission to modify super admin accounts."
+                )
+        
+        # Update status
         update_data = self._add_audit_context({'status': new_status}, user, ctx)
+        updated_entity = await self.user_repository.update(user_id, update_data)
         
-        # Update using repository (includes cache invalidation)
-        updated_user = await self.user_repository.update(user_id, update_data)
+        if not updated_entity:
+            raise DomainException("Failed to change user status")
         
-        if not updated_user:
-            raise UserNotFoundException(
-                user_id=user_id,
-                user_message="Failed to change user status."
+        # Async: Log status change
+        if hasattr(self, 'notification_service'):
+            asyncio.create_task(
+                self.notification_service.notify_status_change(
+                    user_id=user_id,
+                    old_status=target_user.status,
+                    new_status=new_status
+                )
             )
         
-        return UserResponseSchema.model_validate(updated_user)
+        return UserResponseSchema.model_validate(updated_entity)
 
-
-class VerifyPasswordUseCase(BaseUseCase):
-    """Verify user password using repository's verify_password business function"""
-    
-    def __init__(self, user_repository: UserRepository, **dependencies):
-        super().__init__(user_repository=user_repository, **dependencies)
-        self.user_repository = user_repository
-    
-    def _setup_configuration(self):
-        self.config.require_authentication = True
-        self.config.validate_input = True
-
-    async def _validate_input(self, input_data, ctx):
-        user_id = input_data.get('user_id')
-        password = input_data.get('password')
-        
-        if not user_id or not password:
-            raise UserNotFoundException(
-                user_message="User ID and password are required."
-            )
-        
-        try:
-            int(user_id)
-        except (ValueError, TypeError):
-            raise UserNotFoundException(
-                user_id=user_id,
-                user_message="Invalid user ID format."
-            )
-
-    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> Dict[str, Any]:
-        user_id = int(input_data['user_id'])
-        password = input_data['password']
-        
-        # Use repository's verify_password business function
-        is_valid = await self.user_repository.verify_password(user_id, password)
-        
-        return {
-            "user_id": user_id,
-            "password_valid": is_valid,
-            "message": "Password verification completed"
-        }

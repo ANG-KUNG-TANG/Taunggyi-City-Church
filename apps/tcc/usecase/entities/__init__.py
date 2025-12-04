@@ -1,5 +1,5 @@
 from .base_entity import BaseEntity
-from .users import UserEntity
+from .users_entity import UserEntity
 # from .sermons import SermonEntity
 # from .prayer import PrayerRequestEntity, PrayerResponseEntity
 # from .events import EventEntity, EventRegistrationEntity

@@ -227,3 +227,4 @@ class PasswordValidationException(DomainValidationException):
             cause=cause,
             user_message=user_message
         )
+        

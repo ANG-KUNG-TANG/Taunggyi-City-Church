@@ -5,9 +5,6 @@ from pathlib import Path
 import environ
 from datetime import timedelta
 import re
-import warnings
-
-warnings.filterwarnings("ignore", message="Valid config keys have changed in V2")
 
 env = environ.Env(
     DEBUG=(bool, False),
@@ -58,7 +55,7 @@ MIDDLEWARE = [
     'config.middleware.RequestIDMiddleware',
     'config.middleware.GlobalExceptionMiddleware',
     'config.middleware.DatabaseQueryLoggingMiddleware',
-    # "corsheaders.middleware.CorsMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -98,6 +95,9 @@ TEMPLATES = [
     },
 ]
 
+# ──────────────────────────────
+# Database
+# ──────────────────────────────
 # ──────────────────────────────
 # Database
 # ──────────────────────────────
@@ -206,8 +206,7 @@ def decode_jwt_key_from_env(key_str):
 JWT_PRIVATE_KEY = decode_jwt_key_from_env(env('JWT_PRIVATE_KEY', default=''))
 JWT_PUBLIC_KEY = decode_jwt_key_from_env(env('JWT_PUBLIC_KEY', default=''))
 
-# Change JWT_'ALGORITHM': 'HS256',  # Changed to HS256
-JWT_SECRET_KEY = env('JWT_SECRET_KEY', default='')
+# Change JWT_ALGORITHM to RS256 since we're using RSA keys
 JWT_CONFIG = {
     'ACCESS_TOKEN_EXPIRY': env.int('JWT_ACCESS_EXPIRY', default=900),
     'REFRESH_TOKEN_EXPIRY': env.int('JWT_REFRESH_EXPIRY', default=604800), 
@@ -218,9 +217,12 @@ JWT_CONFIG = {
 }
 
 # Verify keys are loaded
-#     print(f"   Public key: {'Loaded' if JWT_PUBLIC_KEY else 'Missing'}")
-# else:
-#     print(f"✅ JWT keys loaded: {len(JWT_PRIVATE_KEY)} chars private, {len(JWT_PUBLIC_KEY)} chars public")
+if not JWT_PRIVATE_KEY or not JWT_PUBLIC_KEY:
+    print("⚠️  WARNING: JWT keys not loaded properly from .env")
+    print(f"   Private key: {'Loaded' if JWT_PRIVATE_KEY else 'Missing'}")
+    print(f"   Public key: {'Loaded' if JWT_PUBLIC_KEY else 'Missing'}")
+else:
+    print(f"✅ JWT keys loaded: {len(JWT_PRIVATE_KEY)} chars private, {len(JWT_PUBLIC_KEY)} chars public")
     
 # ──────────────────────────────
 # Cache (Redis / Async Ready)

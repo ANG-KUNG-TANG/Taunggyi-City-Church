@@ -1,7 +1,10 @@
 from typing import Any, List, Optional, Dict
 from datetime import date, datetime
 from pydantic import Field
-from apps.core.schemas.out_schemas.base import BaseResponseSchema
+from apps.core.schemas.out_schemas.base import (
+    BaseResponseSchema, 
+    DeleteResponseSchema,
+    PaginatedResponseSchema )
 from apps.tcc.models.base.enums import UserRole, UserStatus, Gender, MaritalStatus
 
 class UserResponseSchema(BaseResponseSchema):
@@ -28,12 +31,17 @@ class UserResponseSchema(BaseResponseSchema):
     status: UserStatus = Field(..., description="User status")
     email_notifications: bool = Field(True, description="Email notifications preference")
 
-    # System Information - required by repo
-    is_staff: bool = Field(..., description="Is staff member")
-    is_superuser: bool = Field(..., description="Is superuser")
+    # System Information - CHANGED to optional with defaults
+    is_staff: bool = Field(default=False, description="Is staff member")
+    is_superuser: bool = Field(default=False, description="Is superuser")
     is_active: bool = Field(..., description="Is active")
     
-    # Base Response Fields - required by BaseResponseSchema
+    # ADDED: User-specific fields
+    requires_password_change: bool = Field(default=False, description="Password change required")
+    last_login: Optional[datetime] = Field(None, description="Last login timestamp")
+    login_count: int = Field(default=0, description="Number of logins")
+    
+    # Base Response Fields
     id: int = Field(..., description="User ID")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
@@ -58,25 +66,18 @@ class UserSimpleResponseSchema(BaseResponseSchema):
     status: UserStatus = Field(..., description="User status")
     is_active: bool = Field(..., description="Is active")
     created_at: datetime = Field(..., description="Creation timestamp")
-
-class UserListResponseSchema(BaseResponseSchema):
-    """Paginated user list response - matches repo get_paginated_users return."""
     
-    items: List[UserSimpleResponseSchema] = Field(..., description="List of users")
-    total: int = Field(..., description="Total number of users")
-    page: int = Field(..., description="Current page")
-    page_size: int = Field(..., description="Items per page")
-    total_pages: int = Field(..., description="Total pages")
-    has_next: bool = Field(..., description="Has next page")
-    has_prev: bool = Field(..., description="Has previous page")
+    # ADDED: Optional profile picture for UI
+    profile_picture: Optional[str] = Field(None, description="Profile picture URL")
 
-class UserSearchResponseSchema(BaseResponseSchema):
+# UPDATED: Use generic paginated response
+class UserListResponseSchema(PaginatedResponseSchema[UserSimpleResponseSchema]):
+    """Paginated user list response - matches repo get_paginated return."""
+    pass
+
+# UPDATED: Use generic paginated response with search term
+class UserSearchResponseSchema(PaginatedResponseSchema[UserSimpleResponseSchema]):
     """User search response - matches repo search_users return."""
-    
-    items: List[UserSimpleResponseSchema] = Field(..., description="List of users")
-    total: int = Field(..., description="Total number of users")
-    page: int = Field(..., description="Current page")
-    page_size: int = Field(..., description="Items per page")
     search_term: str = Field(..., description="Search term used")
 
 class UserStatsResponseSchema(BaseResponseSchema):
@@ -87,6 +88,7 @@ class UserStatsResponseSchema(BaseResponseSchema):
     pending_users: int = Field(..., description="Number of pending users")
     users_by_role: Dict[UserRole, int] = Field(..., description="Users count by role")
     users_by_status: Dict[UserStatus, int] = Field(..., description="Users count by status")
+    users_by_gender: Dict[Gender, int] = Field(default_factory=dict, description="Users count by gender")
 
 class EmailCheckResponseSchema(BaseResponseSchema):
     """Email existence check response - matches repo email_exists."""
@@ -101,21 +103,58 @@ class PasswordVerificationResponseSchema(BaseResponseSchema):
     user_id: int = Field(..., description="User ID")
     valid: bool = Field(..., description="Whether password is valid")
 
-class UserCreateResponseSchema(UserResponseSchema):
-    """User creation response with additional context."""
-    
-    message: str = Field(default="User created successfully", description="Response message")
-    password_set: bool = Field(..., description="Whether password was set")
+# REMOVED: UserCreateResponseSchema, UserUpdateResponseSchema - use generic responses instead
 
-class UserUpdateResponseSchema(UserResponseSchema):
-    """User update response with additional context."""
-    
-    message: str = Field(default="User updated successfully", description="Response message")
-    changes: Dict[str, Any] = Field(..., description="Fields that were changed")
+# ADDED: Missing response schemas
 
-class UserDeleteResponseSchema(BaseResponseSchema):
-    """User delete response - matches repo delete return."""
+class UserLoginResponseSchema(BaseResponseSchema):
+    """Response for user login."""
     
-    id: int = Field(..., description="User ID")
-    deleted: bool = Field(..., description="Whether user was deleted")
+    access_token: str = Field(..., description="JWT access token")
+    refresh_token: str = Field(..., description="Refresh token")
+    token_type: str = Field(default="bearer", description="Token type")
+    expires_in: int = Field(..., description="Token expiration in seconds")
+    user: UserSimpleResponseSchema = Field(..., description="User information")
+
+class UserTokenRefreshResponseSchema(BaseResponseSchema):
+    """Response for token refresh."""
+    
+    access_token: str = Field(..., description="New access token")
+    expires_in: int = Field(..., description="Token expiration in seconds")
+
+class UserPasswordChangeResponseSchema(BaseResponseSchema):
+    """Response for password change."""
+    
+    success: bool = Field(..., description="Whether password was changed")
     message: str = Field(..., description="Response message")
+    requires_login: bool = Field(default=True, description="Whether user needs to login again")
+
+class UserResetPasswordResponseSchema(BaseResponseSchema):
+    """Response for password reset."""
+    
+    success: bool = Field(..., description="Whether reset was successful")
+    message: str = Field(..., description="Response message")
+    email: str = Field(..., description="User email")
+
+class UserBulkOperationResponseSchema(BaseResponseSchema):
+    """Response for bulk operations."""
+    
+    operation: str = Field(..., description="Operation type")
+    total: int = Field(..., description="Total users processed")
+    successful: int = Field(..., description="Successfully processed")
+    failed: int = Field(..., description="Failed to process")
+    errors: List[Dict[str, Any]] = Field(default_factory=list, description="Error details")
+
+class UserAuditResponseSchema(BaseResponseSchema):
+    """User audit trail entry."""
+    
+    action: str = Field(..., description="Action performed")
+    performed_by: Optional[int] = Field(None, description="User who performed action")
+    performed_at: datetime = Field(..., description="When action was performed")
+    ip_address: Optional[str] = Field(None, description="IP address")
+    user_agent: Optional[str] = Field(None, description="User agent")
+    changes: Optional[Dict[str, Any]] = Field(None, description="Field changes")
+
+class UserAuditListResponseSchema(PaginatedResponseSchema[UserAuditResponseSchema]):
+    """Paginated user audit trail."""
+    user_id: Optional[int] = Field(None, description="User ID filter")

@@ -305,3 +305,14 @@ class SystemLogSchema(BaseOutputSchema):
     message: str
     timestamp: datetime
     details: Optional[Dict[str, Any]] = None
+    
+class PaginatedResponseSchema(BaseOutputSchema, Generic[T]):
+    """Generic paginated response for any entity."""
+    
+    items: List[T] = Field(..., description="List of items")
+    total: int = Field(..., description="Total items")
+    page: int = Field(..., description="Current page")
+    page_size: int = Field(..., description="Items per page")
+    total_pages: int = Field(..., description="Total pages")
+    has_next: bool = Field(..., description="Has next page")
+    has_prev: bool = Field(..., description="Has previous page")

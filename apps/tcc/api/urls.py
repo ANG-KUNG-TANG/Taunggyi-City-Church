@@ -1,12 +1,77 @@
 from django.urls import path
-from .views.user_view import *
-from .views.auth_view import *
-from django.http import JsonResponse
-
-# Simple root view
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+# Import user views from the correct location
+try:
+    # Try importing from the updated location (based on your controller structure)
+    from views.user_view import (
+        # User views
+        health_check_view,
+        create_user_view,
+        get_current_user_profile_view,
+        get_user_by_id_view,
+        get_user_by_email_view,
+        get_all_users_view,
+        get_users_by_role_view,
+        search_users_view,
+        update_user_view,
+        update_current_user_profile_view,
+        change_user_status_view,
+        change_password_view,
+        check_email_availability_view,
+        delete_user_view,
+    )
+except ImportError:
+    # Fallback: Import from views directory if the above doesn't work
+    from .views.user_view import (
+        health_check_view,
+        create_user_view,
+        get_current_user_profile_view,
+        get_user_by_id_view,
+        get_user_by_email_view,
+        get_all_users_view,
+        get_users_by_role_view,
+        search_users_view,
+        update_user_view,
+        update_current_user_profile_view,
+        change_user_status_view,
+        change_password_view,
+        check_email_availability_view,
+        delete_user_view,
+    )
+
+# Import auth views - you need to create these or update imports
+try:
+    from .views.auth_view import (
+        login_view,
+        register_view,
+        logout_view,
+        refresh_token_view,
+        verify_token_view,
+        forgot_password_view,
+        reset_password_view,
+        user_sessions_view,
+        revoke_session_view,
+        revoke_all_sessions_view,
+    )
+except ImportError:
+    # Placeholder imports - you'll need to create these auth views
+    from .views.auth_view import (
+        login_view,
+        register_view,
+        logout_view,
+        refresh_token_view,
+        verify_token_view,
+        forgot_password_view,
+        reset_password_view,
+        user_sessions_view,
+        revoke_session_view,
+        revoke_all_sessions_view,
+    )
+
+
+# Simple root view
 @csrf_exempt
 def tcc_api_root(request):
     return JsonResponse({
@@ -17,21 +82,39 @@ def tcc_api_root(request):
             'auth': {
                 'login': '/tcc/auth/login/',
                 'register': '/tcc/auth/register/',
+                'logout': '/tcc/auth/logout/',
+                'refresh': '/tcc/auth/refresh/',
+                'verify': '/tcc/auth/verify/',
+                'forgot_password': '/tcc/auth/forgot-password/',
+                'reset_password': '/tcc/auth/reset-password/',
+                'sessions': '/tcc/auth/sessions/',
             },
-            'public_endpoints': [
-                '/tcc/auth/login/',
-                '/tcc/auth/register/',
-                '/tcc/auth/forgot-password/',
-                '/tcc/auth/reset-password/',
-                '/tcc/users/create/',
-                '/tcc/users/check-email/',
-            ]
+            'users': {
+                'create': '/tcc/users/',
+                'current_profile': '/tcc/users/me/',
+                'user_by_id': '/tcc/users/{id}/',
+                'user_by_email': '/tcc/users/by-email/',
+                'all_users': '/tcc/users/all/',
+                'users_by_role': '/tcc/users/role/{role}/',
+                'search_users': '/tcc/users/search/',
+                'update_user': '/tcc/users/{id}/update/',
+                'update_profile': '/tcc/users/me/update/',
+                'change_status': '/tcc/users/{id}/status/',
+                'change_password': '/tcc/users/me/change-password/',
+                'check_email': '/tcc/users/check-email/',
+                'delete_user': '/tcc/users/{id}/delete/',
+                'health': '/tcc/health/',
+            }
         }
     })
+
 
 urlpatterns = [
     # Root endpoint
     path('', tcc_api_root, name='tcc-api-root'),
+    
+    # Health check endpoint (should be at root level)
+    path('health/', health_check_view, name='health-check'),
     
     # Auth endpoints
     path('auth/login/', login_view, name='auth-login'),
@@ -48,16 +131,17 @@ urlpatterns = [
     path('auth/sessions/revoke-all/', revoke_all_sessions_view, name='revoke-all-sessions'),
 
     # User endpoints
-    path('users/create/', user_create_view, name='user-create'),
-    path('users/profile/', user_profile_view, name='user-profile'),
-    path('users/<int:user_id>/', user_detail_view, name='user-detail'),
-    path('users/', user_list_view, name='user-list'),
-    path('users/by-email/', user_by_email_view, name='user-by-email'),
-    path('users/<int:user_id>/status/', user_change_status_view, name='user-status'),
-    path('users/bulk/status/', user_bulk_status_view, name='user-bulk-status'),
-    path('users/change-password/', user_change_password_view, name='user-change-password'),
-    path('users/verify-password/', user_verify_password_view, name='user-verify-password'),
-    path('users/check-email/', user_check_email_view, name='user-check-email'),
-    path('users/request-password-reset/', user_request_password_reset_view, name='user-request-password-reset'),
-    path('users/reset-password/', user_reset_password_view, name='user-reset-password'),
+    path('users/', create_user_view, name='create-user'),
+    path('users/me/', get_current_user_profile_view, name='current-user-profile'),
+    path('users/<int:user_id>/', get_user_by_id_view, name='user-by-id'),
+    path('users/by-email/', get_user_by_email_view, name='user-by-email'),
+    path('users/all/', get_all_users_view, name='all-users'),
+    path('users/role/<str:role>/', get_users_by_role_view, name='users-by-role'),
+    path('users/search/', search_users_view, name='search-users'),
+    path('users/<int:user_id>/update/', update_user_view, name='update-user'),
+    path('users/me/update/', update_current_user_profile_view, name='update-current-user'),
+    path('users/<int:user_id>/status/', change_user_status_view, name='change-user-status'),
+    path('users/me/change-password/', change_password_view, name='change-password'),
+    path('users/check-email/', check_email_availability_view, name='check-email'),
+    path('users/<int:user_id>/delete/', delete_user_view, name='delete-user'),
 ]
