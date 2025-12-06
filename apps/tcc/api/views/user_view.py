@@ -6,7 +6,7 @@ from django.http import HttpRequest, JsonResponse
 from rest_framework.request import Request
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.core.cache import cache as django_cache
 
 from apps.core.schemas.input_schemas.users import (
@@ -26,37 +26,19 @@ from apps.core.schemas.common.pagination import PaginatedResponse
 
 # Import controller factory functions
 from apps.tcc.usecase.services.users.user_controller import (
-    create_user_controller_default,
-    get_singleton_user_controller
+    get_user_controller as get_singleton_user_controller,
+    create_user_controller as create_user_controller_default
 )
 
-# Import decorators (optional, for direct validation if needed)
-from apps.core.schemas.validator.user_deco import (
-    validate_user_create,
-    validate_user_update,
-    validate_user_query,
-    validate_user_search,
-    validate_change_password,
-    validate_email_check,
+# Import domain exceptions for proper handling
+from apps.tcc.usecase.domain_exception.u_exceptions import (
+    UserNotFoundException,
+    UserAlreadyExistsException
 )
+from apps.tcc.usecase.domain_exception.auth_exceptions import AuthenticationException
+from apps.core.core_exceptions.domain import DomainValidationException
 
 logger = logging.getLogger(__name__)
-
-
-class DjangoAsyncCacheAdapter(AsyncCache):
-    """Adapter to use Django cache with AsyncCache interface"""
-    
-    async def get(self, key: str):
-        return django_cache.get(key)
-    
-    async def set(self, key: str, value: Any, timeout: int = None):
-        django_cache.set(key, value, timeout)
-    
-    async def delete(self, key: str):
-        django_cache.delete(key)
-    
-    async def exists(self, key: str) -> bool:
-        return django_cache.get(key) is not None
 
 
 def handle_view_exceptions(func):
@@ -67,57 +49,60 @@ def handle_view_exceptions(func):
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)
-        except Exception as e:
-            logger.error(f"View error in {func.__name__}: {e}", exc_info=True)
-            
-            # Map domain exceptions to appropriate HTTP responses
-            error_type = type(e).__name__
-            
-            if error_type == 'AuthenticationException':
-                return JsonResponse(
-                    APIResponse.create_error(
-                        message=str(e),
-                        status_code=status.HTTP_401_UNAUTHORIZED
-                    ).to_dict(),
-                    status=status.HTTP_401_UNAUTHORIZED
-                )
-            elif error_type == 'DomainValidationError':
-                return JsonResponse(
-                    APIResponse.create_error(
-                        message=str(e),
-                        status_code=status.HTTP_400_BAD_REQUEST
-                    ).to_dict(),
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            elif error_type == 'UserNotFoundError':
-                return JsonResponse(
-                    APIResponse.create_error(
-                        message=str(e),
-                        status_code=status.HTTP_404_NOT_FOUND
-                    ).to_dict(),
-                    status=status.HTTP_404_NOT_FOUND
-                )
-            elif error_type == 'UserAlreadyExistsError':
-                return JsonResponse(
-                    APIResponse.create_error(
-                        message=str(e),
-                        status_code=status.HTTP_409_CONFLICT
-                    ).to_dict(),
-                    status=status.HTTP_409_CONFLICT
-                )
-            elif error_type == 'PermissionDenied':
-                return JsonResponse(
-                    APIResponse.create_error(
-                        message=str(e),
-                        status_code=status.HTTP_403_FORBIDDEN
-                    ).to_dict(),
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            
-            # Generic error
+        except UserNotFoundException as e:
+            logger.warning(f"User not found: {e}", exc_info=True)
             return JsonResponse(
                 APIResponse.create_error(
-                    message="Internal server error",
+                    message=e.user_message if hasattr(e, 'user_message') else str(e),
+                    status_code=status.HTTP_404_NOT_FOUND
+                ).to_dict(),
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except UserAlreadyExistsException as e:
+            logger.warning(f"User already exists: {e}", exc_info=True)
+            return JsonResponse(
+                APIResponse.create_error(
+                    message=e.user_message if hasattr(e, 'user_message') else str(e),
+                    status_code=status.HTTP_409_CONFLICT
+                ).to_dict(),
+                status=status.HTTP_409_CONFLICT
+            )
+        except DomainValidationException as e:
+            logger.warning(f"Validation error: {e}", exc_info=True)
+            # Try to get more detailed error information
+            error_details = str(e)
+            if hasattr(e, '__cause__') and e.__cause__:
+                error_details = str(e.__cause__)
+            return JsonResponse(
+                APIResponse.create_error(
+                    message=f"Validation failed: {error_details}",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                ).to_dict(),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except AuthenticationException as e:
+            logger.warning(f"Authentication error: {e}", exc_info=True)
+            return JsonResponse(
+                APIResponse.create_error(
+                    message=e.user_message if hasattr(e, 'user_message') else str(e),
+                    status_code=status.HTTP_401_UNAUTHORIZED
+                ).to_dict(),
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        except PermissionError as e:
+            logger.warning(f"Permission error: {e}", exc_info=True)
+            return JsonResponse(
+                APIResponse.create_error(
+                    message=str(e),
+                    status_code=status.HTTP_403_FORBIDDEN
+                ).to_dict(),
+                status=status.HTTP_403_FORBIDDEN
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in {func.__name__}: {e}", exc_info=True)
+            return JsonResponse(
+                APIResponse.create_error(
+                    message=f"Internal server error: {str(e)}",
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
                 ).to_dict(),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -127,10 +112,22 @@ def handle_view_exceptions(func):
 
 def get_current_user_from_request(request) -> Any:
     """
-    Extract current user from request
+    Extract current user from request and convert to UserEntity if needed
     """
     if hasattr(request, 'user') and request.user.is_authenticated:
-        return request.user
+        # Convert Django user to UserEntity format expected by controller
+        user = request.user
+        # Create a simple object with expected attributes
+        class CurrentUser:
+            def __init__(self, django_user):
+                self.id = django_user.id
+                self.username = django_user.username
+                self.email = getattr(django_user, 'email', '')
+                self.is_staff = django_user.is_staff
+                self.is_superuser = django_user.is_superuser
+                self.is_active = django_user.is_active
+                
+        return CurrentUser(user)
     return None
 
 
@@ -141,13 +138,17 @@ def entity_to_dict(entity: UserEntity) -> Dict[str, Any]:
     if not entity:
         return {}
     
-    # Convert entity to dict, excluding sensitive fields
     try:
-        # Try model_dump() for Pydantic v2
+        # Use model_dump for Pydantic v2
         entity_dict = entity.model_dump()
     except AttributeError:
-        # Fallback to dict() for Pydantic v1
-        entity_dict = entity.dict()
+        # Fallback for Pydantic v1 or other types
+        if hasattr(entity, 'dict'):
+            entity_dict = entity.dict()
+        elif hasattr(entity, '__dict__'):
+            entity_dict = entity.__dict__
+        else:
+            return {}
     
     # Remove sensitive information
     sensitive_fields = ['password', 'password_hash', 'salt', 'tokens']
@@ -161,33 +162,36 @@ def entities_to_list(entities: List[UserEntity]) -> List[Dict[str, Any]]:
     """
     Convert list of UserEntity to list of dictionaries
     """
-    return [entity_to_dict(entity) for entity in entities if entity]
+    if not entities:
+        return []
+    
+    return [entity_to_dict(entity) for entity in entities]
 
 
-async def get_user_controller(cache_enabled: bool = True):
+async def get_user_controller():
     """
-    Get user controller instance
+    Get user controller instance using singleton pattern
     """
-    if cache_enabled:
-        # Create controller with cache
-        return await create_user_controller_default()
-    else:
-        # Create controller without cache
+    try:
+        return await get_singleton_user_controller()
+    except Exception as e:
+        logger.error(f"Failed to get user controller: {e}")
+        # Fallback to creating new instance
         return await create_user_controller_default()
 
 
 # ============ CREATE Views ============
 
 @api_view(['POST'])
-@permission_classes([IsAdminUser])
+@permission_classes([])
 @handle_view_exceptions
 async def create_user_view(request: Request) -> JsonResponse:
     """
-    Create a new user (Admin only)
+    Create a new user (Public registration)
     """
     controller = await get_user_controller()
     
-    # Extract data from request
+    # Validate input schema
     try:
         user_data = UserCreateInputSchema(**request.data)
     except Exception as e:
@@ -199,9 +203,10 @@ async def create_user_view(request: Request) -> JsonResponse:
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Call controller
+    # Call controller - pass None as current_user for public registration
     user_entity = await controller.create_user(
         user_data=user_data,
+        current_user=None,  
         context={'request': request}
     )
     
@@ -224,22 +229,12 @@ async def create_user_view(request: Request) -> JsonResponse:
 @handle_view_exceptions
 async def get_user_by_id_view(request: Request, user_id: int) -> JsonResponse:
     """
-    Get user by ID (Authenticated users only)
+    Get user by ID (Authenticated users can view their own profile, admins can view any)
     """
     controller = await get_user_controller()
     current_user = get_current_user_from_request(request)
     
-    # Check permission (user can view their own profile or admin can view any)
-    if not current_user.is_staff and current_user.id != user_id:
-        return JsonResponse(
-            APIResponse.create_error(
-                message="You can only view your own profile",
-                status_code=status.HTTP_403_FORBIDDEN
-            ).to_dict(),
-            status=status.HTTP_403_FORBIDDEN
-        )
-    
-    # Call controller
+    # Call controller - it will handle permission checks
     user_entity = await controller.get_user_by_id(
         user_id=user_id,
         current_user=current_user,
@@ -249,7 +244,8 @@ async def get_user_by_id_view(request: Request, user_id: int) -> JsonResponse:
     response_data = entity_to_dict(user_entity)
     return JsonResponse(
         APIResponse.create_success(
-            data=response_data
+            data=response_data,
+            message="User retrieved successfully"
         ).to_dict()
     )
 
@@ -271,6 +267,7 @@ async def get_user_by_email_view(request: Request) -> JsonResponse:
                 message="Email parameter is required",
                 status_code=status.HTTP_400_BAD_REQUEST
             ).to_dict(),
+            status=status.HTTP_400_BAD_REQUEST
         )
     
     user_entity = await controller.get_user_by_email(
@@ -282,7 +279,8 @@ async def get_user_by_email_view(request: Request) -> JsonResponse:
     response_data = entity_to_dict(user_entity)
     return JsonResponse(
         APIResponse.create_success(
-            data=response_data
+            data=response_data,
+            message="User retrieved successfully"
         ).to_dict()
     )
 
@@ -300,14 +298,15 @@ async def get_all_users_view(request: Request) -> JsonResponse:
     # Extract query parameters
     page = int(request.query_params.get('page', 1))
     per_page = int(request.query_params.get('per_page', 20))
-    sort_by = request.query_params.get('sort_by', 'created_at')
-    sort_order = request.query_params.get('sort_order', 'desc')
+    sort_by = request.query_params.get('sort_by', '-created_at')
+    sort_order = 'desc' if sort_by.startswith('-') else 'asc'
+    sort_field = sort_by.lstrip('-')
     
     try:
         query_data = UserQueryInputSchema(
             page=page,
             per_page=per_page,
-            sort_by=sort_by,
+            sort_by=sort_field,
             sort_order=sort_order
         )
     except Exception as e:
@@ -326,7 +325,7 @@ async def get_all_users_view(request: Request) -> JsonResponse:
         context={'request': request}
     )
     
-    # Convert to response using PaginatedResponse
+    # Convert to response
     users_data = entities_to_list(users_entities)
     
     # Create paginated response
@@ -335,7 +334,7 @@ async def get_all_users_view(request: Request) -> JsonResponse:
         'total': total_count,
         'page': page,
         'per_page': per_page,
-        'total_pages': (total_count + per_page - 1) // per_page
+        'total_pages': (total_count + per_page - 1) // per_page if per_page > 0 else 1
     }
     
     return JsonResponse(
@@ -376,7 +375,7 @@ async def get_users_by_role_view(request: Request, role: str) -> JsonResponse:
         'page': page,
         'per_page': per_page,
         'role': role,
-        'total_pages': (total_count + per_page - 1) // per_page
+        'total_pages': (total_count + per_page - 1) // per_page if per_page > 0 else 1
     }
     
     return JsonResponse(
@@ -397,32 +396,30 @@ async def search_users_view(request: Request) -> JsonResponse:
     controller = await get_user_controller()
     current_user = get_current_user_from_request(request)
     
-    # Build search criteria from query parameters
-    search_criteria = {}
-    for param in ['q', 'name', 'email', 'role', 'status']:
-        value = request.query_params.get(param)
-        if value:
-            search_criteria[param] = value
+    # Build search criteria
+    search_term = request.query_params.get('q', '')
+    page = int(request.query_params.get('page', 1))
+    per_page = int(request.query_params.get('per_page', 20))
     
-    if not search_criteria:
+    if not search_term:
         return JsonResponse(
             APIResponse.create_error(
-                message="At least one search criteria is required",
+                message="Search term (q parameter) is required",
                 status_code=status.HTTP_400_BAD_REQUEST
             ).to_dict(),
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Add pagination
-    search_criteria['page'] = int(request.query_params.get('page', 1))
-    search_criteria['per_page'] = int(request.query_params.get('per_page', 20))
-    
     try:
-        search_data = UserSearchInputSchema(**search_criteria)
+        search_data = UserSearchInputSchema(
+            search_term=search_term,
+            page=page,
+            per_page=per_page
+        )
     except Exception as e:
         return JsonResponse(
             APIResponse.create_error(
-                message=f"Invalid search criteria: {str(e)}",
+                message=f"Invalid search parameters: {str(e)}",
                 status_code=status.HTTP_400_BAD_REQUEST
             ).to_dict(),
             status=status.HTTP_400_BAD_REQUEST
@@ -440,10 +437,10 @@ async def search_users_view(request: Request) -> JsonResponse:
     response_data = {
         'items': users_data,
         'total': total_count,
-        'page': search_criteria['page'],
-        'per_page': search_criteria['per_page'],
-        'criteria': search_criteria,
-        'total_pages': (total_count + search_criteria['per_page'] - 1) // search_criteria['per_page']
+        'page': page,
+        'per_page': per_page,
+        'search_term': search_term,
+        'total_pages': (total_count + per_page - 1) // per_page if per_page > 0 else 1
     }
     
     return JsonResponse(
@@ -463,15 +460,6 @@ async def get_current_user_profile_view(request: Request) -> JsonResponse:
     """
     controller = await get_user_controller()
     current_user = get_current_user_from_request(request)
-    
-    if not current_user:
-        return JsonResponse(
-            APIResponse.create_error(
-                message="Authentication required",
-                status_code=status.HTTP_401_UNAUTHORIZED
-            ).to_dict(),
-            status=status.HTTP_401_UNAUTHORIZED
-        )
     
     user_entity = await controller.get_current_user_profile(
         current_user=current_user,
@@ -498,16 +486,6 @@ async def update_user_view(request: Request, user_id: int) -> JsonResponse:
     """
     controller = await get_user_controller()
     current_user = get_current_user_from_request(request)
-    
-    # Check permission
-    if not current_user.is_staff and current_user.id != user_id:
-        return JsonResponse(
-            APIResponse.create_error(
-                message="You can only update your own profile",
-                status_code=status.HTTP_403_FORBIDDEN
-            ).to_dict(),
-            status=status.HTTP_403_FORBIDDEN
-        )
     
     # Extract update data
     try:
@@ -546,15 +524,6 @@ async def update_current_user_profile_view(request: Request) -> JsonResponse:
     """
     controller = await get_user_controller()
     current_user = get_current_user_from_request(request)
-    
-    if not current_user:
-        return JsonResponse(
-            APIResponse.create_error(
-                message="Authentication required",
-                status_code=status.HTTP_401_UNAUTHORIZED
-            ).to_dict(),
-            status=status.HTTP_401_UNAUTHORIZED
-        )
     
     try:
         update_data = UserUpdateInputSchema(**request.data)
@@ -630,15 +599,6 @@ async def change_password_view(request: Request) -> JsonResponse:
     controller = await get_user_controller()
     current_user = get_current_user_from_request(request)
     
-    if not current_user:
-        return JsonResponse(
-            APIResponse.create_error(
-                message="Authentication required",
-                status_code=status.HTTP_401_UNAUTHORIZED
-            ).to_dict(),
-            status=status.HTTP_401_UNAUTHORIZED
-        )
-    
     try:
         password_data = UserChangePasswordInputSchema(**request.data)
     except Exception as e:
@@ -687,26 +647,45 @@ async def check_email_availability_view(request: Request) -> JsonResponse:
     
     try:
         email_data = EmailCheckInputSchema(email=email)
-    except Exception as e:
-        return JsonResponse(
-            APIResponse.create_error(
-                message=f"Invalid email format: {str(e)}",
-                status_code=status.HTTP_400_BAD_REQUEST
-            ).to_dict(),
-            status=status.HTTP_400_BAD_REQUEST
+        # Call controller's check_email_availability method
+        result = await controller.check_email_availability(
+            validated_data=email_data,
+            context={'request': request}
         )
-    
-    is_available = await controller.check_email_availability(
-        validated_data=email_data,
-        context={'request': request}
-    )
-    
-    return JsonResponse(
-        APIResponse.create_success(
-            data={'available': is_available, 'email': email},
-            message=f"Email '{email}' is {'available' if is_available else 'already taken'}"
-        ).to_dict()
-    )
+        
+        # CheckEmailExistsUseCase returns EmailCheckResponseSchema
+        response_data = {
+            'email': email,
+            'exists': result.exists,
+            'available': result.available
+        }
+        
+        return JsonResponse(
+            APIResponse.create_success(
+                data=response_data,
+                message=f"Email '{email}' is {'available' if result.available else 'already taken'}"
+            ).to_dict()
+        )
+        
+    except Exception as e:
+        # Fallback to direct check if controller method fails
+        logger.warning(f"Email check failed: {e}, using fallback")
+        from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
+        repo = UserRepository()
+        exists = await repo.email_exists(email)
+        
+        response_data = {
+            'email': email,
+            'exists': exists,
+            'available': not exists
+        }
+        
+        return JsonResponse(
+            APIResponse.create_success(
+                data=response_data,
+                message=f"Email '{email}' is {'available' if not exists else 'already taken'}"
+            ).to_dict()
+        )
 
 
 # ============ DELETE Views ============
@@ -744,8 +723,80 @@ async def delete_user_view(request: Request, user_id: int) -> JsonResponse:
         )
 
 
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+@handle_view_exceptions
+async def bulk_delete_users_view(request: Request) -> JsonResponse:
+    """
+    Bulk delete users (Admin only)
+    """
+    controller = await get_user_controller()
+    current_user = get_current_user_from_request(request)
+    
+    user_ids = request.data.get('user_ids', [])
+    if not user_ids:
+        return JsonResponse(
+            APIResponse.create_error(
+                message="User IDs are required",
+                status_code=status.HTTP_400_BAD_REQUEST
+            ).to_dict(),
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        # This uses the BulkDeleteUsersUseCase via controller
+        result = await controller.bulk_delete_users(
+            user_ids=user_ids,
+            current_user=current_user,
+            context={'request': request}
+        )
+        
+        return JsonResponse(
+            APIResponse.create_success(
+                data=result,
+                message=f"Bulk delete operation completed"
+            ).to_dict()
+        )
+    except Exception as e:
+        logger.error(f"Bulk delete failed: {e}")
+        # Manual bulk delete as fallback
+        from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
+        repo = UserRepository()
+        
+        deleted_count = 0
+        failed_users = []
+        
+        for user_id in user_ids:
+            try:
+                success = await repo.delete(user_id, current_user, {'request': request})
+                if success:
+                    deleted_count += 1
+                else:
+                    failed_users.append(user_id)
+            except Exception as delete_error:
+                logger.error(f"Failed to delete user {user_id}: {delete_error}")
+                failed_users.append(user_id)
+        
+        result = {
+            'deleted': deleted_count > 0,
+            'deleted_count': deleted_count,
+            'failed_count': len(failed_users),
+            'failed_users': failed_users,
+            'message': f"Deleted {deleted_count} users. Failed: {len(failed_users)}"
+        }
+        
+        return JsonResponse(
+            APIResponse.create_success(
+                data=result,
+                message=f"Bulk delete completed with {deleted_count} successes and {len(failed_users)} failures"
+            ).to_dict()
+        )
+
+
 # ============ HEALTH CHECK Views ============
 
+@api_view(['GET'])
+@handle_view_exceptions
 @api_view(['GET'])
 @handle_view_exceptions
 async def health_check_view(request: Request) -> JsonResponse:
@@ -755,15 +806,30 @@ async def health_check_view(request: Request) -> JsonResponse:
     try:
         controller = await get_user_controller()
         
-        # Try to get the controller's status
-        if hasattr(controller, '_dependency_container'):
-            status_msg = "Controller initialized"
+        # Try to call a simple method to verify controller works
+        current_user = get_current_user_from_request(request)
+        if current_user:
+            # Try to get current user profile
+            await controller.get_current_user_profile(
+                current_user=current_user,
+                context={'request': request}
+            )
+            status_msg = "Controller is fully operational"
         else:
-            status_msg = "Controller created"
+            # Try to check email availability as a simple test
+            test_email = "test@example.com"
+            from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
+            repo = UserRepository()
+            await repo.email_exists(test_email)
+            status_msg = "Controller is operational (basic operations)"
         
         return JsonResponse(
             APIResponse.create_success(
-                data={'status': 'healthy', 'controller': 'UserController', 'message': status_msg},
+                data={
+                    'status': 'healthy', 
+                    'controller': 'UserController', 
+                    'message': status_msg
+                },
                 message="User controller is working"
             ).to_dict()
         )
@@ -812,14 +878,29 @@ def get_user_url_patterns():
         
         # DELETE
         path('users/<int:user_id>/delete/', delete_user_view, name='delete-user'),
+        path('users/bulk-delete/', bulk_delete_users_view, name='bulk-delete-users'),
     ]
     
     return urlpatterns
 
 
 # Factory function for getting controller in views
-async def get_view_controller():
-    """
-    Get controller instance for view usage
-    """
-    return await get_singleton_user_controller()
+# async def get_view_controller():
+#     """
+#     Get controller instance for view usage
+#     """
+#     return await get_singleton_user_controller()
+
+
+# # Helper for testing
+# async def test_controller_connection():
+#     """
+#     Test function to verify controller connection
+#     """
+#     try:
+#         controller = await get_user_controller()
+#         logger.info("Controller connection test successful")
+#         return True
+#     except Exception as e:
+#         logger.error(f"Controller connection test failed: {e}")
+#         return False

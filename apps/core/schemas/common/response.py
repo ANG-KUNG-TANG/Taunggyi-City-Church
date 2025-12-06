@@ -1,4 +1,4 @@
-from typing import Generic, TypeVar, Optional, Any, Dict, List
+from typing import Generic, TypeVar, Optional, Any, Dict
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -19,6 +19,14 @@ class APIResponse(BaseModel, Generic[T]):
     data: Optional[T] = Field(None, description="Payload or domain output")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     status_code: int = Field(default=200, description="HTTP status code")
+
+    # New optional debugging / machine-readable fields for errors
+    error_type: Optional[str] = Field(
+        None, description="Optional machine-readable error type or code (for clients)"
+    )
+    errors: Optional[Any] = Field(
+        None, description="Optional structured error details (e.g. validation errors)"
+    )
 
     model_config = ConfigDict(
         json_encoders={
@@ -42,7 +50,9 @@ class APIResponse(BaseModel, Generic[T]):
             message=message,
             data=data,
             timestamp=datetime.utcnow(),
-            status_code=status_code
+            status_code=status_code,
+            error_type=None,
+            errors=None
         )
 
     # ----------------------------------------
@@ -53,14 +63,25 @@ class APIResponse(BaseModel, Generic[T]):
         cls,
         message: str = "Error",
         data: Optional[Any] = None,
-        status_code: int = 400
+        status_code: int = 400,
+        error_type: Optional[str] = None,
+        errors: Optional[Any] = None,
     ) -> "APIResponse[Any]":
+        """
+        Create a standardized error response.
+
+        - `error_type` is a short machine-readable string (e.g. "VALIDATION_ERROR").
+        - `errors` can hold structured validation error details.
+        - `data` remains available if you want to include additional payload.
+        """
         return cls(
             success=False,
             message=message,
             data=data,
             timestamp=datetime.utcnow(),
-            status_code=status_code
+            status_code=status_code,
+            error_type=error_type,
+            errors=errors
         )
 
     # ----------------------------------------
@@ -76,61 +97,6 @@ class APIResponse(BaseModel, Generic[T]):
             "data": self.data,
             "timestamp": self.timestamp.isoformat(),
             "status_code": self.status_code,
+            "error_type": self.error_type,
+            "errors": self.errors,
         }
-
-
-class ErrorResponse(BaseModel):
-    """
-    Structured error response for internal use if needed.
-    Not used directly in views under Design A.
-    """
-
-    code: str
-    message: str
-    details: Optional[Any] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-
-    model_config = ConfigDict(
-        json_encoders={datetime: lambda v: v.isoformat()}
-    )
-
-
-class ValidationErrorResponse(ErrorResponse):
-    """
-    Specialized error response for validation failures.
-    """
-
-    @classmethod
-    def from_errors(cls, errors: Dict[str, Any]):
-        return cls(
-            code="VALIDATION_ERROR",
-            message="Validation failed",
-            details=errors
-        )
-
-
-class ListResponse(BaseModel, Generic[T]):
-    """
-    Generic list response wrapper for paginated or bulk data.
-    """
-
-    items: List[T]
-    total: int
-
-    model_config = ConfigDict(
-        json_encoders={datetime: lambda v: v.isoformat()}
-    )
-
-
-class SuccessResponse(BaseModel):
-    """
-    Simple success response for non-domain operations.
-    """
-
-    success: bool = True
-    message: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-
-    model_config = ConfigDict(
-        json_encoders={datetime: lambda v: v.isoformat()}
-    )

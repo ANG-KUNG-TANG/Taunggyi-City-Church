@@ -5,17 +5,21 @@ from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.domain_exception.u_exceptions import UserNotFoundException
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 from apps.core.schemas.input_schemas.users import UserUpdateInputSchema
-from apps.core.schemas.out_schemas.user_out_schemas import UserResponseSchema
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 class UpdateUserUseCase(BaseUseCase):
-    """Update user - Returns UserResponseSchema"""
+    """Update user - Returns UserEntity"""
     
-    def __init__(self, user_repository: UserRepository = None, **dependencies):
+    def __init__(self, user_repository: UserRepository, **dependencies):
         super().__init__(**dependencies)
-        self.user_repository = user_repository or UserRepository()
+        self.user_repository = user_repository
+        # Store additional dependencies
+        for key, value in dependencies.items():
+            if key != 'user_repository':
+                setattr(self, key, value)
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -59,20 +63,13 @@ class UpdateUserUseCase(BaseUseCase):
             return True
             
         # User can update their own profile
-        if hasattr(current_user, 'id') and current_user.id == target_user_id:
+        if hasattr(current_user, 'id') and current_user.id == int(target_user_id):
             return True
             
-        # Managers can update users in their department
-        if hasattr(current_user, 'department_id') and hasattr(current_user, 'can_manage_department'):
-            target_user = await self.user_repository.get_by_id(target_user_id)
-            if target_user and hasattr(target_user, 'department_id'):
-                return (current_user.department_id == target_user.department_id and 
-                        current_user.can_manage_department)
-        
         return False
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> UserResponseSchema:
-        """Update user with business logic - Returns Schema"""
+    async def _on_execute(self, input_data: Dict[str, Any], user, ctx):
+        """Update user with business logic - Returns UserEntity"""
         user_id = int(input_data['user_id'])
         update_data = input_data.get('update_data', {})
         
@@ -86,23 +83,16 @@ class UpdateUserUseCase(BaseUseCase):
         
         # 2. Business rule: Prevent email change without verification
         if 'email' in update_data and update_data['email'] != existing_user.email:
-            if not hasattr(self, 'email_verification_service'):
-                raise DomainException(
-                    "Email change requires verification service",
-                    user_message="Email change is temporarily unavailable."
-                )
-            
-            # Trigger email verification workflow
-            await self.email_verification_service.initiate_email_change(
-                user_id=user_id,
-                old_email=existing_user.email,
-                new_email=update_data['email']
-            )
-            # Remove email from immediate update
-            del update_data['email']
+            if not hasattr(self, 'email_verification_service') or not self.email_verification_service:
+                # Remove email from update for now
+                logger.warning(f"Email change requested for user {user_id} but no verification service available")
+                del update_data['email']
         
-        # 3. Add audit context
-        update_data_with_context = self._add_audit_context(update_data, user, ctx)
+        # 3. Add audit context if available
+        if hasattr(self, '_add_audit_context'):
+            update_data_with_context = self._add_audit_context(update_data, user, ctx)
+        else:
+            update_data_with_context = update_data
         
         # 4. Update via repository
         updated_entity = await self.user_repository.update(user_id, update_data_with_context)
@@ -114,7 +104,7 @@ class UpdateUserUseCase(BaseUseCase):
             )
         
         # 5. Async side effect: Log update
-        if hasattr(self, 'audit_service'):
+        if hasattr(self, 'audit_service') and self.audit_service:
             asyncio.create_task(
                 self.audit_service.log_user_update(
                     user_id=user_id,
@@ -123,15 +113,19 @@ class UpdateUserUseCase(BaseUseCase):
                 )
             )
         
-        # 6. Return response schema
-        return UserResponseSchema.model_validate(updated_entity)
+        return updated_entity
+
 
 class ChangeUserStatusUseCase(BaseUseCase):
-    """Change user status - Returns UserResponseSchema"""
+    """Change user status - Returns UserEntity"""
     
-    def __init__(self, user_repository: UserRepository = None, **dependencies):
+    def __init__(self, user_repository: UserRepository, **dependencies):
         super().__init__(**dependencies)
-        self.user_repository = user_repository or UserRepository()
+        self.user_repository = user_repository
+        # Store additional dependencies
+        for key, value in dependencies.items():
+            if key != 'user_repository':
+                setattr(self, key, value)
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -139,8 +133,8 @@ class ChangeUserStatusUseCase(BaseUseCase):
         self.config.validate_input = True
         self.config.audit_log = True
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> UserResponseSchema:
-        """Change status with business rules - Returns Schema"""
+    async def _on_execute(self, input_data: Dict[str, Any], user, ctx):
+        """Change status with business rules - Returns UserEntity"""
         user_id = int(input_data['user_id'])
         new_status = input_data['status']
         
@@ -160,15 +154,20 @@ class ChangeUserStatusUseCase(BaseUseCase):
                     user_message="You do not have permission to modify super admin accounts."
                 )
         
-        # Update status
-        update_data = self._add_audit_context({'status': new_status}, user, ctx)
+        # Add audit context if available
+        status_update_data = {'status': new_status}
+        if hasattr(self, '_add_audit_context'):
+            update_data = self._add_audit_context(status_update_data, user, ctx)
+        else:
+            update_data = status_update_data
+        
         updated_entity = await self.user_repository.update(user_id, update_data)
         
         if not updated_entity:
             raise DomainException("Failed to change user status")
         
         # Async: Log status change
-        if hasattr(self, 'notification_service'):
+        if hasattr(self, 'notification_service') and self.notification_service:
             asyncio.create_task(
                 self.notification_service.notify_status_change(
                     user_id=user_id,
@@ -177,5 +176,4 @@ class ChangeUserStatusUseCase(BaseUseCase):
                 )
             )
         
-        return UserResponseSchema.model_validate(updated_entity)
-
+        return updated_entity

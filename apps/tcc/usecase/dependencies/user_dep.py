@@ -1,8 +1,9 @@
 from typing import Dict, Any, Optional
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.usecases.users.user_create_uc import CreateAdminUserUseCase, CreateUserUseCase
-from apps.tcc.usecase.usecases.users.user_read_uc import (CheckEmailExistsUseCase, GetUserByIdUseCase, GetUserByEmailUseCase, GetAllUsersUseCase, GetUsersByRoleUseCase, SearchUsersUseCase,
+from apps.tcc.usecase.usecases.users.user_read_uc import (CheckEmailExistsUseCase, GetUserByIdUseCase, GetUserByEmailUseCase,  GetUsersByRoleUseCase, ListUsersUseCase, SearchUsersUseCase,
 SearchUsersUseCase)
+from apps.tcc.usecase.usecases.users.user_register_uc import RegisterUserUseCase
 from apps.tcc.usecase.usecases.users.user_update_uc import UpdateUserUseCase,ChangeUserStatusUseCase
 from apps.tcc.usecase.usecases.users.user_delete_uc import DeleteUserUseCase, BulkDeleteUsersUseCase
 
@@ -32,6 +33,13 @@ class UserDependencyContainer:
             self._use_cases[key] = CreateUserUseCase(user_repository=user_repo)
         return self._use_cases[key]
 
+    async def get_register_user_uc(self) -> RegisterUserUseCase:
+        key = 'register_user'
+        if key not in self._use_cases:
+            user_repo = await self.get_user_repository()
+            self._use_cases[key] = RegisterUserUseCase(user_repository=user_repo)
+        return self._use_cases[key]
+    
     async def get_create_admin_user_uc(self) -> CreateAdminUserUseCase:
         key = 'create_admin_user'
         if key not in self._use_cases:
@@ -53,11 +61,11 @@ class UserDependencyContainer:
             self._use_cases[key] = GetUserByEmailUseCase(user_repository=user_repo)
         return self._use_cases[key]
 
-    async def get_all_users_uc(self) -> GetAllUsersUseCase:
+    async def get_all_users_uc(self) -> ListUsersUseCase:
         key = 'get_all_users'
         if key not in self._use_cases:
             user_repo = await self.get_user_repository()
-            self._use_cases[key] = GetAllUsersUseCase(user_repository=user_repo)
+            self._use_cases[key] = ListUsersUseCase(user_repository=user_repo)
         return self._use_cases[key]
 
     async def get_users_by_role_uc(self) -> GetUsersByRoleUseCase:

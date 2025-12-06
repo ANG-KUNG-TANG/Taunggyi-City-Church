@@ -36,8 +36,7 @@ class BaseController:
             # -----------------------------
             except EntityNotFoundException as e:
                 logger.warning(f"[NOT FOUND] {func.__name__}: {e}")
-                raise e  # Let VIEW translate to APIResponse
-
+                raise e  
             except DomainValidationException as e:
                 logger.warning(f"[VALIDATION ERROR] {func.__name__}: {e}")
                 raise e

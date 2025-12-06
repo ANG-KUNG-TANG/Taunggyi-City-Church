@@ -39,7 +39,7 @@ class DatabaseErrorHandler:
     
     def handle_operation(self, operation: Callable[..., T]) -> Callable[..., T]:
         """
-        Main decorator for sync database operations
+        Decorator for synchronous database operations
         """
         @wraps(operation)
         def wrapper(*args, **kwargs) -> T:
@@ -49,7 +49,7 @@ class DatabaseErrorHandler:
             try:
                 return operation(*args, **kwargs)
             except Exception as e:
-                return self._handle_exception(e, context)
+                self._handle_exception(e, context)
         
         return wrapper
     
@@ -65,7 +65,7 @@ class DatabaseErrorHandler:
             try:
                 return await operation(*args, **kwargs)
             except Exception as e:
-                return self._handle_exception(e, context)
+                self._handle_exception(e, context)
         
         return async_wrapper
     
@@ -155,8 +155,6 @@ class DatabaseErrorHandler:
         """
         Enhanced retry logic with better context and error handling
         """
-        import random
-        
         max_attempts = max_attempts or self.retry_config['max_attempts']
         context = context or {}
         operation_name = getattr(operation, '__name__', 'unknown_operation')
@@ -325,7 +323,6 @@ class DatabaseErrorHandler:
         Enhanced connection health check with more diagnostics
         """
         from django.db import connection
-        import time
         
         health_info = {
             'healthy': False,

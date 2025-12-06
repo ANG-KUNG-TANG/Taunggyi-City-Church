@@ -3,6 +3,7 @@ import secrets
 import string
 from typing import Optional, Tuple
 import logging
+from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,11 @@ class PasswordService:
         try:
             # Generate salt and hash password
             salt = bcrypt.gensalt()
-            hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+            # Use sync_to_async for bcrypt operations since they're CPU intensive
+            def _hash():
+                return bcrypt.hashpw(password.encode('utf-8'), salt)
+            
+            hashed = await sync_to_async(_hash)()
             return hashed.decode('utf-8')
         except Exception as e:
             logger.error(f"Password hashing failed: {str(e)}")
@@ -26,10 +31,13 @@ class PasswordService:
             if not plain_password or not hashed_password:
                 return False
             
-            return bcrypt.checkpw(
-                plain_password.encode('utf-8'),
-                hashed_password.encode('utf-8')
-            )
+            def _verify():
+                return bcrypt.checkpw(
+                    plain_password.encode('utf-8'),
+                    hashed_password.encode('utf-8')
+                )
+            
+            return await sync_to_async(_verify)()
         except Exception as e:
             logger.error(f"Password verification failed: {str(e)}")
             return False

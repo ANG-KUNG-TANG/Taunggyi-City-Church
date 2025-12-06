@@ -28,13 +28,14 @@ from apps.core.schemas.validator.user_deco import (
 )
 
 # Import dependency container
-from apps.tcc.usecase.dependencies.user_dep import UserDependencyContainer, get_user_dependency_container
+from apps.tcc.usecase.dependencies.user_dep import get_user_dependency_container
 
-from apps.tcc.usecase.services.auth.base_controller import BaseController
-from apps.tcc.usecase.services.exceptions.u_handler_exceptions import UserExceptionHandler
+# FIXED: Use only UserExceptionHandler since it now converts to core exceptions
+from apps.tcc.usecase.services.exceptions.u_handler_exceptions import handle_user_exceptions
 from apps.tcc.usecase.entities.users_entity import UserEntity
 from apps.tcc.usecase.domain_exception.auth_exceptions import AuthenticationException
 from apps.core.cache.async_cache import AsyncCache
+from apps.core.schemas.out_schemas.user_out_schemas import EmailCheckResponseSchema
 
 logger = logging.getLogger(__name__)
 
@@ -51,25 +52,31 @@ def ensure_initialized(func):
     return wrapper
 
 
-class UserController(BaseController):
+class UserController:
     """
     User Controller - Returns domain entities ONLY (no APIResponse)
+    NOTE: Does NOT inherit from BaseController to avoid duplicate exception handling
     """
     
     def __init__(self, cache: Optional[AsyncCache] = None):
         self._cache = cache
-        self._dependency_container: Optional[UserDependencyContainer] = None
+        self._dependency_container = None
 
     async def initialize(self):
         """Initialize dependency container"""
         try:
-            # Create a new dependency container instance
-            self._dependency_container = UserDependencyContainer(cache=self._cache)
+            # Get dependency container instance
+            self._dependency_container = await get_user_dependency_container(cache=self._cache)
             logger.info("UserController initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize UserController: {e}")
-            raise
+            logger.error(f"Failed to initialize UserController: {e}", exc_info=True)
+            # Raise a domain exception for initialization errors
+            from apps.core.core_exceptions.domain import DomainException
+            raise DomainException(
+                message="Failed to initialize user controller",
+                context={"error": str(e)}
+            )
 
     async def _get_use_case(self, use_case_name: str):
         """Get use case from dependency container"""
@@ -79,14 +86,18 @@ class UserController(BaseController):
         # Map use case names to container methods
         use_case_map = {
             'create_user': self._dependency_container.get_create_user_uc,
+            'create_admin_user': self._dependency_container.get_create_admin_user_uc,
             'get_user_by_id': self._dependency_container.get_user_by_id_uc,
             'get_user_by_email': self._dependency_container.get_user_by_email_uc,
             'get_all_users': self._dependency_container.get_all_users_uc,
             'get_users_by_role': self._dependency_container.get_users_by_role_uc,
             'search_users': self._dependency_container.get_search_users_uc,
+            'check_email': self._dependency_container.get_check_email_uc,
             'update_user': self._dependency_container.get_update_user_uc,
             'change_user_status': self._dependency_container.get_change_user_status_uc,
             'delete_user': self._dependency_container.get_delete_user_uc,
+            'bulk_delete_users': self._dependency_container.get_bulk_delete_users_uc,
+            'register_user': self._dependency_container.get_register_user_uc,  # Added missing use case
         }
         
         if use_case_name not in use_case_map:
@@ -97,22 +108,48 @@ class UserController(BaseController):
         return await use_case_getter()
 
     # ========== CREATE Operations ==========
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
-    @validate_and_authorize_user_create
+    @handle_user_exceptions
     @ensure_initialized
+    # @validate_user_create
     async def create_user(
+        self, 
+        user_data: UserCreateInputSchema, 
+        current_user: Any = None,
+        context: Dict[str, Any] = None
+    ) -> UserEntity:
+        """Create a new user account - Returns Entity"""
+        logger.info(f"Creating user with data: {user_data.model_dump(exclude={'password', 'password_confirm'})}")
+        create_user_uc = await self._get_use_case('create_user')
+        result = await create_user_uc.execute(user_data.model_dump(), current_user, context or {})
+        logger.info(f"User created successfully: {result.id if hasattr(result, 'id') else 'No ID'}")
+        return result
+    
+    @handle_user_exceptions
+    @ensure_initialized
+    async def register_user(
         self, 
         user_data: UserCreateInputSchema, 
         context: Dict[str, Any] = None
     ) -> UserEntity:
-        """Create a new user account - Returns Entity"""
-        create_user_uc = await self._get_use_case('create_user')
-        return await create_user_uc.execute(user_data.model_dump(), None, context or {})
+        """Public user registration - Returns Entity"""
+        register_user_uc = await self._get_use_case('register_user')
+        return await register_user_uc.execute(user_data.model_dump(), None, context or {})
+    
+    @handle_user_exceptions
+    @require_admin
+    @ensure_initialized
+    async def create_admin_user(
+        self, 
+        user_data: UserCreateInputSchema, 
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> UserEntity:
+        """Create admin user - Returns Entity"""
+        create_admin_uc = await self._get_use_case('create_admin_user')
+        return await create_admin_uc.execute(user_data.model_dump(), current_user, context or {})
 
     # ========== READ Operations ==========
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @require_member
     @ensure_initialized
     async def get_user_by_id(
@@ -126,8 +163,7 @@ class UserController(BaseController):
         input_data = {'user_id': user_id}
         return await get_user_by_id_uc.execute(input_data, current_user, context or {})
 
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @require_member
     @ensure_initialized
     async def get_user_by_email(
@@ -141,8 +177,7 @@ class UserController(BaseController):
         input_data = {'email': email}
         return await get_user_by_email_uc.execute(input_data, current_user, context or {})
 
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @validate_and_authorize_user_query
     @ensure_initialized
     async def get_all_users(
@@ -156,8 +191,7 @@ class UserController(BaseController):
         input_data = validated_data.model_dump()
         return await get_all_users_uc.execute(input_data, current_user, context or {})
 
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @require_admin
     @ensure_initialized
     async def get_users_by_role(
@@ -173,8 +207,7 @@ class UserController(BaseController):
         input_data = {'role': role, 'page': page, 'per_page': per_page}
         return await get_users_by_role_uc.execute(input_data, current_user, context or {})
 
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @validate_user_search
     @require_admin
     @ensure_initialized
@@ -189,8 +222,7 @@ class UserController(BaseController):
         input_data = validated_data.model_dump()
         return await search_users_uc.execute(input_data, current_user, context or {})
 
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @require_member
     @ensure_initialized
     async def get_current_user_profile(
@@ -205,8 +237,7 @@ class UserController(BaseController):
         return await self.get_user_by_id(current_user.id, current_user, context)
 
     # ========== UPDATE Operations ==========
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @validate_and_authorize_user_update
     @ensure_initialized
     async def update_user(
@@ -224,8 +255,7 @@ class UserController(BaseController):
         }
         return await update_user_uc.execute(input_data, current_user, context or {})
 
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @validate_user_update
     @validate_user_ownership()
     @ensure_initialized
@@ -241,8 +271,7 @@ class UserController(BaseController):
         
         return await self.update_user(current_user.id, user_data, current_user, context)
 
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @require_admin
     @ensure_initialized
     async def change_user_status(
@@ -258,8 +287,7 @@ class UserController(BaseController):
         return await change_user_status_uc.execute(input_data, current_user, context or {})
 
     # ========== PASSWORD Operations ==========
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @validate_change_password
     @require_member
     @ensure_initialized
@@ -278,27 +306,22 @@ class UserController(BaseController):
         return await update_user_uc.execute(input_data, current_user, context or {})
 
     # ========== EMAIL Operations ==========
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @validate_email_check
     @ensure_initialized
     async def check_email_availability(
         self,
         validated_data: EmailCheckInputSchema,
         context: Dict[str, Any] = None
-    ) -> bool:
-        """Check if email is available - Returns boolean"""
-        get_user_by_email_uc = await self._get_use_case('get_user_by_email')
-        try:
-            input_data = {'email': validated_data.email}
-            await get_user_by_email_uc.execute(input_data, None, context or {})
-            return False  # Email exists
-        except Exception:
-            return True  # Email is available
+    ) -> EmailCheckResponseSchema:
+        """Check if email exists - Returns EmailCheckResponseSchema"""
+        check_email_uc = await self._get_use_case('check_email')
+        input_data = {'email': validated_data.email}
+        result = await check_email_uc.execute(input_data, None, context or {})
+        return result
 
     # ========== DELETE Operations ==========
-    @BaseController.handle_exceptions
-    @UserExceptionHandler.handle_user_exceptions
+    @handle_user_exceptions
     @require_admin
     @ensure_initialized
     async def delete_user(
@@ -310,9 +333,26 @@ class UserController(BaseController):
         """Delete user by ID - Returns boolean success"""
         delete_user_uc = await self._get_use_case('delete_user')
         input_data = {'user_id': user_id}
-        return await delete_user_uc.execute(input_data, current_user, context or {})
+        result = await delete_user_uc.execute(input_data, current_user, context or {})
+        return result
+
+    @handle_user_exceptions
+    @require_admin
+    @ensure_initialized
+    async def bulk_delete_users(
+        self,
+        user_ids: List[int],
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """Bulk delete users - Returns result dict"""
+        bulk_delete_uc = await self._get_use_case('bulk_delete_users')
+        input_data = {'user_ids': user_ids}
+        result = await bulk_delete_uc.execute(input_data, current_user, context or {})
+        return result
 
     # ========== UTILITY Methods ==========
+    @handle_user_exceptions
     async def execute_direct_use_case(
         self,
         use_case_name: str,
@@ -327,6 +367,7 @@ class UserController(BaseController):
         use_case = await self._get_use_case(use_case_name)
         return await use_case.execute(input_data, current_user, context or {})
 
+    @handle_user_exceptions
     async def batch_operation(
         self,
         use_case_name: str,
@@ -350,18 +391,18 @@ class UserController(BaseController):
         
         return results
 
+    async def get_all_use_cases(self) -> Dict[str, Any]:
+        """Get all use cases from dependency container"""
+        if not self._dependency_container:
+            await self.initialize()
+        
+        return await self._dependency_container.get_all_user_use_cases()
 
-# Alternative factory functions
-async def create_user_controller_with_cache(cache: AsyncCache) -> UserController:
-    """Create user controller with specific cache instance"""
+
+# Factory functions
+async def create_user_controller(cache: Optional[AsyncCache] = None) -> UserController:
+    """Create user controller with cache"""
     controller = UserController(cache=cache)
-    await controller.initialize()
-    return controller
-
-
-async def create_user_controller_default() -> UserController:
-    """Create user controller with default settings"""
-    controller = UserController()
     await controller.initialize()
     return controller
 
@@ -369,9 +410,9 @@ async def create_user_controller_default() -> UserController:
 # Singleton instance (optional)
 _singleton_controller: Optional[UserController] = None
 
-async def get_singleton_user_controller() -> UserController:
+async def get_user_controller(cache: Optional[AsyncCache] = None) -> UserController:
     """Get singleton instance of UserController"""
     global _singleton_controller
     if _singleton_controller is None:
-        _singleton_controller = await create_user_controller_default()
+        _singleton_controller = await create_user_controller(cache=cache)
     return _singleton_controller

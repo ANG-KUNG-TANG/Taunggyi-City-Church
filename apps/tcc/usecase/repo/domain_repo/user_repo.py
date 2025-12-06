@@ -14,41 +14,73 @@ logger = logging.getLogger(__name__)
 
 class UserRepository(BaseRepository[User, UserEntity]):
     """
-    Pure data access layer for User model.
-    No business logic, no authentication, no password handling.
+    User-specific repository with full implementation
+    Includes caching, retry, and error handling
     """
     
     def __init__(self):
         super().__init__(User)
-    
-    # ============ REQUIRED ABSTRACT METHOD ============
+        self.cache_prefix = "user"
     
     async def _model_to_entity(self, user_model) -> UserEntity:
-        """Convert Django model to UserEntity - REQUIRED by BaseRepository"""
+        """Convert model to entity - User-specific"""
         if user_model is None:
             return None
         return UserEntity.from_model(user_model)
     
-    # ============ CORE CRUD WITH CACHING ============
-    
-    @with_db_error_handling
-    @with_retry(max_retries=3)
-    @cache_invalidate(
-        key_templates=["user:{user_entity.id}", "user:email:{user_entity.email}", "users:list:*"],
-        namespace="users",
-        version="1"
-    )
+    # @with_db_error_handling
+    # @with_retry(max_retries=3)
+    # @cache_invalidate(
+    #     key_templates=["user:{user_entity.id}", "user:email:{user_entity.email}", "users:list:*"],
+    #     namespace="users",
+    #     version="1"
+    # )
     async def create(self, data: Dict, user=None, request=None) -> Optional[UserEntity]:
-        """Create user - ONLY data persistence"""
-        # NO password hashing here - use case handles that
-        return await super().create(data, user, request)
+        """Create user"""
+        logger.debug(f"Creating user with data: {list(data.keys())}")
+        
+        # Prepare data with audit fields
+        prepared_data = self._prepare_audit_fields(data, user)
+        
+        # Create and save model
+        user_model = self.model_class(**prepared_data)
+        
+        @sync_to_async
+        def save_model():
+            user_model.save()
+            return user_model
+        
+        saved_model = await save_model()
+        logger.debug(f"User saved with ID: {saved_model.id}")
+        
+        # Log creation
+        if user:
+            audit_context, ip, ua = self._get_audit_context(request)
+            self._log_create(user, saved_model, ip, ua)
+        
+        # Convert to entity
+        entity = await self._model_to_entity(saved_model)
+        logger.debug(f"Created entity: {entity}")
+        
+        return entity
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
-    @cached(key_template="user:{object_id}", ttl=3600, namespace="users", version="1")
-    async def get_by_id(self, object_id: int, user=None, *args, **kwargs) -> Optional[UserEntity]:
-        """Get user by ID - with caching"""
-        return await super().get_by_id(object_id, user, *args, **kwargs)
+    @cached(ttl=300, key_template="user:{user_id}", namespace="users", version="1")
+    async def get_by_id(self, user_id: int, user=None, **kwargs) -> Optional[UserEntity]:
+        """Get user by ID with caching"""
+        # User-specific implementation
+        try:
+            from asgiref.sync import sync_to_async
+            
+            # Get from database
+            user_model = await sync_to_async(self.model_class.objects.filter(id=user_id).first)()
+            
+            # Convert to entity
+            return await self._model_to_entity(user_model)
+            
+        except Exception as e:
+            logger.error(f"UserRepository.get_by_id failed: {str(e)}", exc_info=True)
+            raise
     
     @with_db_error_handling
     @with_retry(max_retries=3)

@@ -1,6 +1,6 @@
 from typing import Optional, List
 from datetime import date
-from pydantic import Field, EmailStr, model_validator
+from pydantic import Field, EmailStr, model_validator, validator
 from apps.core.schemas.input_schemas.base import BaseSchema
 from apps.tcc.models.base.enums import Gender, MaritalStatus, UserRole, UserStatus
 
@@ -23,9 +23,11 @@ class UserBaseInputSchema(BaseSchema):
     role: UserRole = Field(default=UserRole.VISITOR, description="User role")
     status: UserStatus = Field(default=UserStatus.PENDING, description="User status")
     email_notifications: bool = Field(default=True, description="Email notifications preference")
+    password: str = Field(..., min_length=8, max_length=100)
+    password_confirm: str = Field(..., min_length=8, max_length=100)
     
     # Required system fields based on repo - REMOVED defaults
-    is_active: bool = Field(description="Active status")  # No default - let repo decide
+    is_active: bool = Field(default=True)  # No default - let repo decide
     
     # ADDED: User-specific flags with better defaults
     requires_password_change: bool = Field(default=False, description="Password change required")
@@ -37,21 +39,31 @@ class UserBaseInputSchema(BaseSchema):
             raise ValueError("Date of birth cannot be in the future.")
         return self
 
+    @validator('password_confirm')
+    def passwords_match(cls, v, values, **kwargs):
+        if 'password' in values and v != values['password']:
+            raise ValueError('Passwords do not match')
+        return v
+    
 class UserCreateInputSchema(UserBaseInputSchema):
     """Schema for creating new users."""
     
-    password: str = Field(..., min_length=8, description="Password")
-    password_confirm: str = Field(..., min_length=8, description="Password confirmation")
+    # password: str = Field(..., min_length=8, description="Password")
+    # password_confirm: str = Field(..., min_length=8, description="Password confirmation")
 
     @model_validator(mode="after")
     def validate_passwords_match(self):
-        """Ensure passwords match."""
+        """Ensure passwords match - extra validation."""
+        # Double-check passwords match
         if self.password != self.password_confirm:
             raise ValueError("Passwords do not match")
+        
+        # Additional business logic if needed
+        if len(self.password) < 8:
+            raise ValueError("Password must be at least 8 characters")
+            
         return self
     
-    # REMOVED: is_staff and is_superuser - these should be set by system/admin
-
 class UserUpdateInputSchema(BaseSchema):
     """Schema for updating existing users (all fields optional)."""
     

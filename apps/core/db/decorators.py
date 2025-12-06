@@ -31,16 +31,76 @@ def with_db_error_handling(func: Callable[..., T]) -> Callable[..., T]:
     Unified decorator for database operations with comprehensive error handling
     Supports both sync and async functions
     """
-    @functools.wraps(func)
-    def sync_wrapper(*args, **kwargs):
-        return db_error_handler.handle_operation(func)(*args, **kwargs)
-    
-    @functools.wraps(func)
-    async def async_wrapper(*args, **kwargs):
-        return await db_error_handler.handle_async_operation(func)(*args, **kwargs)
-    
-    return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
-
+    if asyncio.iscoroutinefunction(func):
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            operation_name = func.__name__
+            context = {
+                'operation': operation_name,
+                'module': func.__module__,
+                'is_async': True
+            }
+            
+            try:
+                # DEBUG: Add logging
+                logger.debug(f"Calling async operation: {operation_name} with args: {args}, kwargs: {kwargs.keys()}")
+                
+                # handle_async_operation returns a wrapper function, not a coroutine
+                wrapper_func = db_error_handler.handle_async_operation(func)
+                result = await wrapper_func(*args, **kwargs)
+                
+                logger.debug(f"Async operation {operation_name} completed successfully")
+                return result
+                
+            except Exception as e:
+                logger.error(
+                    f"Async operation failed: {operation_name}",
+                    extra={
+                        'context': context, 
+                        'error': str(e),
+                        'error_type': type(e).__name__,
+                        'args': str(args),
+                        'kwargs': str(kwargs)
+                    },
+                    exc_info=True
+                )
+                raise
+        return async_wrapper
+    else:
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            operation_name = func.__name__
+            context = {
+                'operation': operation_name,
+                'module': func.__module__,
+                'is_async': False
+            }
+            
+            try:
+                # DEBUG: Add logging
+                logger.debug(f"Calling sync operation: {operation_name}")
+                
+                # handle_operation returns a wrapper function
+                wrapper_func = db_error_handler.handle_operation(func)
+                result = wrapper_func(*args, **kwargs)
+                
+                logger.debug(f"Sync operation {operation_name} completed successfully")
+                return result
+                
+            except Exception as e:
+                logger.error(
+                    f"Sync operation failed: {operation_name}",
+                    extra={
+                        'context': context, 
+                        'error': str(e),
+                        'error_type': type(e).__name__,
+                        'args': str(args),
+                        'kwargs': str(kwargs)
+                    },
+                    exc_info=True
+                )
+                raise
+        return sync_wrapper
 
 class with_retry:
     """

@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional, TypeVar, Generic, List
 from django.db import transaction
-from asgiref.sync import sync_to_async
+from asgiref.sync import sync_to_async, async_to_sync
 
 from apps.core.core_exceptions.domain import DomainException
 from apps.core.schemas.out_schemas.base import DeleteResponseSchema
@@ -75,10 +75,20 @@ class BaseUseCase:
     async def _execute_main_logic(self, ctx: OperationContext):
         """Execute with transaction support"""
         if self.config.transactional:
-            async with transaction.async_atomic():
+            # FIXED: Use sync_to_async to wrap the transaction
+            async def run_in_transaction():
                 return await self._on_execute(ctx.input_data, ctx.user, ctx)
+            
+            # Run the entire operation in a synchronous transaction
+            return await sync_to_async(self._run_sync_transaction)(run_in_transaction)
         else:
             return await self._on_execute(ctx.input_data, ctx.user, ctx)
+
+    def _run_sync_transaction(self, async_func):
+        """Run async function inside a synchronous transaction"""
+        with transaction.atomic():
+            # Convert async function to sync for execution within transaction
+            return async_to_sync(async_func)()
 
     async def _after_execute(self, ctx: OperationContext):
         """Post-execution: output validation"""

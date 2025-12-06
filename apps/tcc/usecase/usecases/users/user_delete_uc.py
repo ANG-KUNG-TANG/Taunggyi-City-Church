@@ -9,12 +9,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class DeleteUserUseCase(BaseUseCase):
-    """Soft delete user - Returns DeleteResponseSchema"""
+    """Soft delete user - Returns boolean"""
     
-    def __init__(self, user_repository: UserRepository = None, **dependencies):
+    def __init__(self, user_repository: UserRepository, **dependencies):
         super().__init__(**dependencies)
-        self.user_repository = user_repository or UserRepository()
+        self.user_repository = user_repository
+        # Store additional dependencies
+        for key, value in dependencies.items():
+            if key != 'user_repository':
+                setattr(self, key, value)
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -46,8 +51,8 @@ class DeleteUserUseCase(BaseUseCase):
                     user_message="You do not have permission to delete super admin accounts."
                 )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> DeleteResponseSchema:
-        """Delete user with business logic - Returns DeleteResponseSchema"""
+    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> bool:
+        """Delete user with business logic - Returns boolean success"""
         user_id = int(input_data['user_id'])
         
         # 1. Check if user exists
@@ -59,7 +64,7 @@ class DeleteUserUseCase(BaseUseCase):
             )
         
         # 2. Business rule: Check for active dependencies
-        if hasattr(self, 'dependency_checker'):
+        if hasattr(self, 'dependency_checker') and self.dependency_checker:
             has_dependencies = await self.dependency_checker.check_user_dependencies(user_id)
             if has_dependencies:
                 raise DomainValidationException(
@@ -77,7 +82,7 @@ class DeleteUserUseCase(BaseUseCase):
             )
         
         # 4. Async side effects
-        if hasattr(self, 'notification_service'):
+        if hasattr(self, 'notification_service') and self.notification_service:
             asyncio.create_task(
                 self.notification_service.notify_user_deletion(
                     user_id=user_id,
@@ -85,19 +90,20 @@ class DeleteUserUseCase(BaseUseCase):
                 )
             )
         
-        # 5. Return delete response schema
-        return DeleteResponseSchema(
-            id=user_id,
-            deleted=True,
-            message="User deleted successfully"
-        )
+        # 5. Return boolean success
+        return success
+
 
 class BulkDeleteUsersUseCase(BaseUseCase):
-    """Bulk delete users - Returns DeleteResponseSchema with count"""
+    """Bulk delete users - Returns DeleteResponseSchema"""
     
-    def __init__(self, user_repository: UserRepository = None, **dependencies):
+    def __init__(self, user_repository: UserRepository, **dependencies):
         super().__init__(**dependencies)
-        self.user_repository = user_repository or UserRepository()
+        self.user_repository = user_repository
+        # Store additional dependencies
+        for key, value in dependencies.items():
+            if key != 'user_repository':
+                setattr(self, key, value)
     
     def _setup_configuration(self):
         self.config.require_authentication = True
@@ -144,7 +150,7 @@ class BulkDeleteUsersUseCase(BaseUseCase):
                 logger.error(f"Failed to delete user {user_id}: {str(e)}")
                 failed_users.append(user_id)
         
-        # Return response
+        # Return response schema
         return DeleteResponseSchema(
             id=0,  # No single ID for bulk operation
             deleted=deleted_count > 0,
