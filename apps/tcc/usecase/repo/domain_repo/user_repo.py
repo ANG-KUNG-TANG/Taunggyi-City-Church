@@ -5,7 +5,7 @@ from django.core.cache import cache
 from apps.tcc.models.users.users import User
 from apps.tcc.usecase.entities.users_entity import UserEntity  
 from apps.tcc.usecase.repo.base.base_repo import BaseRepository
-from apps.core.db.decorators import  with_db_error_handling, with_retry
+from apps.core.db.decorators import  with_db_error_handling, with_retry, circuit_breaker
 from apps.core.cache.decorator import cached, cache_invalidate
 import logging
 import hashlib
@@ -33,13 +33,14 @@ class UserRepository(BaseRepository[User, UserEntity]):
             return None
         return UserEntity.from_model(user_model)
     
-    # @with_db_error_handling
-    # @with_retry(max_retries=3)
-    # @cache_invalidate(
-    #     key_templates=["user:{user_entity.id}", "user:email:{user_entity.email}", "users:list:*"],
-    #     namespace="users",
-    #     version="1"
-    # )
+    @circuit_breaker()
+    @with_db_error_handling
+    @with_retry(max_attempts=3)
+    @cache_invalidate(
+        key_templates=["user:{user_entity.id}", "user:email:{user_entity.email}", "users:list:*"],
+        namespace="users",
+        version="1"
+    )
     async def create(self, data: Dict[str, Any], audit_context: Optional[Dict] = None) -> UserEntity:
         """Create a new user with audit context support."""
         try:
@@ -89,7 +90,7 @@ class UserRepository(BaseRepository[User, UserEntity]):
             raise
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
+    @with_retry()
     @cached(key_template="user:email:{email}", ttl=3600, namespace="users", version="1")
     async def get_by_email(self, email: str, include_password_hash: bool = False) -> Optional[UserEntity]:
         """Get user by email - with caching (PURE data access)"""
@@ -107,7 +108,7 @@ class UserRepository(BaseRepository[User, UserEntity]):
             return None
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
+    @with_retry(max_attempts=3)
     @cache_invalidate(
         key_templates=["user:{object_id}", "user:email:{user_entity.email}", "users:list:*"],
         namespace="users",
@@ -119,7 +120,7 @@ class UserRepository(BaseRepository[User, UserEntity]):
         return await super().update(object_id, data, user, request)
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
+    @with_retry(max_attempts=3)
     @cache_invalidate(
         key_templates=["user:{object_id}", "user:email:{user.email}", "users:list:*"],
         namespace="users",
@@ -132,13 +133,13 @@ class UserRepository(BaseRepository[User, UserEntity]):
     # ============ LIST OPERATIONS WITH CACHING ============
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
+    @with_retry(max_attempts=3)
     async def list_all(self, user=None, filters: Dict = None, **kwargs) -> List[UserEntity]:
         """List all users - without caching (bypass for fresh data)"""
         return await super().list_all(user, filters, **kwargs)
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
+    @with_retry(max_attempts=3)
     @cached(
         key_template="users:list:{filters_hash}:{page}:{per_page}",
         ttl=900,  # 15 minutes for list views
@@ -175,7 +176,7 @@ class UserRepository(BaseRepository[User, UserEntity]):
     # ============ SPECIALIZED QUERIES ============
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
+    @with_retry(max_attempts=3)
     async def search_users(self, search_term: str, page: int = 1, per_page: int = 20) -> Tuple[List[UserEntity], int]:
         """Search users - no caching due to dynamic nature (PURE data query)"""
         queryset = User.objects.filter(
@@ -194,7 +195,7 @@ class UserRepository(BaseRepository[User, UserEntity]):
         return users, total_count
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
+    @with_retry(max_attempts=3)
     @cached(key_template="user:exists:email:{email}", ttl=300, namespace="users", version="1")
     async def email_exists(self, email: str) -> bool:
         """Check if email exists - with caching (PURE data check)"""
@@ -203,7 +204,7 @@ class UserRepository(BaseRepository[User, UserEntity]):
     # ============ BULK OPERATIONS ============
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
+    @with_retry(max_attempts=3)
     @cache_invalidate(
         key_templates=["users:list:*", "user:exists:email:*"],
         namespace="users",
@@ -214,7 +215,7 @@ class UserRepository(BaseRepository[User, UserEntity]):
         return await super().bulk_create(instances, user, request)
     
     @with_db_error_handling
-    @with_retry(max_retries=3)
+    @with_retry(max_attempts=3)
     async def save(self, instance, user=None, request=None):
         """Save user instance - with cache invalidation"""
         # Invalidate cache for this user

@@ -109,7 +109,7 @@ class UserController:
 
     
     @handle_user_exceptions
-    # @validate_user_create  
+    @validate_user_create  
     @ensure_initialized
     async def create_user(
         self, 

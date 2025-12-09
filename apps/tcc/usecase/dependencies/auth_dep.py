@@ -122,8 +122,8 @@ async def get_verify_uc() -> VerifyTokenUseCase:
 
 async def get_register_uc() -> CreateUserUseCase:
     """Dependency: CreateUserUseCase instance (from user module)"""
-    from apps.tcc.dependencies.user_dep import get_create_user_use_case
-    return await get_create_user_use_case()
+    from apps.tcc.usecase.dependencies.user_dep import get_create_user_uc()
+    return await get_create_user_uc()
 
 async def get_forgot_password_uc() -> ForgotPasswordUseCase:
     """Dependency: ForgotPasswordUseCase instance"""

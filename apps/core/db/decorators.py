@@ -1,10 +1,12 @@
 import asyncio
 import functools
 import random
+import threading
 import time
 import logging
 from typing import Callable, Dict, TypeVar, Any, Optional, Union, Coroutine
 from django.db import transaction, DatabaseError, OperationalError
+from asgiref.sync import sync_to_async  
 
 from .db_handler import db_error_handler
 from .db_mapper import db_exception_mapper
@@ -57,173 +59,135 @@ def with_db_error_handling(func: Callable[..., T]) -> Callable[..., T]:
                 raise
         return sync_wrapper
 
-class with_retry:
+def with_retry(
+    max_attempts: int = 3,
+    delay: float = 0.1,
+    backoff: int = 2,
+    retryable_exceptions: tuple = (DatabaseError, OperationalError)
+):
     """
-    Enhanced retry decorator with improved async support and configuration
+    Retry decorator for database operations with proper Django 5.2 MySQL support
     """
-    
-    def __init__(
-        self, 
-        max_retries: int = 3, 
-        base_delay: float = 0.1,
-        max_delay: float = 2.0,
-        use_transaction: bool = True,
-        retry_on: tuple = None
-    ):
-        self.max_retries = max_retries
-        self.base_delay = base_delay
-        self.max_delay = max_delay
-        self.use_transaction = use_transaction
-        self.retry_on = retry_on or (DatabaseError, OperationalError)
-    
-    def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
         
-        @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            operation = lambda: func(*args, **kwargs)
-            context = self._build_context(func, args, kwargs)
-            
-            if self.use_transaction:
-                return await self._execute_with_retry_async(
-                    operation, 
-                    context=context
-                )
-            else:
-                return await operation()
-        
-        @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            operation = lambda: func(*args, **kwargs)
-            context = self._build_context(func, args, kwargs)
-            
-            if self.use_transaction:
-                return db_error_handler.execute_with_retry(
-                    operation,
-                    max_attempts=self.max_retries,
-                    context=context
-                )
-            else:
-                return operation()
-        
-        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
-    
-    def _build_context(self, func: Callable, args: tuple, kwargs: dict) -> Dict[str, Any]:
-        """Build context for error handling and logging"""
-        return {
-            'operation': func.__name__,
-            'module': func.__module__,
-            'max_retries': self.max_retries,
-            'is_async': asyncio.iscoroutinefunction(func)
-        }
-    
-    async def _execute_with_retry_async(
-        self, 
-        operation: Callable[..., T],
-        context: Dict[str, Any]
-    ) -> T:
-        """Execute async operation with enhanced retry logic"""
-        last_exception = None
-        operation_name = context['operation']
-        
-        for attempt in range(self.max_retries):
-            try:
-                async with transaction.atomic():
-                    return await operation()
+        if asyncio.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                last_exception = None
+                
+                for attempt in range(max_attempts):
+                    try:
+                        # For Django 5.2 with MySQL, we need to use sync_to_async for transactions
+                        # Create a sync function that wraps the transaction
+                        def sync_transaction_operation():
+                            with transaction.atomic():
+                                # We can't call async func directly, so we need to handle this differently
+                                # If func is async, we need to run it in the event loop
+                                return asyncio.run(func(*args, **kwargs))
+                        
+                        # Run the sync transaction operation asynchronously
+                        return await sync_to_async(sync_transaction_operation)()
+                            
+                    except retryable_exceptions as e:
+                        last_exception = e
+                        if attempt == max_attempts - 1:
+                            raise
+                        
+                        # Calculate backoff delay
+                        sleep_time = delay * (backoff ** attempt)
+                        logger.info(
+                            f"Retrying {func.__name__} after {sleep_time:.2f}s (attempt {attempt + 1}/{max_attempts})",
+                            extra={'error': str(e)}
+                        )
+                        await asyncio.sleep(sleep_time)
                     
-            except self.retry_on as e:
-                last_exception = e
+                    except Exception as e:
+                        # Non-retryable exceptions
+                        raise
                 
-                # Check if this error is retryable
-                if not db_exception_mapper.is_retryable_error(e):
-                    logger.warning(
-                        f"Non-retryable error in {operation_name}",
-                        extra={
-                            'attempt': attempt + 1,
-                            'error': str(e),
-                            'context': context
-                        }
-                    )
-                    raise db_exception_mapper.map_django_exception(e, context) from e
-                    
-                if attempt == self.max_retries - 1:
-                    logger.warning(
-                        f"Max retries exceeded for {operation_name}",
-                        extra={
-                            'attempt': attempt + 1,
-                            'max_attempts': self.max_retries,
-                            'context': context
-                        }
-                    )
-                    mapped_exception = db_exception_mapper.map_django_exception(e, context)
-                    raise mapped_exception from e
+                if last_exception:
+                    raise last_exception
                 
-                # Calculate delay with exponential backoff and jitter
-                delay = self._calculate_delay(attempt)
-                
-                logger.info(
-                    f"Retrying operation {operation_name} after {delay:.2f}s",
-                    extra={
-                        'attempt': attempt + 1,
-                        'max_attempts': self.max_retries,
-                        'delay': delay,
-                        'context': context
-                    }
-                )
-                await asyncio.sleep(delay)
-        
-        # Final fallback
-        if last_exception:
-            raise db_exception_mapper.map_django_exception(last_exception, context)
+            return async_wrapper
+            
         else:
-            from core.core_exceptions.integration import DatabaseConnectionException
-            raise DatabaseConnectionException(
-                service_name="database",
-                message=f"Operation {operation_name} failed after {self.max_retries} attempts",
-                details=context
-            )
+            @functools.wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                last_exception = None
+                
+                for attempt in range(max_attempts):
+                    try:
+                        with transaction.atomic():
+                            return func(*args, **kwargs)
+                            
+                    except retryable_exceptions as e:
+                        last_exception = e
+                        if attempt == max_attempts - 1:
+                            raise
+                        
+                        # Calculate backoff delay
+                        sleep_time = delay * (backoff ** attempt)
+                        logger.info(
+                            f"Retrying {func.__name__} after {sleep_time:.2f}s (attempt {attempt + 1}/{max_attempts})",
+                            extra={'error': str(e)}
+                        )
+                        time.sleep(sleep_time)
+                    
+                    except Exception as e:
+                        # Non-retryable exceptions
+                        raise
+                
+                if last_exception:
+                    raise last_exception
+                
+            return sync_wrapper
     
-    def _calculate_delay(self, attempt: int) -> float:
-        """Calculate retry delay with exponential backoff and jitter"""
-        base_delay = self.base_delay * (2 ** attempt)
-        jitter = random.uniform(0, self.base_delay * 0.1)  # 10% jitter
-        return min(base_delay + jitter, self.max_delay)
+    return decorator
 
 
 # Combined operation decorators
 def atomic_operation(func: Callable[..., T]) -> Callable[..., T]:
     """
-    Combined atomic operation with error handling
+    Combined atomic operation with error handling for Django 5.2
     """
-    return with_db_error_handling(_atomic_wrapper(func))
-
-
-def _atomic_wrapper(func: Callable[..., T]) -> Callable[..., T]:
-    """Internal atomic wrapper"""
     if asyncio.iscoroutinefunction(func):
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
-            async with transaction.atomic():
-                return await func(*args, **kwargs)
-        return async_wrapper
+            # For async functions in Django 5.2, use sync_to_async
+            def sync_wrapped():
+                with transaction.atomic():
+                    # Run the async function in the event loop
+                    return asyncio.run(func(*args, **kwargs))
+            
+            return await sync_to_async(sync_wrapped)()
+        
+        return with_db_error_handling(async_wrapper)
     else:
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
             with transaction.atomic():
                 return func(*args, **kwargs)
-        return sync_wrapper
+        
+        return with_db_error_handling(sync_wrapper)
 
 
-class atomic_with_retry:
+# Simplified async operation without transaction (for simple queries)
+def async_atomic_operation(func: Callable[..., Coroutine[T, Any, Any]]) -> Callable[..., Coroutine[T, Any, Any]]:
     """
-    Combined atomic operation with retry capability
+    Async atomic operation using sync_to_async wrapper
     """
+    @functools.wraps(func)
+    async def async_wrapper(*args, **kwargs):
+        def sync_transaction():
+            with transaction.atomic():
+                # Run the async function in the current event loop
+                loop = asyncio.get_event_loop()
+                future = asyncio.run_coroutine_threadsafe(func(*args, **kwargs), loop)
+                return future.result(timeout=30)
+        
+        return await sync_to_async(sync_transaction)()
     
-    def __init__(self, max_retries: int = 3):
-        self.max_retries = max_retries
-    
-    def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
-        retry_decorator = with_retry(max_retries=self.max_retries, use_transaction=True)
-        return retry_decorator(func)
+    return async_wrapper
 
 
 # Simplified operation type decorators
@@ -237,9 +201,10 @@ def write_operation(func: Callable[..., T]) -> Callable[..., T]:
     return atomic_operation(func)
 
 
+# Better approach for async operations in Django 5.2
 def async_db_operation(func: Callable[..., Coroutine[T, Any, Any]]) -> Callable[..., Coroutine[T, Any, Any]]:
     """
-    Specialized decorator for async database operations
+    Specialized decorator for async database operations in Django 5.2
     """
     @functools.wraps(func)
     async def async_wrapper(*args, **kwargs):
@@ -247,10 +212,12 @@ def async_db_operation(func: Callable[..., Coroutine[T, Any, Any]]) -> Callable[
         context = {
             'operation': operation_name,
             'module': func.__module__,
-            'is_async': True
+            'is_async': True,
+            'django_version': '5.2'
         }
         
         try:
+            # For simple async queries without transactions
             return await func(*args, **kwargs)
         except Exception as e:
             logger.error(
@@ -291,8 +258,6 @@ def with_timeout(timeout_seconds: float = 30.0):
         
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
-            # For sync functions, use threading-based timeout (simplified)
-            import threading
             from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
             
             with ThreadPoolExecutor(max_workers=1) as executor:
@@ -315,7 +280,6 @@ def with_timeout(timeout_seconds: float = 30.0):
     
     return decorator
 
-
 class circuit_breaker:
     """
     Enhanced circuit breaker with state management and metrics
@@ -327,6 +291,7 @@ class circuit_breaker:
         recovery_timeout: float = 60.0,
         expected_exceptions: tuple = (Exception,)
     ):
+        self._lock = threading.Lock()
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.expected_exceptions = expected_exceptions
@@ -342,7 +307,9 @@ class circuit_breaker:
         }
     
     def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
-        
+        """
+        Make the circuit breaker instance callable as a decorator
+        """
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
             return await self._execute_async(func, *args, **kwargs)
@@ -351,46 +318,61 @@ class circuit_breaker:
         def sync_wrapper(*args, **kwargs):
             return self._execute_sync(func, *args, **kwargs)
         
-        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+        # Return the appropriate wrapper based on function type
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        else:
+            return sync_wrapper
     
-    def _execute_async(self, func: Callable[..., T], *args, **kwargs) -> T:
+    async def _execute_async(self, func: Callable[..., T], *args, **kwargs) -> T:
         """Execute async function with circuit breaker"""
-        self.metrics['total_requests'] += 1
-        
-        if not self._can_execute():
-            from core.core_exceptions.integration import DatabaseConnectionException
-            raise DatabaseConnectionException(
-                service_name="database",
-                message="Circuit breaker is OPEN - operation blocked",
-                details=self._get_circuit_details()
-            )
+        with self._lock:
+            self.metrics['total_requests'] += 1
+            
+            if not self._can_execute():
+                from core.core_exceptions.integration import DatabaseConnectionException
+                raise DatabaseConnectionException(
+                    service_name="database",
+                    message="Circuit breaker is OPEN - operation blocked",
+                    details=self._get_circuit_details()
+                )
         
         try:
-            result = asyncio.run(func(*args, **kwargs))
-            self._on_success()
+            # Call async function
+            result = await func(*args, **kwargs)
+            
+            with self._lock:
+                self._on_success()
             return result
+            
         except self.expected_exceptions as e:
-            self._on_failure()
+            with self._lock:
+                self._on_failure()
             raise
     
     def _execute_sync(self, func: Callable[..., T], *args, **kwargs) -> T:
         """Execute sync function with circuit breaker"""
-        self.metrics['total_requests'] += 1
-        
-        if not self._can_execute():
-            from core.core_exceptions.integration import DatabaseConnectionException
-            raise DatabaseConnectionException(
-                service_name="database",
-                message="Circuit breaker is OPEN - operation blocked",
-                details=self._get_circuit_details()
-            )
+        with self._lock:
+            self.metrics['total_requests'] += 1
+            
+            if not self._can_execute():
+                from core.core_exceptions.integration import DatabaseConnectionException
+                raise DatabaseConnectionException(
+                    service_name="database",
+                    message="Circuit breaker is OPEN - operation blocked",
+                    details=self._get_circuit_details()
+                )
         
         try:
             result = func(*args, **kwargs)
-            self._on_success()
+            
+            with self._lock:
+                self._on_success()
             return result
+            
         except self.expected_exceptions as e:
-            self._on_failure()
+            with self._lock:
+                self._on_failure()
             raise
     
     def _can_execute(self) -> bool:
@@ -433,16 +415,18 @@ class circuit_breaker:
     
     def get_metrics(self) -> Dict[str, Any]:
         """Get circuit breaker metrics"""
-        return self.metrics.copy()
+        with self._lock:
+            return self.metrics.copy()
     
     def reset(self):
         """Reset circuit breaker to initial state"""
-        self.failure_count = 0
-        self.last_failure_time = 0
-        self.state = "CLOSED"
-        self.metrics = {
-            'total_requests': 0,
-            'successful_requests': 0,
-            'failed_requests': 0,
-            'circuit_opened_count': 0
-        }
+        with self._lock:
+            self.failure_count = 0
+            self.last_failure_time = 0
+            self.state = "CLOSED"
+            self.metrics = {
+                'total_requests': 0,
+                'successful_requests': 0,
+                'failed_requests': 0,
+                'circuit_opened_count': 0
+            }

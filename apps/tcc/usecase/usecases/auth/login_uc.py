@@ -24,7 +24,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class LoginUserUseCase(BaseUseCase):
+class LoginUseCase(BaseUseCase):
     """Login user with email and password"""
     
     def __init__(self, user_repository, **dependencies):

@@ -87,7 +87,7 @@ class SafeManager(models.Manager):
         """Safe exists check"""
         return self.filter(**kwargs).exists()
     
-    @with_retry(max_retries=3)
+    @with_retry(max_attempts=3)
     def atomic_update(self, **kwargs) -> T:
         """
         Perform atomic update with proper locking and retry capability
@@ -187,7 +187,7 @@ class UserManager(SafeManager):
         """
         return self.filter(role=role, is_active=True)
     
-    @with_retry(max_retries=2)
+    @with_retry(max_attempts=2)
     def deactivate_user(self, user_id: int) -> bool:
         """
         Deactivate user with retry capability
