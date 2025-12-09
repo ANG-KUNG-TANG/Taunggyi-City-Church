@@ -5,7 +5,7 @@ from django.core.cache import cache
 from apps.tcc.models.users.users import User
 from apps.tcc.usecase.entities.users_entity import UserEntity  
 from apps.tcc.usecase.repo.base.base_repo import BaseRepository
-from apps.core.db.decorators import with_db_error_handling, with_retry
+from apps.core.db.decorators import  with_db_error_handling, with_retry
 from apps.core.cache.decorator import cached, cache_invalidate
 import logging
 import hashlib
@@ -22,7 +22,12 @@ class UserRepository(BaseRepository[User, UserEntity]):
         super().__init__(User)
         self.cache_prefix = "user"
     
-    async def _model_to_entity(self, user_model) -> UserEntity:
+    async def to_entity(self, model_instance):
+        """Convert model to entity."""
+        return await self._model_to_entity(model_instance)
+    
+    
+    def _model_to_entity(self, user_model) -> UserEntity:
         """Convert model to entity - User-specific"""
         if user_model is None:
             return None
@@ -35,48 +40,49 @@ class UserRepository(BaseRepository[User, UserEntity]):
     #     namespace="users",
     #     version="1"
     # )
-    async def create(self, data: Dict, user=None, request=None) -> Optional[UserEntity]:
-        """Create user"""
-        logger.debug(f"Creating user with data: {list(data.keys())}")
-        
-        # Prepare data with audit fields
-        prepared_data = self._prepare_audit_fields(data, user)
-        
-        # Create and save model
-        user_model = self.model_class(**prepared_data)
-        
-        @sync_to_async
-        def save_model():
+    async def create(self, data: Dict[str, Any], audit_context: Optional[Dict] = None) -> UserEntity:
+        """Create a new user with audit context support."""
+        try:
+            # Get the model's field names
+            model_fields = [f.name for f in self.model_class._meta.get_fields()]
+            
+            # Filter data to only include model fields
+            filtered_data = {}
+            skipped_fields =[]
+            for key, value in data.items():
+                if key in model_fields:
+                    filtered_data[key] = value
+                else:
+                   skipped_fields.append(key)
+            
+            if skipped_fields:
+                logger.debug(
+                    f"Skipped fields for User model: {skipped_fields}",
+                    extra={'skipped_count': len(skipped_fields)}
+                )
+            # Create the user model
+            user_model = self.model_class(**filtered_data)
+            
+            # Save the user
             user_model.save()
-            return user_model
+            
+            # Convert to entity and return - NO AWAIT if _model_to_entity is synchronous
+            return self._model_to_entity(user_model)  # Remove the 'await'!
+            
+        except Exception as e:
+            logger.error(f"Failed to create user: {e}", exc_info=True)
+            raise
         
-        saved_model = await save_model()
-        logger.debug(f"User saved with ID: {saved_model.id}")
-        
-        # Log creation
-        if user:
-            audit_context, ip, ua = self._get_audit_context(request)
-            self._log_create(user, saved_model, ip, ua)
-        
-        # Convert to entity
-        entity = await self._model_to_entity(saved_model)
-        logger.debug(f"Created entity: {entity}")
-        
-        return entity
-    
     @with_db_error_handling
     @cached(ttl=300, key_template="user:{user_id}", namespace="users", version="1")
     async def get_by_id(self, user_id: int, user=None, **kwargs) -> Optional[UserEntity]:
         """Get user by ID with caching"""
-        # User-specific implementation
         try:
             from asgiref.sync import sync_to_async
-            
             # Get from database
             user_model = await sync_to_async(self.model_class.objects.filter(id=user_id).first)()
-            
-            # Convert to entity
-            return await self._model_to_entity(user_model)
+            # Convert to entity - NO AWAIT
+            return self._model_to_entity(user_model)
             
         except Exception as e:
             logger.error(f"UserRepository.get_by_id failed: {str(e)}", exc_info=True)
@@ -89,9 +95,9 @@ class UserRepository(BaseRepository[User, UserEntity]):
         """Get user by email - with caching (PURE data access)"""
         try:
             user = await sync_to_async(User.objects.get)(email=email, is_active=True)
-            entity = await self._model_to_entity(user)
+            entity = self._model_to_entity(user)  # NO AWAIT
             if include_password_hash and hasattr(user, 'password'):
-                entity.password_hash = user.password  # Just pass data, don't process
+                entity.password_hash = user.password
             return entity
         except User.DoesNotExist:
             logger.debug(f"User not found with email: {email}")

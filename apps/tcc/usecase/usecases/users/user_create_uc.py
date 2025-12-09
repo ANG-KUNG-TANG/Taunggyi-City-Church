@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from apps.core.core_exceptions.domain import DomainValidationException
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.domain_exception.u_exceptions import UserAlreadyExistsException, UserNotFoundException
-from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
+from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase, OperationContext
 from apps.core.schemas.input_schemas.users import UserCreateInputSchema
 from apps.tcc.usecase.entities.users_entity import UserEntity
 from apps.tcc.usecase.usecases.base.email_service import EmailService
@@ -110,6 +110,9 @@ class CreateUserUseCase(BaseUseCase):
         # 1. Validate input using schema
         create_schema = UserCreateInputSchema(**input_data)
         
+        # DEBUG: Log all schema fields
+        logger.warning(f"Schema fields: {list(create_schema.__dict__.keys())}")
+        
         # 2. Business logic: Hash password
         if not hasattr(self, 'password_service') or not self.password_service:
             logger.error("Password service is not available")
@@ -128,44 +131,37 @@ class CreateUserUseCase(BaseUseCase):
                 user_message="Unable to process password. Please try again."
             )
         
-        # 3. Create entity with hashed password
-        user_data = create_schema.model_dump(exclude={'password', 'password_confirm'})
-        user_data['password'] = hashed_password
+        # 3. Create entity with hashed password - EXPLICITLY list only fields that exist in User model
+        user_data = {
+            'name': create_schema.name,
+            'email': create_schema.email,
+            'password': hashed_password,
+            'phone_number': getattr(create_schema, 'phone_number', None),
+            'gender': getattr(create_schema, 'gender', None),
+            'marital_status': getattr(create_schema, 'marital_status', None),
+            'date_of_birth': getattr(create_schema, 'date_of_birth', None),
+            'testimony': getattr(create_schema, 'testimony', None),
+            'baptism_date': getattr(create_schema, 'baptism_date', None),
+            'membership_date': getattr(create_schema, 'membership_date', None),
+            'role': getattr(create_schema, 'role', 'VISITOR'),
+            'status': getattr(create_schema, 'status', 'PENDING'),
+            'email_notifications': getattr(create_schema, 'email_notifications', True),
+            'sms_notifications': getattr(create_schema, 'sms_notifications', False),
+            'is_active': True,  # Default for new users
+        }
         
-        # Log the data being sent to repository
-        logger.debug(f"User data prepared for creation: {list(user_data.keys())}")
-        logger.debug(f"User data (excluding password): { {k: v for k, v in user_data.items() if k != 'password'} }")
+        # DEBUG: Log what we're about to send
+        logger.warning(f"User data being sent to repo: {list(user_data.keys())}")
+        logger.warning(f"User data values: {user_data}")
         
-        # 4. Add audit context if available
-        if hasattr(self, '_add_audit_context'):
-            user_data_with_context = self._add_audit_context(user_data, user, ctx)
-        else:
-            user_data_with_context = user_data
-        
-        # 5. Create via repository (returns UserEntity)
+        # 4. Create via repository (returns UserEntity)
         try:
             logger.info(f"Calling repository.create() with data for {create_schema.email}")
-            user_entity = await self.user_repository.create(user_data_with_context)
+            user_entity = await self.user_repository.create(user_data)
             logger.info(f"Repository.create() returned: {user_entity}")
         except Exception as e:
             logger.error(f"Repository failed to create user: {e}", exc_info=True)
-            # Check for common database errors
-            error_msg = str(e).lower()
-            if "duplicate" in error_msg or "unique" in error_msg:
-                raise DomainValidationException(
-                    message=f"User with email {create_schema.email} already exists",
-                    user_message="This email is already registered. Please use a different email or login."
-                )
-            elif "not null" in error_msg or "required" in error_msg:
-                raise DomainValidationException(
-                    message="Missing required fields",
-                    user_message="Please fill in all required fields."
-                )
-            else:
-                raise DomainValidationException(
-                    message="Failed to create user in database",
-                    user_message="Unable to create user account. Please try again."
-                )
+            raise
         
         if not user_entity:
             logger.error(f"Repository.create() returned None for {create_schema.email}")
@@ -176,21 +172,17 @@ class CreateUserUseCase(BaseUseCase):
         
         logger.info(f"User created successfully: {user_entity.id} ({user_entity.email})")
         
-        # 6. Async side effect: Send welcome email if available
+        # 5. Async side effect: Send welcome email if available
         if hasattr(self, 'email_service') and self.email_service:
             try:
-                # Run email sending in background without waiting
                 asyncio.create_task(
                     self._send_welcome_email_async(user_entity.email, user_entity.name)
                 )
                 logger.debug(f"Welcome email scheduled for {user_entity.email}")
             except Exception as e:
                 logger.warning(f"Failed to schedule welcome email: {e}")
-                # Don't fail the user creation if email fails
-        else:
-            logger.warning("Email service not available, skipping welcome email")
         
-        # 7. Return UserEntity
+        # 6. Return UserEntity
         return user_entity
     
     async def _send_welcome_email_async(self, email: str, name: str):

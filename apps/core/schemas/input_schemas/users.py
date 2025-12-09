@@ -1,3 +1,4 @@
+# In your user schemas file
 from typing import Optional, List
 from datetime import date
 from pydantic import Field, EmailStr, model_validator, validator
@@ -11,7 +12,6 @@ class UserBaseInputSchema(BaseSchema):
     email: EmailStr = Field(..., description="Email address")
     phone_number: Optional[str] = Field(None, max_length=20, description="Phone number")
 
-    age: Optional[int] = Field(None, ge=0, le=120, description="Age")
     gender: Optional[Gender] = Field(None, description="Gender")
     marital_status: Optional[MaritalStatus] = Field(None, description="Marital status")
     date_of_birth: Optional[date] = Field(None, description="Date of birth")
@@ -23,15 +23,12 @@ class UserBaseInputSchema(BaseSchema):
     role: UserRole = Field(default=UserRole.VISITOR, description="User role")
     status: UserStatus = Field(default=UserStatus.PENDING, description="User status")
     email_notifications: bool = Field(default=True, description="Email notifications preference")
+    sms_notifications: bool = Field(default=False, description="SMS notifications preference") 
+    
+    # Passwords for creation
     password: str = Field(..., min_length=8, max_length=100)
     password_confirm: str = Field(..., min_length=8, max_length=100)
     
-    # Required system fields based on repo - REMOVED defaults
-    is_active: bool = Field(default=True)  # No default - let repo decide
-    
-    # ADDED: User-specific flags with better defaults
-    requires_password_change: bool = Field(default=False, description="Password change required")
-
     @model_validator(mode="after")
     def validate_birthdate(self):
         """Ensure that the birth date respects logical constraints."""
@@ -48,9 +45,6 @@ class UserBaseInputSchema(BaseSchema):
 class UserCreateInputSchema(UserBaseInputSchema):
     """Schema for creating new users."""
     
-    # password: str = Field(..., min_length=8, description="Password")
-    # password_confirm: str = Field(..., min_length=8, description="Password confirmation")
-
     @model_validator(mode="after")
     def validate_passwords_match(self):
         """Ensure passwords match - extra validation."""
@@ -63,7 +57,7 @@ class UserCreateInputSchema(UserBaseInputSchema):
             raise ValueError("Password must be at least 8 characters")
             
         return self
-    
+   
 class UserUpdateInputSchema(BaseSchema):
     """Schema for updating existing users (all fields optional)."""
     

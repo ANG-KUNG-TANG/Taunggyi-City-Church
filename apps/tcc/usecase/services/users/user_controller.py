@@ -107,10 +107,10 @@ class UserController:
         use_case_getter = use_case_map[use_case_name]
         return await use_case_getter()
 
-    # ========== CREATE Operations ==========
+    
     @handle_user_exceptions
+    # @validate_user_create  
     @ensure_initialized
-    # @validate_user_create
     async def create_user(
         self, 
         user_data: UserCreateInputSchema, 
@@ -120,6 +120,12 @@ class UserController:
         """Create a new user account - Returns Entity"""
         logger.info(f"Creating user with data: {user_data.model_dump(exclude={'password', 'password_confirm'})}")
         create_user_uc = await self._get_use_case('create_user')
+        
+        # Add debug logging to see what's happening
+        logger.debug(f"Input data: {user_data.model_dump(exclude={'password', 'password_confirm'})}")
+        logger.debug(f"Current user: {current_user.id if current_user else 'None'}")
+        logger.debug(f"Context: {context}")
+        
         result = await create_user_uc.execute(user_data.model_dump(), current_user, context or {})
         logger.info(f"User created successfully: {result.id if hasattr(result, 'id') else 'No ID'}")
         return result

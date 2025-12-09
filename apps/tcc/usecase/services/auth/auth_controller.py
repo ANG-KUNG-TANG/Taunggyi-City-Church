@@ -37,7 +37,7 @@ class AuthController(BaseController):
 
     async def initialize(self):
         """Dependency Injection: Initialize Use Cases"""
-        from apps.tcc.dependencies.auth_dep import (
+        from apps.tcc.usecase.dependencies.auth_dep import (
             get_login_uc, get_logout_uc, get_refresh_uc, get_verify_uc,
             get_register_uc, get_forgot_password_uc, get_reset_password_uc
         )

@@ -6,6 +6,7 @@ from django.db import transaction
 from asgiref.sync import sync_to_async, async_to_sync
 
 from apps.core.core_exceptions.domain import DomainException
+from apps.core.db.safe_logger import SafeLogger
 from apps.core.schemas.out_schemas.base import DeleteResponseSchema
 from apps.tcc.usecase.domain_exception.auth_exceptions import (
     AuthorizationException, 
@@ -75,7 +76,6 @@ class BaseUseCase:
     async def _execute_main_logic(self, ctx: OperationContext):
         """Execute with transaction support"""
         if self.config.transactional:
-            # FIXED: Use sync_to_async to wrap the transaction
             async def run_in_transaction():
                 return await self._on_execute(ctx.input_data, ctx.user, ctx)
             
@@ -104,32 +104,112 @@ class BaseUseCase:
             await self._log_operation(ctx, duration)
 
     async def _log_operation(self, ctx: OperationContext, duration: float):
-        """Generic logging"""
+        """Generic logging using SafeLogger"""
         log_data = {
-            "operation": self.__class__.__name__,
+            "operation_name": self.__class__.__name__,
             "operation_id": ctx.operation_id,
-            "user_id": getattr(ctx.user, 'id', 'anonymous'),
+            "user_identifier": getattr(ctx.user, 'id', 'anonymous'),
             "duration_seconds": round(duration, 3),
-            "success": ctx.error is None
+            "was_successful": ctx.error is None
         }
         
         if ctx.error:
-            logger.warning(f"UseCase failed: {log_data}")
+            SafeLogger.warning(
+                logger,
+                "UseCase execution failed",
+                extra=log_data
+            )
         else:
-            logger.info(f"UseCase executed: {log_data}")
-
+            SafeLogger.info(
+                logger,
+                "UseCase executed successfully",
+                extra=log_data
+            )
+    
+    async def _handle_exception(self, exc: Exception, ctx: OperationContext) -> DomainException:
+        """Generic exception handling with safe logging"""
+        SafeLogger.error(
+            logger,
+            f"Unexpected error in {self.__class__.__name__}",
+            exc_info=True,
+            extra={"operation_id_value": ctx.operation_id}  # Changed from 'operation_id'
+        )
+            
     async def _handle_exception(self, exc: Exception, ctx: OperationContext) -> DomainException:
         """Generic exception handling"""
+        # Simple logging without extra to avoid LogRecord conflicts
         logger.error(
-            f"Unexpected error in {self.__class__.__name__}: {exc}",
-            exc_info=True,
-            extra={"operation_id": ctx.operation_id}
+            f"Unexpected error in {self.__class__.__name__} (op_id: {ctx.operation_id}): {exc}",
+            exc_info=True
+            # Remove the extra parameter entirely
         )
         
+        # If it's already a DomainException, re-raise it
+        if isinstance(exc, DomainException):
+            return exc
+        
+        # Check for common database exceptions
+        try:
+            from django.db import DatabaseError, IntegrityError
+            from django.db.utils import DataError
+            
+            # Handle IntegrityError (duplicate entries, foreign key violations)
+            if isinstance(exc, IntegrityError):
+                error_msg = str(exc).lower()
+                if "unique" in error_msg or "duplicate" in error_msg:
+                    # This is likely a duplicate email or username
+                    if "user" in self.__class__.__name__.lower():
+                        # Import here to avoid circular imports
+                        from apps.tcc.usecase.domain_exception.u_exceptions import UserAlreadyExistsException
+                        # Extract email from input data if available
+                        email = ctx.input_data.get('email') if ctx.input_data else None
+                        return UserAlreadyExistsException(
+                            email=email,
+                            details={"original_error": str(exc)}
+                        )
+                    else:
+                        # Generic duplicate entry for other entities
+                        from apps.core.core_exceptions.domain import BusinessRuleException
+                        return BusinessRuleException(
+                            rule_name="UNIQUE_CONSTRAINT",
+                            message="Duplicate entry found",
+                            rule_description=str(exc),
+                            details={"original_error": str(exc)}
+                        )
+            
+            # Handle DataError (invalid data types, constraint violations)
+            elif isinstance(exc, DataError):
+                from apps.core.core_exceptions.domain import DomainValidationException
+                return DomainValidationException(
+                    message="Invalid data provided",
+                    details={"original_error": str(exc)}
+                )
+            
+            # Handle other DatabaseErrors
+            elif isinstance(exc, DatabaseError):
+                return DomainException(
+                    message="Database error occurred",
+                    error_code="DATABASE_ERROR",
+                    status_code=500,
+                    details={"original_error": str(exc)},
+                    cause=exc
+                )
+                
+        except ImportError:
+            pass
+        
+        # Default case: wrap in DomainException but preserve original error
         return DomainException(
             message="An unexpected error occurred",
             error_code="INTERNAL_ERROR",
-            status_code=500
+            status_code=500,
+            details={
+                "original_error": str(exc),
+                "exception_type": type(exc).__name__,
+                "operation_id": ctx.operation_id
+            },
+            cause=exc,
+            user_message="An unexpected error occurred. Please try again later."
         )
 
     # Utility methods for ALL entities
