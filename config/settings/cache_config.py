@@ -12,6 +12,7 @@ CACHE_BLACKLIST_TTL = int(os.getenv('CACHE_BLACKLIST_TTL', 86400))
 
 # Redis Configuration for custom cache operations
 REDIS_CONFIG = {
+    'KEY_PREFIX': 'snowflake',
     'host': os.getenv('REDIS_HOST', 'localhost'),
     'port': int(os.getenv('REDIS_PORT', 6379)),
     'db': int(os.getenv('REDIS_DB', 0)),

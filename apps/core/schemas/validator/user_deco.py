@@ -10,9 +10,6 @@ from apps.core.schemas.input_schemas.users import (
     UserUpdateInputSchema, 
     UserQueryInputSchema,
     UserSearchInputSchema,
-    UserChangePasswordInputSchema,
-    UserResetPasswordRequestInputSchema,
-    UserResetPasswordInputSchema,
     EmailCheckInputSchema,
     PasswordVerificationInputSchema
 )
@@ -102,22 +99,6 @@ def validate_user_query(view_func: Callable) -> Callable:
 def validate_user_search(view_func: Callable) -> Callable:
     """Validate user search data"""
     return validate_with_schema(UserSearchInputSchema, 'all')(view_func)  # Search uses both query params
-
-
-def validate_change_password(view_func: Callable) -> Callable:
-    """Validate password change data"""
-    return validate_with_schema(UserChangePasswordInputSchema, 'body')(view_func)
-
-
-def validate_reset_password_request(view_func: Callable) -> Callable:
-    """Validate password reset request"""
-    return validate_with_schema(UserResetPasswordRequestInputSchema, 'body')(view_func)
-
-
-def validate_reset_password(view_func: Callable) -> Callable:
-    """Validate password reset data"""
-    return validate_with_schema(UserResetPasswordInputSchema, 'body')(view_func)
-
 
 def validate_email_check(view_func: Callable) -> Callable:
     """Validate email check data"""

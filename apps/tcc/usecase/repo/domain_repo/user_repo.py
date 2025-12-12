@@ -1,3 +1,5 @@
+import asyncio
+from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 from django.db.models import Q
 from asgiref.sync import sync_to_async 
@@ -5,7 +7,7 @@ from django.core.cache import cache
 from apps.tcc.models.users.users import User
 from apps.tcc.usecase.entities.users_entity import UserEntity  
 from apps.tcc.usecase.repo.base.base_repo import BaseRepository
-from apps.core.db.decorators import  with_db_error_handling, with_retry, circuit_breaker
+from apps.core.db.decorators import with_db_error_handling, with_retry, circuit_breaker
 from apps.core.cache.decorator import cached, cache_invalidate
 import logging
 import hashlib
@@ -22,10 +24,29 @@ class UserRepository(BaseRepository[User, UserEntity]):
         super().__init__(User)
         self.cache_prefix = "user"
     
-    async def to_entity(self, model_instance):
-        """Convert model to entity."""
-        return await self._model_to_entity(model_instance)
-    
+    async def to_entity(self, user_model, include_password_hash=False):
+        """Convert Django User model to domain entity"""
+        try:
+            # Ensure all required fields are extracted
+            entity_data = UserEntity()
+            
+            # Add roles/role information
+            if hasattr(user_model, 'roles'):
+                entity_data['roles'] = await self._extract_roles(user_model)
+            elif hasattr(user_model, 'role'):
+                entity_data['role'] = user_model.role
+                entity_data['roles'] = [user_model.role]
+            
+            # Add password hash if needed
+            if include_password_hash:
+                entity_data['password_hash'] = user_model.password
+            
+            # Create entity (adjust based on your UserEntity class)
+            return UserEntity(**entity_data)
+        
+        except Exception as e:
+            logger.error(f"Error converting user model to entity: {e}", exc_info=True)
+            raise
     
     def _model_to_entity(self, user_model) -> UserEntity:
         """Convert model to entity - User-specific"""
@@ -49,26 +70,29 @@ class UserRepository(BaseRepository[User, UserEntity]):
             
             # Filter data to only include model fields
             filtered_data = {}
-            skipped_fields =[]
+            skipped_fields = []
             for key, value in data.items():
                 if key in model_fields:
                     filtered_data[key] = value
                 else:
-                   skipped_fields.append(key)
+                    skipped_fields.append(key)
             
             if skipped_fields:
                 logger.debug(
                     f"Skipped fields for User model: {skipped_fields}",
                     extra={'skipped_count': len(skipped_fields)}
                 )
+            
             # Create the user model
-            user_model = self.model_class(**filtered_data)
+            def sync_create():
+                user_model = self.model_class(**filtered_data)
+                user_model.save()
+                return user_model
             
-            # Save the user
-            user_model.save()
+            user_model = await sync_to_async(sync_create, thread_sensitive=False)()
             
-            # Convert to entity and return - NO AWAIT if _model_to_entity is synchronous
-            return self._model_to_entity(user_model)  # Remove the 'await'!
+            # Convert to entity and return
+            return self._model_to_entity(user_model)
             
         except Exception as e:
             logger.error(f"Failed to create user: {e}", exc_info=True)
@@ -79,10 +103,10 @@ class UserRepository(BaseRepository[User, UserEntity]):
     async def get_by_id(self, user_id: int, user=None, **kwargs) -> Optional[UserEntity]:
         """Get user by ID with caching"""
         try:
-            from asgiref.sync import sync_to_async
-            # Get from database
-            user_model = await sync_to_async(self.model_class.objects.filter(id=user_id).first)()
-            # Convert to entity - NO AWAIT
+            def sync_get_by_id():
+                return self.model_class.objects.filter(id=user_id).first()
+            
+            user_model = await sync_to_async(sync_get_by_id, thread_sensitive=True)()
             return self._model_to_entity(user_model)
             
         except Exception as e:
@@ -92,21 +116,46 @@ class UserRepository(BaseRepository[User, UserEntity]):
     @with_db_error_handling
     @with_retry()
     @cached(key_template="user:email:{email}", ttl=3600, namespace="users", version="1")
-    async def get_by_email(self, email: str, include_password_hash: bool = False) -> Optional[UserEntity]:
-        """Get user by email - with caching (PURE data access)"""
+    async def get_by_email(self, email: str, include_password_hash: bool = False):
+        """Get user by email with thread safety fix"""
         try:
-            user = await sync_to_async(User.objects.get)(email=email, is_active=True)
-            entity = self._model_to_entity(user)  # NO AWAIT
-            if include_password_hash and hasattr(user, 'password'):
-                entity.password_hash = user.password
+            logger.debug(f"Searching for user with email: {email}")
+            
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            # Use case-insensitive search
+            def sync_get():
+                return User.objects.filter(email__iexact=email).first()
+            
+            # Get the Django user model
+            user = await asyncio.to_thread(sync_get)
+            
+            if not user:
+                logger.warning(f"No user found for email: {email}")
+                return None
+            
+            logger.debug(f"Found user: {user.email} (ID: {user.id})")
+            
+            # Convert to entity - NOTE: to_entity is async, so we need to await it
+            entity = self._model_to_entity(user)
+            
+            # Add password hash if requested
+            if include_password_hash:
+                # Create a copy with password_hash attribute
+                from dataclasses import replace
+                # If UserEntity is a dataclass, use replace
+                if hasattr(entity, '__dataclass_fields__'):
+                    entity = replace(entity, password_hash=user.password)
+                else:
+                    # Otherwise, set as attribute
+                    entity.password_hash = user.password
+            
             return entity
-        except User.DoesNotExist:
-            logger.debug(f"User not found with email: {email}")
-            return None
+            
         except Exception as e:
-            logger.error(f"Error getting user by email {email}: {str(e)}")
-            return None
-    
+            logger.error(f"Error in get_by_email for {email}: {e}", exc_info=True)
+            raise
+        
     @with_db_error_handling
     @with_retry(max_attempts=3)
     @cache_invalidate(
@@ -148,30 +197,43 @@ class UserRepository(BaseRepository[User, UserEntity]):
     )
     async def get_paginated(self, filters: Dict = None, page: int = 1, per_page: int = 20) -> Tuple[List[UserEntity], int]:
         """Get paginated users - with caching (PURE data query)"""
-        base_queryset = User.objects.filter(is_active=True)
-        
-        if filters:
-            for key, value in filters.items():
-                if value is not None:
-                    base_queryset = base_queryset.filter(**{key: value})
-        
-        # Generate cache key
-        filters_str = str(sorted(filters.items())) if filters else "all"
-        filters_hash = hashlib.md5(filters_str.encode()).hexdigest()[:8]
-        
-        # Get total count
-        total_count = await sync_to_async(base_queryset.count)()
-        
-        # Apply pagination
-        offset = (page - 1) * per_page
-        users_queryset = base_queryset.order_by('-created_at')[offset:offset + per_page]
-        
-        # Convert to entities
-        users = []
-        for user in await sync_to_async(list)(users_queryset):
-            users.append(await self._model_to_entity(user))
+        try:
+            # Define synchronous functions for database operations
+            def sync_get_queryset():
+                base_queryset = User.objects.filter(is_active=True)
+                
+                if filters:
+                    for key, value in filters.items():
+                        if value is not None:
+                            base_queryset = base_queryset.filter(**{key: value})
+                return base_queryset
             
-        return users, total_count
+            def sync_get_count(queryset):
+                return queryset.count()
+            
+            def sync_get_users(queryset, offset, limit):
+                return list(queryset.order_by('-created_at')[offset:offset + limit])
+            
+            # Get queryset
+            base_queryset = await sync_to_async(sync_get_queryset, thread_sensitive=True)()
+            
+            # Get total count
+            total_count = await sync_to_async(sync_get_count, thread_sensitive=True)(base_queryset)
+            
+            # Apply pagination
+            offset = (page - 1) * per_page
+            users_list = await sync_to_async(sync_get_users, thread_sensitive=True)(base_queryset, offset, per_page)
+            
+            # Convert to entities
+            users = []
+            for user in users_list:
+                users.append(self._model_to_entity(user))
+                
+            return users, total_count
+            
+        except Exception as e:
+            logger.error(f"Error in get_paginated: {str(e)}", exc_info=True)
+            return [], 0
     
     # ============ SPECIALIZED QUERIES ============
     
@@ -179,27 +241,50 @@ class UserRepository(BaseRepository[User, UserEntity]):
     @with_retry(max_attempts=3)
     async def search_users(self, search_term: str, page: int = 1, per_page: int = 20) -> Tuple[List[UserEntity], int]:
         """Search users - no caching due to dynamic nature (PURE data query)"""
-        queryset = User.objects.filter(
-            Q(is_active=True) &
-            (Q(name__icontains=search_term) | Q(email__icontains=search_term))
-        )
-        
-        total_count = await sync_to_async(queryset.count)()
-        offset = (page - 1) * per_page
-        
-        users_queryset = queryset.order_by('-created_at')[offset:offset + per_page]
-        users = []
-        for user in await sync_to_async(list)(users_queryset):
-            users.append(await self._model_to_entity(user))
+        try:
+            # Define synchronous functions
+            def sync_search():
+                return User.objects.filter(
+                    Q(is_active=True) &
+                    (Q(name__icontains=search_term) | Q(email__icontains=search_term))
+                )
             
-        return users, total_count
+            def sync_get_count(queryset):
+                return queryset.count()
+            
+            def sync_get_users(queryset, offset, limit):
+                return list(queryset.order_by('-created_at')[offset:offset + limit])
+            
+            # Get queryset
+            queryset = await sync_to_async(sync_search, thread_sensitive=True)()
+            
+            # Get total count
+            total_count = await sync_to_async(sync_get_count, thread_sensitive=True)(queryset)
+            
+            # Apply pagination
+            offset = (page - 1) * per_page
+            users_list = await sync_to_async(sync_get_users, thread_sensitive=True)(queryset, offset, per_page)
+            
+            # Convert to entities
+            users = []
+            for user in users_list:
+                users.append(self._model_to_entity(user))
+                
+            return users, total_count
+            
+        except Exception as e:
+            logger.error(f"Error in search_users: {str(e)}", exc_info=True)
+            return [], 0
     
     @with_db_error_handling
     @with_retry(max_attempts=3)
     @cached(key_template="user:exists:email:{email}", ttl=300, namespace="users", version="1")
     async def email_exists(self, email: str) -> bool:
         """Check if email exists - with caching (PURE data check)"""
-        return await sync_to_async(User.objects.filter(email=email, is_active=True).exists)()
+        def sync_check():
+            return User.objects.filter(email=email, is_active=True).exists()
+        
+        return await sync_to_async(sync_check, thread_sensitive=True)()
     
     # ============ BULK OPERATIONS ============
     
@@ -233,6 +318,6 @@ class UserRepository(BaseRepository[User, UserEntity]):
         
         for key in cache_keys:
             try:
-                await sync_to_async(cache.delete)(key)
+                await sync_to_async(cache.delete, thread_sensitive=False)(key)
             except Exception as e:
                 logger.warning(f"Failed to delete cache key {key}: {e}")

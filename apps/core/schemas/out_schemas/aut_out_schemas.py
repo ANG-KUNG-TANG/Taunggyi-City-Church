@@ -29,6 +29,10 @@ class RegisterResponseSchema(AuthSuccessResponseSchema):
     
     email_verification_required: bool = Field(default=True, description="Whether email verification is required")
 
+class ChangePasswordResponseSchema(AuthSuccessResponseSchema):
+    
+    ...
+    
 class TokenRefreshResponseSchema(BaseOutputSchema):
     """Token refresh response."""
     

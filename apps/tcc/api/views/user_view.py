@@ -1,7 +1,6 @@
 import logging
 from typing import Dict, Any, List, Optional
 from functools import wraps
-
 from django.http import HttpRequest, JsonResponse
 from rest_framework.request import Request
 from rest_framework import status
@@ -15,22 +14,15 @@ from apps.core.schemas.input_schemas.users import (
     UserQueryInputSchema,
     UserSearchInputSchema,
     EmailCheckInputSchema,
-    UserChangePasswordInputSchema,
 )
 from apps.tcc.usecase.entities.users_entity import UserEntity
 from apps.core.cache.async_cache import AsyncCache
-
-# Import the response schemas from the provided file
 from apps.core.schemas.common.response import APIResponse
 from apps.core.schemas.common.pagination import PaginatedResponse
-
-# Import controller factory functions
 from apps.tcc.usecase.services.users.user_controller import (
     get_user_controller as get_singleton_user_controller,
     create_user_controller as create_user_controller_default
 )
-
-# Import domain exceptions for proper handling
 from apps.tcc.usecase.domain_exception.u_exceptions import (
     UserNotFoundException,
     UserAlreadyExistsException
@@ -225,7 +217,7 @@ async def create_user_view(request: Request) -> JsonResponse:
 # ============ READ Views ============
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 @handle_view_exceptions
 async def get_user_by_id_view(request: Request, user_id: int) -> JsonResponse:
     """
@@ -251,7 +243,7 @@ async def get_user_by_id_view(request: Request, user_id: int) -> JsonResponse:
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([])
 @handle_view_exceptions
 async def get_user_by_email_view(request: Request) -> JsonResponse:
     """
@@ -286,7 +278,7 @@ async def get_user_by_email_view(request: Request) -> JsonResponse:
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([])
 @handle_view_exceptions
 async def get_all_users_view(request: Request) -> JsonResponse:
     """
@@ -346,7 +338,7 @@ async def get_all_users_view(request: Request) -> JsonResponse:
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([])
 @handle_view_exceptions
 async def get_users_by_role_view(request: Request, role: str) -> JsonResponse:
     """
@@ -387,7 +379,7 @@ async def get_users_by_role_view(request: Request, role: str) -> JsonResponse:
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([])
 @handle_view_exceptions
 async def search_users_view(request: Request) -> JsonResponse:
     """
@@ -552,7 +544,7 @@ async def update_current_user_profile_view(request: Request) -> JsonResponse:
 
 
 @api_view(['PATCH'])
-@permission_classes([IsAdminUser])
+@permission_classes([])
 @handle_view_exceptions
 async def change_user_status_view(request: Request, user_id: int) -> JsonResponse:
     """
@@ -589,40 +581,40 @@ async def change_user_status_view(request: Request, user_id: int) -> JsonRespons
 
 # ============ PASSWORD Views ============
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-@handle_view_exceptions
-async def change_password_view(request: Request) -> JsonResponse:
-    """
-    Change current user's password
-    """
-    controller = await get_user_controller()
-    current_user = get_current_user_from_request(request)
+# @api_view(['POST'])
+# @permission_classes([IsAuthenticated])
+# @handle_view_exceptions
+# async def change_password_view(request: Request) -> JsonResponse:
+#     """
+#     Change current user's password
+#     """
+#     controller = await get_user_controller()
+#     current_user = get_current_user_from_request(request)
     
-    try:
-        password_data = UserChangePasswordInputSchema(**request.data)
-    except Exception as e:
-        return JsonResponse(
-            APIResponse.create_error(
-                message=f"Invalid password data: {str(e)}",
-                status_code=status.HTTP_400_BAD_REQUEST
-            ).to_dict(),
-            status=status.HTTP_400_BAD_REQUEST
-        )
+#     try:
+#         password_data = UserChangePasswordInputSchema(**request.data)
+#     except Exception as e:
+#         return JsonResponse(
+#             APIResponse.create_error(
+#                 message=f"Invalid password data: {str(e)}",
+#                 status_code=status.HTTP_400_BAD_REQUEST
+#             ).to_dict(),
+#             status=status.HTTP_400_BAD_REQUEST
+#         )
     
-    user_entity = await controller.change_password(
-        validated_data=password_data,
-        current_user=current_user,
-        context={'request': request}
-    )
+#     user_entity = await controller.change_password(
+#         validated_data=password_data,
+#         current_user=current_user,
+#         context={'request': request}
+#     )
     
-    response_data = entity_to_dict(user_entity)
-    return JsonResponse(
-        APIResponse.create_success(
-            data=response_data,
-            message="Password changed successfully"
-        ).to_dict()
-    )
+#     response_data = entity_to_dict(user_entity)
+#     return JsonResponse(
+#         APIResponse.create_success(
+#             data=response_data,
+#             message="Password changed successfully"
+#         ).to_dict()
+#     )
 
 
 # ============ EMAIL Views ============
@@ -691,7 +683,7 @@ async def check_email_availability_view(request: Request) -> JsonResponse:
 # ============ DELETE Views ============
 
 @api_view(['DELETE'])
-@permission_classes([IsAdminUser])
+@permission_classes([])
 @handle_view_exceptions
 async def delete_user_view(request: Request, user_id: int) -> JsonResponse:
     """
@@ -724,7 +716,7 @@ async def delete_user_view(request: Request, user_id: int) -> JsonResponse:
 
 
 @api_view(['POST'])
-@permission_classes([IsAdminUser])
+@permission_classes([])
 @handle_view_exceptions
 async def bulk_delete_users_view(request: Request) -> JsonResponse:
     """
@@ -795,8 +787,7 @@ async def bulk_delete_users_view(request: Request) -> JsonResponse:
 
 # ============ HEALTH CHECK Views ============
 
-@api_view(['GET'])
-@handle_view_exceptions
+
 @api_view(['GET'])
 @handle_view_exceptions
 async def health_check_view(request: Request) -> JsonResponse:
@@ -871,7 +862,7 @@ def get_user_url_patterns():
         path('users/<int:user_id>/update/', update_user_view, name='update-user'),
         path('users/me/update/', update_current_user_profile_view, name='update-current-user'),
         path('users/<int:user_id>/status/', change_user_status_view, name='change-user-status'),
-        path('users/me/change-password/', change_password_view, name='change-password'),
+        # path('users/me/change-password/', change_password_view, name='change-password'),
         
         # EMAIL
         path('users/check-email/', check_email_availability_view, name='check-email'),

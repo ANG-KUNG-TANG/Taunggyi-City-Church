@@ -18,7 +18,6 @@ try:
         update_user_view,
         update_current_user_profile_view,
         change_user_status_view,
-        change_password_view,
         check_email_availability_view,
         delete_user_view,
     )
@@ -36,7 +35,6 @@ except ImportError:
         update_user_view,
         update_current_user_profile_view,
         change_user_status_view,
-        change_password_view,
         check_email_availability_view,
         delete_user_view,
     )
@@ -100,7 +98,6 @@ def tcc_api_root(request):
                 'update_user': '/tcc/users/{id}/update/',
                 'update_profile': '/tcc/users/me/update/',
                 'change_status': '/tcc/users/{id}/status/',
-                'change_password': '/tcc/users/me/change-password/',
                 'check_email': '/tcc/users/check-email/',
                 'delete_user': '/tcc/users/{id}/delete/',
                 'health': '/tcc/health/',
@@ -141,7 +138,6 @@ urlpatterns = [
     path('users/<int:user_id>/update/', update_user_view, name='update-user'),
     path('users/me/update/', update_current_user_profile_view, name='update-current-user'),
     path('users/<int:user_id>/status/', change_user_status_view, name='change-user-status'),
-    path('users/me/change-password/', change_password_view, name='change-password'),
     path('users/check-email/', check_email_availability_view, name='check-email'),
     path('users/<int:user_id>/delete/', delete_user_view, name='delete-user'),
 ]

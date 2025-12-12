@@ -7,6 +7,14 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from apps.core.schemas.common.response import APIResponse
 from apps.tcc.usecase.services.auth.auth_controller import create_auth_controller
+from apps.tcc.usecase.domain_exception.auth_exceptions import (
+    InvalidAuthInputException,
+    InvalidCredentialsException,
+    AccountInactiveException,
+    UnauthenticatedException,
+    AuthenticationException
+)
+from apps.tcc.usecase.domain_exception.u_exceptions import AccountLockedException
 from .base_view import build_context
 
 logger = logging.getLogger(__name__)
@@ -50,12 +58,118 @@ def error(message, detail=None, status=400):
 @permission_classes([AllowAny])
 async def login_view(request: Request):
     try:
+        # Quick validation for empty request
+        if not request.data:
+            return error(
+                message="Login data is required",
+                detail={
+                    "field_errors": {
+                        "general": ["Please provide email and password to login."]
+                    }
+                },
+                status=400
+            )
+        
+        # Check for empty email/password
+        email = request.data.get('email', '').strip()
+        password = request.data.get('password', '').strip()
+        
+        if not email and not password:
+            return error(
+                message="Email and password are required",
+                detail={
+                    "field_errors": {
+                        "email": ["Email is required to login"],
+                        "password": ["Password is required to login"]
+                    }
+                },
+                status=400
+            )
+        elif not email:
+            return error(
+                message="Email is required",
+                detail={
+                    "field_errors": {
+                        "email": ["Email is required to login"]
+                    }
+                },
+                status=400
+            )
+        elif not password:
+            return error(
+                message="Password is required",
+                detail={
+                    "field_errors": {
+                        "password": ["Password is required to login"]
+                    }
+                },
+                status=400
+            )
+        
+        # If we have data, proceed with controller
         controller = await get_auth_controller()
         domain = await controller.login(request.data, build_context(request))
         return success(domain, "Login successful")
+        
+    except InvalidAuthInputException as e:
+        # This is for validation errors from Pydantic or business logic
+        return error(
+            message=e.user_message or "Invalid login input",
+            detail={
+                "field_errors": getattr(e, 'field_errors', {}),
+                "error_code": getattr(e, 'error_code', 'INVALID_INPUT')
+            },
+            status=400
+        )
+        
+    except InvalidCredentialsException as e:
+        # This is for invalid email/password combination
+        return error(
+            message="Invalid email or password",
+            detail={
+                "error_code": getattr(e, 'error_code', 'INVALID_CREDENTIALS')
+            },
+            status=401
+        )
+        
+    except AccountInactiveException as e:
+        return error(
+            message="Account is inactive",
+            detail={
+                "error_code": getattr(e, 'error_code', 'ACCOUNT_INACTIVE')
+            },
+            status=401
+        )
+        
+    except AccountLockedException as e:
+        return error(
+            message="Account is locked",
+            detail={
+                "error_code": getattr(e, 'error_code', 'ACCOUNT_LOCKED'),
+                "user_message": getattr(e, 'user_message', None)
+            },
+            status=423  # 423 Locked
+        )
+        
+    except (UnauthenticatedException, AuthenticationException) as e:
+        return error(
+            message="Authentication required",
+            detail={
+                "error_code": getattr(e, 'error_code', 'AUTHENTICATION_REQUIRED')
+            },
+            status=401
+        )
+        
     except Exception as e:
         logger.error("Login error", exc_info=True)
-        return error("Login failed", str(e), 400)
+        return error(
+            message="Login failed",
+            detail={
+                "error": str(e),
+                "error_type": type(e).__name__
+            },
+            status=500
+        )
 
 
 @api_view(["POST"])

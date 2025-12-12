@@ -109,41 +109,6 @@ class UserSearchInputSchema(BaseSchema):
     page: int = Field(default=1, ge=1, description="Page number")
     per_page: int = Field(default=20, ge=1, le=100, description="Items per page")
 
-class UserChangePasswordInputSchema(BaseSchema):
-    """Schema for changing user password - matches repo verify_password."""
-    
-    current_password: str = Field(..., min_length=1, description="Current password")
-    new_password: str = Field(..., min_length=8, description="New password")
-    confirm_password: str = Field(..., min_length=8, description="Confirm new password")
-
-    @model_validator(mode="after")
-    def validate_passwords(self):
-        """Validate password change."""
-        if self.new_password != self.confirm_password:
-            raise ValueError("New passwords do not match")
-        if self.current_password == self.new_password:
-            raise ValueError("New password must be different from current password")
-        return self
-
-class UserResetPasswordRequestInputSchema(BaseSchema):
-    """Schema for password reset request."""
-    
-    email: EmailStr = Field(..., description="User email address")
-
-class UserResetPasswordInputSchema(BaseSchema):
-    """Schema for setting new password after reset."""
-    
-    token: str = Field(..., description="Password reset token")
-    new_password: str = Field(..., min_length=8, description="New password")
-    confirm_password: str = Field(..., min_length=8, description="Confirm new password")
-
-    @model_validator(mode="after")
-    def validate_passwords_match(self):
-        """Ensure passwords match."""
-        if self.new_password != self.confirm_password:
-            raise ValueError("Passwords do not match")
-        return self
-
 class EmailCheckInputSchema(BaseSchema):
     """Schema for checking email existence - matches repo email_exists."""
     
@@ -165,12 +130,6 @@ class UserBulkUpdateInputSchema(BaseSchema):
 class UserBulkDeleteInputSchema(BaseSchema):
     """Schema for bulk user deletion."""
     user_ids: List[int] = Field(..., min_items=1, max_items=100, description="User IDs to delete")
-
-class UserLoginInputSchema(BaseSchema):
-    """Schema for user login."""
-    email: EmailStr = Field(..., description="Email address")
-    password: str = Field(..., min_length=1, description="Password")
-    remember_me: bool = Field(default=False, description="Remember login")
 
 class UserProfileUpdateInputSchema(BaseSchema):
     """Schema for updating user profile (non-sensitive fields)."""

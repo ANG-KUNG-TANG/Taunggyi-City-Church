@@ -14,8 +14,10 @@ from apps.tcc.usecase.domain_exception.auth_exceptions import (
     MinistryAccessException,
     RateLimitExceededException,
     AuthenticationException,
-    AuthorizationException
+    AuthorizationException,
+    InvalidAuthInputException  
 )
+from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,15 @@ class AuthExceptionHandler:
         if isinstance(exception, RateLimitExceededException):
             if hasattr(exception, 'retry_after') and exception.retry_after:
                 error_data['retry_after'] = exception.retry_after
+        
+        # For InvalidUserInputException or InvalidAuthInputException, add field errors if available
+        if isinstance(exception, (InvalidUserInputException, InvalidAuthInputException)):
+            if hasattr(exception, 'field_errors') and exception.field_errors:
+                error_data['field_errors'] = exception.field_errors
+            # Add operation ID if available
+            if hasattr(exception, 'details') and isinstance(exception.details, dict):
+                if 'operation_id' in exception.details:
+                    error_data['operation_id'] = exception.details['operation_id']
         
         return error_data
     
@@ -71,6 +82,18 @@ class AuthExceptionHandler:
                     'event_type': 'rate_limit'
                 }
             )
+        # Validation errors
+        elif isinstance(exception, (InvalidUserInputException, InvalidAuthInputException)):
+            logger.info(
+                f"Validation error in {func_name}: {exception_name}",
+                extra={
+                    'exception_type': exception_name,
+                    'function': func_name,
+                    'user_id': getattr(exception, 'user_id', None),
+                    'field_errors': getattr(exception, 'field_errors', {}),
+                    'event_type': 'validation_error'
+                }
+            )
         # Other auth exceptions
         else:
             logger.info(
@@ -100,8 +123,9 @@ class AuthExceptionHandler:
                 status_code = getattr(e, 'status_code', 401)
                 error_data = cls._get_error_data(e)
                 
-                # Return APIResponse for errors (controller will handle this)
-                return APIResponse.error(
+                # Create APIResponse with error status
+                return APIResponse(
+                    success=False,
                     message=getattr(e, 'message', None) or "Authentication required",
                     data=error_data,
                     status_code=status_code
@@ -113,7 +137,8 @@ class AuthExceptionHandler:
                 status_code = getattr(e, 'status_code', 401)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse.error(
+                return APIResponse(
+                    success=False,
                     message=getattr(e, 'message', None) or "Authentication failed",
                     data=error_data,
                     status_code=status_code
@@ -125,7 +150,8 @@ class AuthExceptionHandler:
                 status_code = getattr(e, 'status_code', 403)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse.error(
+                return APIResponse(
+                    success=False,
                     message=getattr(e, 'message', None) or "Access denied",
                     data=error_data,
                     status_code=status_code
@@ -136,8 +162,53 @@ class AuthExceptionHandler:
                 status_code = getattr(e, 'status_code', 429)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse.error(
+                return APIResponse(
+                    success=False,
                     message=getattr(e, 'message', None) or "Rate limit exceeded",
+                    data=error_data,
+                    status_code=status_code
+                )
+            
+            except InvalidAuthInputException as e:
+                cls._log_exception(e, func.__name__)
+                status_code = getattr(e, 'status_code', 400)
+                error_data = cls._get_error_data(e)
+                
+                # Create a user-friendly message
+                user_message = getattr(e, 'user_message', None)
+                if not user_message:
+                    if hasattr(e, 'field_errors') and e.field_errors:
+                        # Build message from field errors
+                        field_names = ', '.join(e.field_errors.keys())
+                        user_message = f"Validation error in fields: {field_names}"
+                    else:
+                        user_message = "Invalid authentication input"
+                
+                return APIResponse(
+                    success=False,
+                    message=user_message,
+                    data=error_data,
+                    status_code=status_code
+                )
+            
+            except InvalidUserInputException as e:
+                cls._log_exception(e, func.__name__)
+                status_code = getattr(e, 'status_code', 400)
+                error_data = cls._get_error_data(e)
+                
+                # Create a user-friendly message
+                user_message = getattr(e, 'user_message', None)
+                if not user_message:
+                    if hasattr(e, 'field_errors') and e.field_errors:
+                        # Build message from field errors
+                        field_names = ', '.join(e.field_errors.keys())
+                        user_message = f"Validation error in fields: {field_names}"
+                    else:
+                        user_message = "Invalid input data"
+                
+                return APIResponse(
+                    success=False,
+                    message=user_message,
                     data=error_data,
                     status_code=status_code
                 )

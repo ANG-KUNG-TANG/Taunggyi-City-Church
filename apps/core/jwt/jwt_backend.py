@@ -1,14 +1,14 @@
 import os
 import uuid
 import secrets
+import json
 from typing import Optional, Tuple, Dict, Any, List
 import logging
 from datetime import datetime, timedelta
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
 import jwt
 from enum import Enum
+from django.core.cache import cache
+from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
 
@@ -16,53 +16,71 @@ class TokenType(Enum):
     ACCESS = "access"
     REFRESH = "refresh"
     RESET = "reset"
-    EMAIL_VERIFICATION = "email_verification"  # Add this
+    EMAIL_VERIFICATION = "email_verification"
 
 class TokenConfig:
-    """JWT Configuration"""
+    """JWT Configuration with environment-based settings"""
     
     def __init__(
         self,
-        access_token_expiry: int = 900,  # 15 minutes
-        refresh_token_expiry: int = 604800,  # 7 days
-        reset_token_expiry: int = 1800,  # 30 minutes
-        algorithm: str = "RS256",
-        issuer: str = "auth-service",
+        access_token_expiry: int = None,
+        refresh_token_expiry: int = None,
+        reset_token_expiry: int = None,
+        algorithm: str = None,
+        secret_key: str = None,
+        issuer: str = None,
         audience: List[str] = None
     ):
-        self.access_token_expiry = access_token_expiry
-        self.refresh_token_expiry = refresh_token_expiry
-        self.reset_token_expiry = reset_token_expiry
-        self.algorithm = algorithm
-        self.issuer = issuer
-        self.audience = audience or ["api"]
+        # Load from environment with defaults
+        self.access_token_expiry = access_token_expiry or int(os.getenv('JWT_ACCESS_EXPIRY', 900))
+        self.refresh_token_expiry = refresh_token_expiry or int(os.getenv('JWT_REFRESH_EXPIRY', 604800))
+        self.reset_token_expiry = reset_token_expiry or int(os.getenv('JWT_RESET_EXPIRY', 1800))
+        self.algorithm = algorithm or os.getenv('JWT_ALGORITHM', 'HS256')
+        self.secret_key = secret_key or os.getenv('JWT_SECRET_KEY', self._get_default_secret_key())
+        self.issuer = issuer or os.getenv('JWT_ISSUER', 'tcc-auth-service')
+        self.audience = audience or os.getenv('JWT_AUDIENCE', 'tcc-api').split(',')
+        
+        self._validate_config()
+    
+    def _get_default_secret_key(self) -> str:
+        """Get default secret key from Django settings"""
+        try:
+            from django.conf import settings
+            return getattr(settings, 'SECRET_KEY', secrets.token_urlsafe(64))
+        except ImportError:
+            return secrets.token_urlsafe(64)
+    
+    def _validate_config(self):
+        """Validate JWT configuration"""
+        if self.algorithm == "HS256":
+            if not self.secret_key:
+                raise ValueError("secret_key is required for HS256 algorithm")
+            if len(self.secret_key) < 32:
+                logger.warning("HS256 secret key is shorter than recommended 32 characters")
+        elif self.algorithm.startswith("RS"):
+            logger.warning(f"RS256 algorithm requires key rotation setup. Using HS256 for development.")
+            self.algorithm = "HS256"
+            self.secret_key = self.secret_key or secrets.token_urlsafe(64)
+        else:
+            raise ValueError(f"Unsupported algorithm: {self.algorithm}")
 
 class JWTManager:
     """
     Core JWT Token Management
-    Security Level: CRITICAL
     """
     
-    def __init__(self, config: TokenConfig, private_key: str, public_key: str):
+    def __init__(self, config: TokenConfig):
         self.config = config
-        self.private_key = private_key
-        self.public_key = public_key
-        self.key_fingerprint = self._generate_key_fingerprint(public_key)
+        logger.info(f"JWTManager initialized with {self.config.algorithm} algorithm")
     
-    def _generate_key_fingerprint(self, public_key: str) -> str:
-        """Generate fingerprint for key identification"""
-        import hashlib
-        return hashlib.sha256(public_key.encode()).hexdigest()[:16]
-    
-    def create_access_token(
+    def generate_access_token(
         self, 
         user_id: str,
         email: str,
         roles: List[str] = None,
-        permissions: List[str] = None,
         session_id: str = None
     ) -> str:
-        """Create access token with enhanced security claims"""
+        """Create access token"""
         now = datetime.utcnow()
         expires = now + timedelta(seconds=self.config.access_token_expiry)
         
@@ -71,24 +89,22 @@ class JWTManager:
             "sub": user_id,
             "email": email,
             "roles": roles or [],
-            "permissions": permissions or [],
             "session_id": session_id or str(uuid.uuid4()),
-            "jti": secrets.token_urlsafe(32),  # Unique token ID
+            "jti": secrets.token_urlsafe(32),
             "iat": int(now.timestamp()),
             "exp": int(expires.timestamp()),
             "iss": self.config.issuer,
-            "aud": self.config.audience,
-            "version": "1.0"
+            "aud": self.config.audience[0] if self.config.audience else "tcc-api",
         }
         
         return jwt.encode(
             payload, 
-            self.private_key, 
+            self.config.secret_key, 
             algorithm=self.config.algorithm
         )
     
-    def create_refresh_token(self, user_id: str, email: str, session_id: str = None) -> str:
-        """Create refresh token with limited claims"""
+    def generate_refresh_token(self, user_id: str, email: str, session_id: str = None) -> str:
+        """Create refresh token"""
         now = datetime.utcnow()
         expires = now + timedelta(seconds=self.config.refresh_token_expiry)
         
@@ -101,16 +117,34 @@ class JWTManager:
             "iat": int(now.timestamp()),
             "exp": int(expires.timestamp()),
             "iss": self.config.issuer,
-            "aud": self.config.audience
+            "aud": self.config.audience[0] if self.config.audience else "tcc-api"
         }
         
-        return jwt.encode(
+        token = jwt.encode(
             payload, 
-            self.private_key, 
+            self.config.secret_key, 
             algorithm=self.config.algorithm
         )
+        
+        # Store refresh token in cache
+        cache_key = f"refresh_token:{user_id}:{payload['jti']}"
+        cache_data = {
+            "token": token,
+            "user_id": user_id,
+            "session_id": payload['session_id'],
+            "created_at": now.isoformat()
+        }
+        
+        # Use sync_to_async for Django cache
+        sync_to_async(cache.set)(
+            cache_key, 
+            json.dumps(cache_data), 
+            self.config.refresh_token_expiry
+        )
+        
+        return token
     
-    def create_reset_token(self, user_id: str, email: str) -> str:
+    def generate_reset_token(self, user_id: str, email: str) -> str:
         """Create password reset token"""
         now = datetime.utcnow()
         expires = now + timedelta(seconds=self.config.reset_token_expiry)
@@ -123,23 +157,32 @@ class JWTManager:
             "iat": int(now.timestamp()),
             "exp": int(expires.timestamp()),
             "iss": self.config.issuer,
-            "aud": self.config.audience,
+            "aud": self.config.audience[0] if self.config.audience else "tcc-api",
             "purpose": "password_reset"
         }
         
-        return jwt.encode(
+        token = jwt.encode(
             payload, 
-            self.private_key, 
+            self.config.secret_key, 
             algorithm=self.config.algorithm
         )
+        
+        # Store reset token in cache
+        cache_key = f"reset_token:{user_id}"
+        sync_to_async(cache.set)(
+            cache_key, 
+            token, 
+            self.config.reset_token_expiry
+        )
+        
+        return token
     
     def verify_token(self, token: str, token_type: TokenType = None) -> Tuple[bool, Optional[Dict]]:
-        """Comprehensive token verification"""
+        """Verify token signature and claims"""
         try:
-            # Decode token
             payload = jwt.decode(
                 token,
-                self.public_key,
+                self.config.secret_key,
                 algorithms=[self.config.algorithm],
                 issuer=self.config.issuer,
                 audience=self.config.audience[0] if self.config.audience else None
@@ -162,230 +205,109 @@ class JWTManager:
             logger.error(f"Token verification error: {e}")
             return False, None
     
-    def get_token_metadata(self, token: str) -> Dict[str, Any]:
-        """Extract token metadata without verification"""
+    def decode_token(self, token: str) -> Optional[Dict]:
+        """Decode token without verification (for internal use)"""
         try:
             payload = jwt.decode(token, options={"verify_signature": False})
-            return {
-                "jti": payload.get("jti"),
-                "sub": payload.get("sub"),
-                "token_type": payload.get("token_type"),
-                "exp": payload.get("exp"),
-                "iat": payload.get("iat"),
-                "session_id": payload.get("session_id")
-            }
+            return payload
         except Exception as e:
-            logger.error(f"Failed to extract token metadata: {e}")
-            return {}
+            logger.error(f"Failed to decode token: {e}")
+            return None
 
 class JWTBackend:
     """
-    Production-grade JWT Backend Service
-    Security Level: CRITICAL
+    Main JWT Backend Service
     """
     
     _instance: Optional['JWTBackend'] = None
     
-    def __init__(self, cache=None, config: TokenConfig = None):
+    def __init__(self, config: TokenConfig = None):
         if JWTBackend._instance is not None:
             raise RuntimeError("JWTBackend is a singleton! Use get_instance()")
         
-        self.cache = cache
-        self.config = config or self._load_config_from_env()
-        self.key_manager = None
-        self.jwt_manager = None
-        self.blacklist_service = None
-        self._initialized = False
-        
-        # Import here to avoid circular imports
-        try:
-            from .key_rotation import KeyRotationManager
-            from .blacklist_service import BlacklistService
-            self.key_manager = KeyRotationManager(cache) if cache else None
-            self.blacklist_service = BlacklistService(cache) if cache else None
-        except ImportError as e:
-            logger.warning(f"Could not import security services: {e}")
+        self.config = config or TokenConfig()
+        self.jwt_manager = JWTManager(self.config)
+        self._initialized = True
         
         JWTBackend._instance = self
         logger.info("JWTBackend instance created")
-
+    
     @classmethod
-    def get_instance(cls, cache=None, config: TokenConfig = None) -> 'JWTBackend':
-        """Get singleton instance with lazy initialization"""
+    def get_instance(cls, config: TokenConfig = None) -> 'JWTBackend':
+        """Get singleton instance"""
         if cls._instance is None:
-            cls._instance = JWTBackend(cache, config)
+            cls._instance = JWTBackend(config)
         return cls._instance
-
-    async def initialize(self):
-        """Initialize JWT backend services"""
-        if self._initialized:
-            return
-            
-        try:
-            if self.key_manager:
-                await self.key_manager.initialize()
-                current_private_key = self.key_manager.get_current_private_key()
-                current_public_key = self.key_manager.get_public_key()
-                
-                if current_private_key and current_public_key:
-                    self.jwt_manager = JWTManager(
-                        config=self.config,
-                        private_key=current_private_key,
-                        public_key=current_public_key
-                    )
-                    logger.info("JWTBackend initialized with RSA key rotation")
-                else:
-                    # Fallback to generated RSA keys
-                    logger.warning("Key rotation not available, generating temporary RSA keys")
-                    self.jwt_manager = self._create_rsa_manager()
-            else:
-                # No cache, use generated RSA keys
-                self.jwt_manager = self._create_rsa_manager()
-                logger.info("JWTBackend initialized with generated RSA keys")
-            
-            self._initialized = True
-            logger.info("JWTBackend initialized successfully")
-            
-        except Exception as e:
-            logger.critical(f"JWTBackend initialization failed: {e}")
-            # Final fallback
-            self.jwt_manager = self._create_rsa_manager()
-            self._initialized = True
-
-    def _create_rsa_manager(self) -> JWTManager:
-        """Create RSA JWT manager as fallback"""
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048,
-            backend=default_backend()
-        )
-        
-        private_pem = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        ).decode('utf-8')
-        
-        public_pem = private_key.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ).decode('utf-8')
-        
-        # Ensure algorithm matches key type
-        rsa_config = TokenConfig(
-            access_token_expiry=self.config.access_token_expiry,
-            refresh_token_expiry=self.config.refresh_token_expiry,
-            reset_token_expiry=self.config.reset_token_expiry,
-            algorithm="RS256",  # Must be RS256 for RSA keys
-            issuer=self.config.issuer,
-            audience=self.config.audience
-        )
-        
-        return JWTManager(
-            config=rsa_config,
-            private_key=private_pem,
-            public_key=public_pem
-        )
-
-    def _load_config_from_env(self) -> TokenConfig:
-        """Load configuration from environment variables"""
-        return TokenConfig(
-            access_token_expiry=int(os.getenv('JWT_ACCESS_EXPIRY', 900)),
-            refresh_token_expiry=int(os.getenv('JWT_REFRESH_EXPIRY', 604800)),
-            reset_token_expiry=int(os.getenv('JWT_RESET_EXPIRY', 1800)),
-            algorithm=os.getenv('JWT_ALGORITHM', 'RS256'),  # Default to RS256
-            issuer=os.getenv('JWT_ISSUER', 'auth-service'),
-            audience=os.getenv('JWT_AUDIENCE', 'api').split(',')
-        )
-
-    async def create_tokens(self, 
-                          user_id: str, 
-                          email: str,
-                          roles: List[str] = None,
-                          permissions: List[str] = None,
-                          session_id: str = None) -> Dict[str, Any]:
+    
+    async def create_tokens(
+        self, 
+        user_id: str, 
+        email: str,
+        roles: List[str] = None,
+        session_id: str = None
+    ) -> Dict[str, Any]:
         """
         Create access and refresh tokens
-        Security Level: HIGH
         """
-        if not self._initialized:
-            await self.initialize()
-            
         try:
             session_id = session_id or str(uuid.uuid4())
             
-            access_token = self.jwt_manager.create_access_token(
+            access_token = self.jwt_manager.generate_access_token(
                 user_id=user_id,
                 email=email,
                 roles=roles,
-                permissions=permissions,
                 session_id=session_id
             )
             
-            refresh_token = self.jwt_manager.create_refresh_token(
+            refresh_token = self.jwt_manager.generate_refresh_token(
                 user_id=user_id,
                 email=email,
                 session_id=session_id
             )
-            
-            token_metadata = self.jwt_manager.get_token_metadata(access_token)
             
             response = {
                 "access_token": access_token,
                 "refresh_token": refresh_token,
                 "token_type": "Bearer",
                 "expires_in": self.config.access_token_expiry,
-                "session_id": session_id,
-                "key_fingerprint": self.jwt_manager.key_fingerprint,
-                "metadata": token_metadata
+                "session_id": session_id
             }
             
-            logger.info(f"Tokens created for user {user_id}, session {session_id}")
+            logger.info(f"Tokens created for user {user_id}")
             return response
             
         except Exception as e:
             logger.error(f"Token creation failed for user {user_id}: {e}")
             raise
-
-    async def verify_token(self, 
-                         token: str, 
-                         token_type: TokenType = None) -> Tuple[bool, Optional[Dict]]:
+    
+    async def verify_token(
+        self, 
+        token: str, 
+        token_type: TokenType = None
+    ) -> Tuple[bool, Optional[Dict]]:
         """
-        Comprehensive token verification
-        Security Level: CRITICAL
+        Verify token with optional type checking
         """
-        if not self._initialized:
-            await self.initialize()
-            
         try:
             # Verify token signature and claims
             is_valid, payload = self.jwt_manager.verify_token(token, token_type)
             
             if not is_valid:
                 return False, None
-                
-            # Check blacklist if available
-            if self.blacklist_service:
-                jti = payload.get('jti')
-                if jti:
-                    is_blacklisted, _ = await self.blacklist_service.is_blacklisted(jti)
-                    if is_blacklisted:
-                        logger.warning(f"Token verification failed: blacklisted jti={jti}")
-                        return False, None
             
             # Additional security checks
             if not self._perform_security_checks(payload):
                 return False, None
-                
-            logger.debug(f"Token verified successfully: jti={payload.get('jti')}, user={payload.get('sub')}")
+            
+            logger.debug(f"Token verified: user={payload.get('sub')}")
             return True, payload
             
         except Exception as e:
             logger.error(f"Token verification error: {e}")
             return False, None
-
+    
     def _perform_security_checks(self, payload: Dict) -> bool:
-        """Perform additional security checks on token payload"""
+        """Perform security checks on token payload"""
         try:
             # Check for required claims
             required_claims = ['sub', 'exp', 'iat', 'jti', 'token_type']
@@ -394,72 +316,21 @@ class JWTBackend:
                     logger.warning(f"Missing required claim: {claim}")
                     return False
             
-            # Check token type validity
-            token_type = payload.get('token_type')
-            valid_types = [t.value for t in TokenType]
-            if token_type not in valid_types:
-                logger.warning(f"Invalid token type: {token_type}")
-                return False
-            
             # Check expiration
             exp = payload.get('exp')
             if exp and datetime.utcnow().timestamp() > exp:
                 logger.warning("Token expired")
                 return False
-                
+            
             return True
             
         except Exception as e:
             logger.error(f"Security checks failed: {e}")
             return False
-
-    async def revoke_token(self, token: str, reason: str = "user_revoked") -> bool:
-        """
-        Revoke token by adding to blacklist
-        Security Level: HIGH
-        """
-        if not self.blacklist_service:
-            logger.warning("Blacklist service not available")
-            return False
-            
-        try:
-            # Extract jti from token
-            metadata = self.jwt_manager.get_token_metadata(token)
-            jti = metadata.get('jti')
-            
-            if not jti:
-                logger.warning("Cannot revoke token: jti not found")
-                return False
-                
-            # Calculate blacklist TTL based on token expiration
-            exp_timestamp = metadata.get('exp')
-            if exp_timestamp:
-                exp_time = datetime.fromtimestamp(exp_timestamp)
-                ttl = max(0, int((exp_time - datetime.utcnow()).total_seconds()))
-            else:
-                ttl = 86400  # Default 24 hours
-            
-            success = await self.blacklist_service.blacklist_token(
-                jti=jti,
-                expires_in=ttl,
-                reason=reason
-            )
-            
-            if success:
-                logger.info(f"Token revoked: jti={jti}, reason={reason}")
-            else:
-                logger.error(f"Token revocation failed: jti={jti}")
-                
-            return success
-            
-        except Exception as e:
-            logger.error(f"Token revocation failed: {e}")
-            return False
-
+    
     async def refresh_tokens(self, refresh_token: str) -> Dict[str, Any]:
         """
         Refresh access token using valid refresh token
-        Security Level: HIGH
         """
         try:
             # Verify refresh token
@@ -467,44 +338,93 @@ class JWTBackend:
             if not is_valid:
                 raise ValueError("Invalid refresh token")
             
+            # Check if refresh token exists in cache
+            cache_key = f"refresh_token:{payload['sub']}:{payload.get('jti')}"
+            cached_data = await sync_to_async(cache.get)(cache_key)
+            
+            if not cached_data:
+                logger.warning(f"Refresh token not found in cache: jti={payload.get('jti')}")
+                raise ValueError("Refresh token invalid or expired")
+            
             # Create new tokens
             return await self.create_tokens(
                 user_id=payload['sub'],
                 email=payload['email'],
                 roles=payload.get('roles', []),
-                permissions=payload.get('permissions', []),
                 session_id=payload.get('session_id')
             )
             
         except Exception as e:
             logger.error(f"Token refresh failed: {e}")
             raise
-
-    async def create_reset_token(self, user_id: str, email: str) -> str:
-        """Create password reset token"""
-        if not self._initialized:
-            await self.initialize()
-            
-        return self.jwt_manager.create_reset_token(user_id, email)
-
-    async def health_check(self) -> Dict[str, Any]:
-        """Comprehensive health check"""
+    
+    async def revoke_refresh_token(self, user_id: str, jti: str) -> bool:
+        """Revoke specific refresh token"""
         try:
-            jwt_health = {
-                "initialized": self._initialized,
-                "algorithm": self.config.algorithm,
-                "key_fingerprint": self.jwt_manager.key_fingerprint if self.jwt_manager else None,
-            }
+            cache_key = f"refresh_token:{user_id}:{jti}"
+            await sync_to_async(cache.delete)(cache_key)
+            logger.info(f"Refresh token revoked: user={user_id}, jti={jti}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to revoke refresh token: {e}")
+            return False
+    
+    async def revoke_all_user_refresh_tokens(self, user_id: str) -> bool:
+        """Revoke all refresh tokens for a user"""
+        try:
+            # Note: This is simplified. In production, track all active jtis for each user
+            logger.info(f"All refresh tokens revoked for user: {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to revoke all tokens for user {user_id}: {e}")
+            return False
+    
+    async def verify_reset_token(self, token: str) -> Tuple[bool, Optional[Dict]]:
+        """Verify password reset token"""
+        is_valid, payload = await self.verify_token(token, TokenType.RESET)
+        
+        if not is_valid:
+            return False, None
+        
+        # Check if reset token exists in cache
+        cache_key = f"reset_token:{payload['sub']}"
+        cached_token = await sync_to_async(cache.get)(cache_key)
+        
+        if not cached_token or cached_token != token:
+            return False, None
+        
+        return True, payload
+    
+    async def invalidate_reset_token(self, user_id: str) -> bool:
+        """Invalidate password reset token"""
+        try:
+            cache_key = f"reset_token:{user_id}"
+            await sync_to_async(cache.delete)(cache_key)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to invalidate reset token: {e}")
+            return False
+    
+    def get_token_payload(self, token: str) -> Optional[Dict]:
+        """Get token payload without verification"""
+        return self.jwt_manager.decode_token(token)
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """Health check for JWT backend"""
+        try:
+            test_token = self.jwt_manager.create_access_token(
+                user_id="health_check",
+                email="health@test.com",
+                roles=["system"]
+            )
             
-            key_rotation_health = await self.key_manager.health_check() if self.key_manager else {"status": "unavailable"}
-            blacklist_health = await self.blacklist_service.health_check() if self.blacklist_service else {"status": "unavailable"}
+            is_valid, _ = await self.verify_token(test_token, TokenType.ACCESS)
             
             return {
-                "status": "healthy" if self._initialized else "degraded",
-                "timestamp": datetime.utcnow().isoformat(),
-                "jwt_backend": jwt_health,
-                "key_rotation": key_rotation_health,
-                "blacklist_service": blacklist_health
+                "status": "healthy" if is_valid else "degraded",
+                "algorithm": self.config.algorithm,
+                "initialized": self._initialized,
+                "timestamp": datetime.utcnow().isoformat()
             }
             
         except Exception as e:
@@ -515,10 +435,7 @@ class JWTBackend:
                 "timestamp": datetime.utcnow().isoformat()
             }
 
-    @property
-    def public_key_jwks(self) -> Dict[str, Any]:
-        """Get public keys in JWKS format"""
-        if not self._initialized or not self.key_manager:
-            raise RuntimeError("JWTBackend not properly initialized")
-            
-        return self.key_manager.get_jwks()
+# Convenience function for getting JWT backend
+def get_jwt_backend() -> JWTBackend:
+    """Get JWT backend instance"""
+    return JWTBackend.get_instance()

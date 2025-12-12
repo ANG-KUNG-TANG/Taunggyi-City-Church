@@ -189,6 +189,46 @@ class InvalidResetTokenException(AuthenticationException):
             cause=cause
         )
 
+# ============ VALIDATION EXCEPTIONS (400) ============
+
+class InvalidAuthInputException(AuthenticationException):
+    """Authentication-specific input validation errors"""
+    
+    def __init__(
+        self,
+        field_errors: Optional[Dict[str, List[str]]] = None,
+        user_message: Optional[str] = None,
+        operation_id: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[ErrorContext] = None,
+        cause: Optional[Exception] = None
+    ):
+        details = details or {}
+        if field_errors:
+            details["field_errors"] = field_errors
+        if operation_id:
+            details["operation_id"] = operation_id
+            
+        message = "Authentication input validation failed"
+        if field_errors:
+            # Create a summary message from field errors
+            error_fields = list(field_errors.keys())
+            if error_fields:
+                message = f"Validation error in fields: {', '.join(error_fields)}"
+        
+        super().__init__(
+            message=message,
+            error_code="INVALID_AUTH_INPUT",
+            status_code=400,  # Bad Request for validation errors
+            details=details,
+            context=context,
+            cause=cause
+        )
+        
+        # Store user-friendly message separately
+        self.user_message = user_message or "Please check your input and try again."
+
+
 # ============ AUTHORIZATION EXCEPTIONS (403) ============
 
 class InsufficientPermissionsException(AuthorizationException):

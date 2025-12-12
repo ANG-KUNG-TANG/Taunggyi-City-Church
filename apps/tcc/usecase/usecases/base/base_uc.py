@@ -10,7 +10,8 @@ from apps.core.db.safe_logger import SafeLogger
 from apps.core.schemas.out_schemas.base import DeleteResponseSchema
 from apps.tcc.usecase.domain_exception.auth_exceptions import (
     AuthorizationException, 
-    UnauthenticatedException
+    UnauthenticatedException,
+    InvalidAuthInputException  # Add this import
 )
 from .config import UseCaseConfiguration, OperationContext, AuthorizationManager
 
@@ -53,11 +54,17 @@ class BaseUseCase:
             await self._after_execute(operation_ctx)
             return result
 
-        except DomainException:
-            raise
+        except InvalidAuthInputException as exc:
+            # Don't wrap InvalidAuthInputException - let it bubble up to AuthExceptionHandler
+            operation_ctx.error = exc
+            raise exc
+        except DomainException as exc:
+            operation_ctx.error = exc
+            raise exc
         except Exception as exc:
             operation_ctx.error = exc
-            raise await self._handle_exception(exc, operation_ctx)
+            processed = await self._handle_exception(exc, operation_ctx)
+            raise processed
         finally:
             await self._finalize_execution(operation_ctx)
 
@@ -76,18 +83,27 @@ class BaseUseCase:
     async def _execute_main_logic(self, ctx: OperationContext):
         """Execute with transaction support"""
         if self.config.transactional:
-            async def run_in_transaction():
+            # Use a simpler approach for transactional operations
+            # Avoid nested async_to_sync calls
+            try:
+                # Run the async operation within a transaction
+                async def async_transaction():
+                    # This runs in an async context
+                    return await self._on_execute(ctx.input_data, ctx.user, ctx)
+                
+                # Use sync_to_async to run the async function in a thread
+                return await sync_to_async(self._run_transaction)(async_transaction)
+            except Exception as e:
+                # If there's an async-sync conflict, fall back to non-transactional
+                logger.warning(f"Transactional execution failed, falling back: {e}")
                 return await self._on_execute(ctx.input_data, ctx.user, ctx)
-            
-            # Run the entire operation in a synchronous transaction
-            return await sync_to_async(self._run_sync_transaction)(run_in_transaction)
         else:
             return await self._on_execute(ctx.input_data, ctx.user, ctx)
 
-    def _run_sync_transaction(self, async_func):
+    def _run_transaction(self, async_func):
         """Run async function inside a synchronous transaction"""
         with transaction.atomic():
-            # Convert async function to sync for execution within transaction
+            # Use async_to_sync to run the async function
             return async_to_sync(async_func)()
 
     async def _after_execute(self, ctx: OperationContext):
@@ -127,25 +143,15 @@ class BaseUseCase:
             )
     
     async def _handle_exception(self, exc: Exception, ctx: OperationContext) -> DomainException:
-        """Generic exception handling with safe logging"""
-        SafeLogger.error(
-            logger,
-            f"Unexpected error in {self.__class__.__name__}",
-            exc_info=True,
-            extra={"operation_id_value": ctx.operation_id}  # Changed from 'operation_id'
-        )
-            
-    async def _handle_exception(self, exc: Exception, ctx: OperationContext) -> DomainException:
         """Generic exception handling"""
-        # Simple logging without extra to avoid LogRecord conflicts
+        # Log the error
         logger.error(
             f"Unexpected error in {self.__class__.__name__} (op_id: {ctx.operation_id}): {exc}",
             exc_info=True
-            # Remove the extra parameter entirely
         )
         
-        # If it's already a DomainException, re-raise it
-        if isinstance(exc, DomainException):
+        # If it's already a DomainException or InvalidAuthInputException, re-raise it
+        if isinstance(exc, (DomainException, InvalidAuthInputException)):
             return exc
         
         # Check for common database exceptions
@@ -198,7 +204,7 @@ class BaseUseCase:
         except ImportError:
             pass
         
-        # Default case: wrap in DomainException but preserve original error
+        # Default case: wrap in DomainException
         return DomainException(
             message="An unexpected error occurred",
             error_code="INTERNAL_ERROR",
@@ -292,6 +298,7 @@ class GenericGetByIdUseCase(GenericCRUDUseCase[T, S]):
     
     def _setup_configuration(self):
         self.config.require_authentication = True
+        self.config.transactional = False  # Read operations don't need transactions
 
     async def _on_execute(self, input_data, user, ctx) -> S:
         entity_id = await self._validate_entity_id(
@@ -314,6 +321,7 @@ class GenericCreateUseCase(GenericCRUDUseCase[T, S]):
     
     def _setup_configuration(self):
         self.config.require_authentication = True
+        self.config.transactional = True
 
     async def _on_execute(self, input_data, user, ctx) -> S:
         entity_data = self._add_audit_context(input_data, user, ctx)
@@ -325,6 +333,7 @@ class GenericUpdateUseCase(GenericCRUDUseCase[T, S]):
     
     def _setup_configuration(self):
         self.config.require_authentication = True
+        self.config.transactional = True
 
     async def _on_execute(self, input_data, user, ctx) -> S:
         entity_id = await self._validate_entity_id(
@@ -353,6 +362,7 @@ class GenericDeleteUseCase(GenericCRUDUseCase[T, S]):
     
     def _setup_configuration(self):
         self.config.require_authentication = True
+        self.config.transactional = True
 
     async def _on_execute(self, input_data, user, ctx) -> DeleteResponseSchema:
         entity_id = await self._validate_entity_id(
@@ -379,6 +389,7 @@ class GenericListUseCase(GenericCRUDUseCase[T, S]):
     
     def _setup_configuration(self):
         self.config.require_authentication = True
+        self.config.transactional = False  # Read operations don't need transactions
 
     async def _on_execute(self, input_data, user, ctx) -> Dict[str, Any]:
         filters = input_data.get('filters', {})

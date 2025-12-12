@@ -8,7 +8,7 @@ from apps.core.schemas.input_schemas.users import (
     UserQueryInputSchema,
     UserSearchInputSchema,
     EmailCheckInputSchema,
-    UserChangePasswordInputSchema,
+
 )
 
 # Import decorators
@@ -17,7 +17,6 @@ from apps.core.schemas.validator.user_deco import (
     validate_user_update,
     validate_user_query,
     validate_user_search,
-    validate_change_password,
     validate_email_check,
     require_admin,
     require_member,
@@ -97,7 +96,7 @@ class UserController:
             'change_user_status': self._dependency_container.get_change_user_status_uc,
             'delete_user': self._dependency_container.get_delete_user_uc,
             'bulk_delete_users': self._dependency_container.get_bulk_delete_users_uc,
-            'register_user': self._dependency_container.get_register_user_uc,  # Added missing use case
+            'register_user': self._dependency_container.get_register_user_uc,  
         }
         
         if use_case_name not in use_case_map:
@@ -292,25 +291,8 @@ class UserController:
         input_data = {'user_id': user_id, 'status': status}
         return await change_user_status_uc.execute(input_data, current_user, context or {})
 
-    # ========== PASSWORD Operations ==========
-    @handle_user_exceptions
-    @validate_change_password
-    @require_member
-    @ensure_initialized
-    async def change_password(
-        self,
-        validated_data: UserChangePasswordInputSchema,
-        current_user: Any,
-        context: Dict[str, Any] = None
-    ) -> UserEntity:
-        """Change current user's password - Returns Entity"""
-        update_user_uc = await self._get_use_case('update_user')
-        input_data = {
-            'user_id': current_user.id,
-            'update_data': {'password': validated_data.new_password}
-        }
-        return await update_user_uc.execute(input_data, current_user, context or {})
-
+    
+    
     # ========== EMAIL Operations ==========
     @handle_user_exceptions
     @validate_email_check
