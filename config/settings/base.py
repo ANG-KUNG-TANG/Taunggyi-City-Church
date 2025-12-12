@@ -60,12 +60,14 @@ MIDDLEWARE = [
     'config.middleware.DatabaseQueryLoggingMiddleware',
     # "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+    
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    # 'apps.core.jwt.middleware.JWTAuthMiddleware',  # Comment out for now
+    'apps.core.jwt.middleware.JWTAuthMiddleware',  
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -160,6 +162,8 @@ REST_FRAMEWORK = {
     
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication', 
+        'rest_framework.authentication.BasicAuthentication',
+
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
