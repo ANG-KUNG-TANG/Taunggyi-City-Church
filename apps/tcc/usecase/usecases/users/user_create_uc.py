@@ -43,7 +43,7 @@ class CreateUserUseCase(BaseUseCase):
         self.config.transactional = True
 
     async def _validate_input(self, input_data: Dict[str, Any], ctx: OperationContext) -> None:
-        """Validate user creation input"""
+        """Validate user creation input - raises DomainValidationException or UserAlreadyExistsException"""
         try:
             logger.info(f"Input data received: {list(input_data.keys())}")
             
@@ -51,17 +51,11 @@ class CreateUserUseCase(BaseUseCase):
             validated_input = UserCreateInputSchema(**input_data)
             logger.info(f"Schema validation passed for user: {validated_input.email}")
             
-            # Check for duplicate email
-            try:
-                existing_user = await self.user_repository.get_by_email(validated_input.email)
-                if existing_user:
-                    logger.warning(f"User already exists with email: {validated_input.email}")
-                    raise UserAlreadyExistsException(
-                        message=f"User with email {validated_input.email} already exists",
-                        email=validated_input.email
-                    )
-            except Exception as e:
-                logger.warning(f"Error checking for existing user, might be okay: {e}")
+            # Check for duplicate email - IMPORTANT: Don't catch the exception here!
+            existing_user = await self.user_repository.get_by_email(validated_input.email)
+            if existing_user:
+                logger.warning(f"User already exists with email: {validated_input.email}")
+                raise UserAlreadyExistsException(email=validated_input.email, details={"email": validated_input.email})
             
             # Validate password complexity
             if hasattr(self, '_validate_password'):
@@ -71,8 +65,6 @@ class CreateUserUseCase(BaseUseCase):
             
         except ValidationError as e:
             logger.error(f"Schema validation failed with {len(e.errors())} errors:")
-            for error in e.errors():
-                logger.error(f"  - Field: {error['loc']}, Error: {error['msg']}, Type: {error['type']}")
             
             # Convert validation errors to field errors
             field_errors = {}
@@ -86,8 +78,9 @@ class CreateUserUseCase(BaseUseCase):
                 message=f"Invalid user data: {e.errors()[0]['msg'] if e.errors() else 'Unknown error'}",
                 field_errors=field_errors
             )
-        except UserAlreadyExistsException:
-            raise
+        # DO NOT catch UserAlreadyExistsException here - let it bubble up
+        except UserAlreadyExistsException as e:
+            logger.debug(f"Caught UserAlereadEsxistsExceptions in _validate_input: {e}")
         except Exception as e:
             logger.error(f"Unexpected validation error: {e}", exc_info=True)
             raise DomainValidationException(f"Invalid user data: {str(e)}")

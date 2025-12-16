@@ -55,19 +55,21 @@ class BaseUseCase:
             return result
 
         except InvalidAuthInputException as exc:
-            # Don't wrap InvalidAuthInputException - let it bubble up to AuthExceptionHandler
             operation_ctx.error = exc
             raise exc
+        
+        # FIX: Check for DomainException and all its subclasses first
         except DomainException as exc:
             operation_ctx.error = exc
             raise exc
+        
         except Exception as exc:
             operation_ctx.error = exc
             processed = await self._handle_exception(exc, operation_ctx)
             raise processed
         finally:
             await self._finalize_execution(operation_ctx)
-
+            
     async def _before_execute(self, ctx: OperationContext):
         """Pre-execution: auth, authorization, validation"""
         if self.config.require_authentication and not ctx.user:

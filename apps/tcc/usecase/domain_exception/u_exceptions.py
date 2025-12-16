@@ -47,44 +47,6 @@ class InvalidUserInputException(DomainValidationException):
             user_message=user_message
         )
 
-
-class UserNotFoundException(EntityNotFoundException):
-    """Exception when user is not found."""
-    
-    def __init__(
-        self,
-        user_id: Optional[str] = None,
-        email: Optional[str] = None,
-        lookup_params: Optional[Dict[str, Any]] = None,
-        details: Optional[Dict[str, Any]] = None,
-        context: Optional[ErrorContext] = None,
-        cause: Optional[Exception] = None,
-        user_message: Optional[str] = None
-    ):
-        lookup_params = lookup_params or {}
-        if user_id:
-            lookup_params["id"] = user_id
-        if email:
-            lookup_params["email"] = email
-            
-        if not user_message:
-            user_message = "User not found."
-            if email:
-                user_message = f"User with email '{email}' not found."
-            elif user_id:
-                user_message = f"User with ID '{user_id}' not found."
-            
-        super().__init__(
-            entity_name="User",
-            entity_id=user_id,
-            lookup_params=lookup_params,
-            details=details,
-            context=context,
-            cause=cause,
-            user_message=user_message
-        )
-
-
 class UserAlreadyExistsException(BusinessRuleException):
     """Exception when user with same email/username already exists."""
     
@@ -95,12 +57,11 @@ class UserAlreadyExistsException(BusinessRuleException):
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
         cause: Optional[Exception] = None,
-        user_message: Optional[str] = None
     ):
         identifier = email or username
         message = f"User already exists"
         if identifier:
-            message = f"User with { 'email' if email else 'username' } '{identifier}' already exists"
+            message = f"User with {'email' if email else 'username'} '{identifier}' already exists"
             
         details = details or {}
         details.update({
@@ -109,19 +70,52 @@ class UserAlreadyExistsException(BusinessRuleException):
             "reason": "User with provided credentials already exists"
         })
         
-        if not user_message:
-            user_message = "An account with this email already exists. Please use a different email or login."
+        user_message = "An account with this email already exists. Please use a different email or login."
             
         super().__init__(
             rule_name="UNIQUE_USER_IDENTITY",
             message=message,
             rule_description="User email and username must be unique",
+            status_code=409,  
             details=details,
             context=context,
             cause=cause,
             user_message=user_message
         )
 
+class UserNotFoundException(EntityNotFoundException):
+    """Exception when user is not found."""
+    
+    def __init__(
+        self,
+        user_id: Optional[str] = None,
+        email: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[Dict] = None,
+        cause: Optional[Exception] = None,
+    ):
+        lookup_params = {}
+        if user_id:
+            lookup_params["id"] = user_id
+        if email:
+            lookup_params["email"] = email
+            
+        user_message = "User not found."
+        if email:
+            user_message = f"User with email '{email}' not found."
+        elif user_id:
+            user_message = f"User with ID '{user_id}' not found."
+            
+        super().__init__(
+            entity_name="User",
+            entity_id=user_id,
+            lookup_params=lookup_params,
+            details=details,
+            context=context,
+            cause=cause,
+            user_message=user_message,
+            status_code=404  # HTTP 404 Not Found
+        )
 
 class AccountLockedException(BusinessRuleException):
     """Exception when user account is locked."""

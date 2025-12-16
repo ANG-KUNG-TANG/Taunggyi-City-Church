@@ -153,7 +153,6 @@ class NotFoundException(DomainException):
 # Add the missing EntityNotFoundException
 EntityNotFoundException = NotFoundException
 
-
 class BusinessRuleException(DomainException):
     """Exception for business rule violations."""
     
@@ -162,6 +161,7 @@ class BusinessRuleException(DomainException):
         rule_name: str,
         message: str,
         rule_description: Optional[str] = None,
+        status_code: int = 422,  # Add status_code parameter with default
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
         cause: Optional[Exception] = None,
@@ -179,7 +179,7 @@ class BusinessRuleException(DomainException):
         super().__init__(
             message=message,
             error_code="BUSINESS_RULE_VIOLATION",
-            status_code=422,
+            status_code=status_code,  
             details=details,
             context=context,
             cause=cause,

@@ -107,8 +107,6 @@ class UserController:
         return await use_case_getter()
 
     
-    @handle_user_exceptions
-    @validate_user_create  
     @ensure_initialized
     async def create_user(
         self, 
@@ -129,7 +127,6 @@ class UserController:
         logger.info(f"User created successfully: {result.id if hasattr(result, 'id') else 'No ID'}")
         return result
     
-    @handle_user_exceptions
     @ensure_initialized
     async def register_user(
         self, 
@@ -140,7 +137,6 @@ class UserController:
         register_user_uc = await self._get_use_case('register_user')
         return await register_user_uc.execute(user_data.model_dump(), None, context or {})
     
-    @handle_user_exceptions
     @require_admin
     @ensure_initialized
     async def create_admin_user(
@@ -154,7 +150,6 @@ class UserController:
         return await create_admin_uc.execute(user_data.model_dump(), current_user, context or {})
 
     # ========== READ Operations ==========
-    @handle_user_exceptions
     @require_member
     @ensure_initialized
     async def get_user_by_id(
@@ -168,7 +163,6 @@ class UserController:
         input_data = {'user_id': user_id}
         return await get_user_by_id_uc.execute(input_data, current_user, context or {})
 
-    @handle_user_exceptions
     @require_member
     @ensure_initialized
     async def get_user_by_email(
@@ -182,7 +176,7 @@ class UserController:
         input_data = {'email': email}
         return await get_user_by_email_uc.execute(input_data, current_user, context or {})
 
-    @handle_user_exceptions
+    # @handle_user_exceptions
     @validate_and_authorize_user_query
     @ensure_initialized
     async def get_all_users(
@@ -196,7 +190,7 @@ class UserController:
         input_data = validated_data.model_dump()
         return await get_all_users_uc.execute(input_data, current_user, context or {})
 
-    @handle_user_exceptions
+    # @handle_user_exceptions
     @require_admin
     @ensure_initialized
     async def get_users_by_role(
@@ -212,8 +206,8 @@ class UserController:
         input_data = {'role': role, 'page': page, 'per_page': per_page}
         return await get_users_by_role_uc.execute(input_data, current_user, context or {})
 
-    @handle_user_exceptions
-    @validate_user_search
+    # @handle_user_exceptions
+    # @validate_user_search
     @require_admin
     @ensure_initialized
     async def search_users(
@@ -227,7 +221,7 @@ class UserController:
         input_data = validated_data.model_dump()
         return await search_users_uc.execute(input_data, current_user, context or {})
 
-    @handle_user_exceptions
+    # @handle_user_exceptions
     @require_member
     @ensure_initialized
     async def get_current_user_profile(
@@ -242,7 +236,7 @@ class UserController:
         return await self.get_user_by_id(current_user.id, current_user, context)
 
     # ========== UPDATE Operations ==========
-    @handle_user_exceptions
+    # @handle_user_exceptions
     @validate_and_authorize_user_update
     @ensure_initialized
     async def update_user(
@@ -260,7 +254,7 @@ class UserController:
         }
         return await update_user_uc.execute(input_data, current_user, context or {})
 
-    @handle_user_exceptions
+    # @handle_user_exceptions
     @validate_user_update
     @validate_user_ownership()
     @ensure_initialized
@@ -276,7 +270,7 @@ class UserController:
         
         return await self.update_user(current_user.id, user_data, current_user, context)
 
-    @handle_user_exceptions
+    # @handle_user_exceptions
     @require_admin
     @ensure_initialized
     async def change_user_status(
@@ -294,7 +288,7 @@ class UserController:
     
     
     # ========== EMAIL Operations ==========
-    @handle_user_exceptions
+    # @handle_user_exceptions
     @validate_email_check
     @ensure_initialized
     async def check_email_availability(
@@ -309,7 +303,7 @@ class UserController:
         return result
 
     # ========== DELETE Operations ==========
-    @handle_user_exceptions
+    # @handle_user_exceptions
     @require_admin
     @ensure_initialized
     async def delete_user(
@@ -324,7 +318,7 @@ class UserController:
         result = await delete_user_uc.execute(input_data, current_user, context or {})
         return result
 
-    @handle_user_exceptions
+    # @handle_user_exceptions
     @require_admin
     @ensure_initialized
     async def bulk_delete_users(
@@ -340,7 +334,7 @@ class UserController:
         return result
 
     # ========== UTILITY Methods ==========
-    @handle_user_exceptions
+    # @handle_user_exceptions
     async def execute_direct_use_case(
         self,
         use_case_name: str,
@@ -355,7 +349,7 @@ class UserController:
         use_case = await self._get_use_case(use_case_name)
         return await use_case.execute(input_data, current_user, context or {})
 
-    @handle_user_exceptions
+    # @handle_user_exceptions
     async def batch_operation(
         self,
         use_case_name: str,
