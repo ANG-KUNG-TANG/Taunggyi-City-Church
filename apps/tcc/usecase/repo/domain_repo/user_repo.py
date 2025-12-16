@@ -1,10 +1,14 @@
 import asyncio
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
+from django.db import IntegrityError
 from django.db.models import Q
 from asgiref.sync import sync_to_async 
-from django.core.cache import cache 
+from django.core.cache import cache
+from pydantic import ValidationError
+from apps.core.core_exceptions.domain import DomainValidationException
 from apps.tcc.models.users.users import User
+from apps.tcc.usecase.domain_exception.u_exceptions import UserAlreadyExistsException
 from apps.tcc.usecase.entities.users_entity import UserEntity  
 from apps.tcc.usecase.repo.base.base_repo import BaseRepository
 from apps.core.db.decorators import with_db_error_handling, with_retry, circuit_breaker
@@ -62,40 +66,37 @@ class UserRepository(BaseRepository[User, UserEntity]):
         namespace="users",
         version="1"
     )
-    async def create(self, data: Dict[str, Any], audit_context: Optional[Dict] = None) -> UserEntity:
-        """Create a new user with audit context support."""
-        try:
-            # Get the model's field names
-            model_fields = [f.name for f in self.model_class._meta.get_fields()]
-            
-            # Filter data to only include model fields
-            filtered_data = {}
-            skipped_fields = []
-            for key, value in data.items():
-                if key in model_fields:
-                    filtered_data[key] = value
-                else:
-                    skipped_fields.append(key)
-            
-            if skipped_fields:
-                logger.debug(
-                    f"Skipped fields for User model: {skipped_fields}",
-                    extra={'skipped_count': len(skipped_fields)}
+    async def create(self, data: Dict[str, Any], audit_context=None):
+        def sync_create():
+            try:
+                user = self.model_class(**data)
+                user.full_clean()
+                user.save()
+                return user
+            except ValidationError as e:
+                logger.debug(f"Django ValidationError: {e.message_dict}")
+                # Check if it's an email uniqueness error
+                if "email" in e.message_dict and any("already exists" in str(msg).lower() for msg in e.message_dict['email']):
+                    raise UserAlreadyExistsException(email=data.get("email"))
+                # For other validation errors
+                raise DomainValidationException(
+                    message="Invalid user data",
+                    field_errors=e.message_dict
                 )
-            
-            # Create the user model
-            def sync_create():
-                user_model = self.model_class(**filtered_data)
-                user_model.save()
-                return user_model
-            
+            except IntegrityError as e:
+                logger.debug(f"IntegrityError: {str(e)}")
+                # Check if it's a unique constraint violation on email
+                if "email" in str(e).lower() or "unique" in str(e).lower():
+                    raise UserAlreadyExistsException(email=data.get("email"))
+                raise
+
+        try:
             user_model = await sync_to_async(sync_create, thread_sensitive=False)()
-            
-            # Convert to entity and return
             return self._model_to_entity(user_model)
-            
+        except UserAlreadyExistsException:
+            raise 
         except Exception as e:
-            logger.error(f"Failed to create user: {e}", exc_info=True)
+            logger.error(f"Unexpected error in user creation: {e}", exc_info=True)
             raise
         
     @with_db_error_handling

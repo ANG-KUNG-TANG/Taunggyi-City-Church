@@ -55,7 +55,10 @@ class CreateUserUseCase(BaseUseCase):
             existing_user = await self.user_repository.get_by_email(validated_input.email)
             if existing_user:
                 logger.warning(f"User already exists with email: {validated_input.email}")
-                raise UserAlreadyExistsException(email=validated_input.email, details={"email": validated_input.email})
+                raise UserAlreadyExistsException(
+                    email=validated_input.email, 
+                    details={"email": validated_input.email}
+                )
             
             # Validate password complexity
             if hasattr(self, '_validate_password'):
@@ -63,7 +66,7 @@ class CreateUserUseCase(BaseUseCase):
             else:
                 logger.warning("_validate_password method not found, skipping password complexity check")
             
-        except ValidationError as e:
+        except ValidationError as e:  # This is Pydantic's ValidationError for schema validation
             logger.error(f"Schema validation failed with {len(e.errors())} errors:")
             
             # Convert validation errors to field errors
@@ -78,12 +81,9 @@ class CreateUserUseCase(BaseUseCase):
                 message=f"Invalid user data: {e.errors()[0]['msg'] if e.errors() else 'Unknown error'}",
                 field_errors=field_errors
             )
-        # DO NOT catch UserAlreadyExistsException here - let it bubble up
-        except UserAlreadyExistsException as e:
-            logger.debug(f"Caught UserAlereadEsxistsExceptions in _validate_input: {e}")
-        except Exception as e:
-            logger.error(f"Unexpected validation error: {e}", exc_info=True)
-            raise DomainValidationException(f"Invalid user data: {str(e)}")
+        # except Exception as e:
+        #     logger.error(f"Unexpected validation error: {e}", exc_info=True)
+        #     raise DomainValidationException(f"Invalid user data: {str(e)}")
     
     def _validate_password(self, password: str) -> None:
         """Validate password complexity."""
@@ -140,7 +140,7 @@ class CreateUserUseCase(BaseUseCase):
             'status': getattr(create_schema, 'status', 'PENDING'),
             'email_notifications': getattr(create_schema, 'email_notifications', True),
             'sms_notifications': getattr(create_schema, 'sms_notifications', False),
-            'is_active': True,  # Default for new users
+            'is_active': True,  
         }
         
         # DEBUG: Log what we're about to send
@@ -152,9 +152,15 @@ class CreateUserUseCase(BaseUseCase):
             logger.info(f"Calling repository.create() with data for {create_schema.email}")
             user_entity = await self.user_repository.create(user_data)
             logger.info(f"Repository.create() returned: {user_entity}")
-        except Exception as e:
-            logger.error(f"Repository failed to create user: {e}", exc_info=True)
+        except UserAlreadyExistsException as e:
+            logger.error(f"User already exists : {e}", {create_schema.email})
             raise
+        except Exception as e:
+            logger.error(f"REposistoyr failed to create user: {e}", exc_info=True)
+            raise DomainValidationException(
+                message="Failed to create user",
+                user_message="Unable to create user accoun. Please try again"
+            )
         
         if not user_entity:
             logger.error(f"Repository.create() returned None for {create_schema.email}")

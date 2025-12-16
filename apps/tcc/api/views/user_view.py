@@ -15,7 +15,6 @@ from apps.core.schemas.input_schemas.users import (
     UserQueryInputSchema,
     UserSearchInputSchema,
     EmailCheckInputSchema,
-    # UserChangePasswordInputSchema,
 )
 from apps.tcc.usecase.entities.users_entity import UserEntity
 from apps.core.cache.async_cache import AsyncCache
@@ -67,6 +66,18 @@ class UserAPIExceptionHandler:
         """
         Convert any domain exception to proper API response
         """
+        # Handle UserAlreadyExistsException specifically
+        if isinstance(exc, UserAlreadyExistsException):
+            logger.warning(f"User already exists: {exc}")
+            return JsonResponse(
+                {
+                    "success": False,
+                    "message": "User with this email already exists",
+                    "field": "email"
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+        
         # Log based on exception type
         log_level = logger.error
         if isinstance(exc, (UserNotFoundException, UserAlreadyExistsException)):
@@ -102,7 +113,6 @@ class UserAPIExceptionHandler:
         if isinstance(exc, UserAlreadyExistsException):
             if hasattr(exc, 'email'):
                 error_data["email"] = exc.email
-        
         return JsonResponse(error_data, status=status_code)
     
     @classmethod
