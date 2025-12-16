@@ -107,7 +107,11 @@ class UserRepository(BaseRepository[User, UserEntity]):
             def sync_get_by_id():
                 return self.model_class.objects.filter(id=user_id).first()
             
+            # Change this:
             user_model = await sync_to_async(sync_get_by_id, thread_sensitive=True)()
+            # To:
+            user_model = await sync_to_async(sync_get_by_id, thread_sensitive=False)()
+            
             return self._model_to_entity(user_model)
             
         except Exception as e:
@@ -285,8 +289,9 @@ class UserRepository(BaseRepository[User, UserEntity]):
         def sync_check():
             return User.objects.filter(email=email, is_active=True).exists()
         
-        return await sync_to_async(sync_check, thread_sensitive=True)()
-    
+        # Use thread_sensitive=False to avoid the CurrentThreadExecutor issue
+        return await sync_to_async(sync_check, thread_sensitive=False)()
+        
     # ============ BULK OPERATIONS ============
     
     @with_db_error_handling
