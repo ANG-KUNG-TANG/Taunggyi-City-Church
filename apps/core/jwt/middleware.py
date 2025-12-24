@@ -31,6 +31,7 @@ class JWTAuthMiddleware:
             "/admin/",
             "/static/",
             "/media/",
+            "/tcc/"
         ]
 
     # ---------------------------------------------------------

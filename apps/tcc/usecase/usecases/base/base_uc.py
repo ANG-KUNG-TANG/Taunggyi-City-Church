@@ -58,7 +58,6 @@ class BaseUseCase:
             operation_ctx.error = exc
             raise exc
         
-        # FIX: Check for DomainException and all its subclasses first
         except DomainException as exc:
             operation_ctx.error = exc
             raise exc
@@ -118,7 +117,8 @@ class BaseUseCase:
         ctx.end_time = datetime.utcnow()
         duration = (ctx.end_time - ctx.start_time).total_seconds()
         
-        if self.config.audit_log:
+        # FIX: Safe check for config and audit_log
+        if hasattr(self, 'config') and getattr(self.config, 'audit_log', False):
             await self._log_operation(ctx, duration)
 
     async def _log_operation(self, ctx: OperationContext, duration: float):

@@ -1,143 +1,125 @@
+# urls.py - SIMPLIFIED VERSION
 from django.urls import path
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+import logging
 
-# Import user views from the correct location
+logger = logging.getLogger(__name__)
+
+# ============ DIRECT IMPORTS ============
+
+# Try absolute imports first
 try:
-    # Try importing from the updated location (based on your controller structure)
-    from views.user_view import (
-        # User views
-        health_check_view,
-        create_user_view,
-        get_current_user_profile_view,
-        get_user_by_id_view,
-        get_user_by_email_view,
-        get_all_users_view,
-        get_users_by_role_view,
-        search_users_view,
-        update_user_view,
-        update_current_user_profile_view,
-        change_user_status_view,
-        check_email_availability_view,
-        delete_user_view,
-    )
-except ImportError:
-    # Fallback: Import from views directory if the above doesn't work
+    # Import user views directly
     from .views.user_view import (
         health_check_view,
-        create_user_view,
+        register_user_view,
+        create_admin_user_view,
         get_current_user_profile_view,
         get_user_by_id_view,
-        get_user_by_email_view,
         get_all_users_view,
-        get_users_by_role_view,
-        search_users_view,
         update_user_view,
         update_current_user_profile_view,
-        change_user_status_view,
         check_email_availability_view,
         delete_user_view,
     )
+    
+    # Check if the views are callable
+    if not callable(register_user_view):
+        raise ImportError("register_user_view is not callable")
+        
+    logger.info("Successfully imported user views")
+    
+except ImportError as e:
+    logger.error(f"Failed to import user views: {e}")
+    # Re-raise to see the actual error
+    raise
 
-# Import auth views - you need to create these or update imports
+# Try to import auth views (create if they don't exist)
 try:
     from .views.auth_view import (
         login_view,
-        register_view,
         logout_view,
         refresh_token_view,
         verify_token_view,
         forgot_password_view,
         reset_password_view,
-        user_sessions_view,
-        revoke_session_view,
-        revoke_all_sessions_view,
     )
 except ImportError:
-    # Placeholder imports - you'll need to create these auth views
-    from .views.auth_view import (
-        login_view,
-        register_view,
-        logout_view,
-        refresh_token_view,
-        verify_token_view,
-        forgot_password_view,
-        reset_password_view,
-        user_sessions_view,
-        revoke_session_view,
-        revoke_all_sessions_view,
-    )
+    logger.warning("Auth views not found, using DRF SimpleJWT views")
+    
+    # Create simple placeholder auth views
+    @csrf_exempt
+    def placeholder_auth_view(request):
+        return JsonResponse({
+            'error': 'Auth endpoint not configured',
+            'message': 'This authentication endpoint requires setup',
+            'status': 501
+        }, status=501)
+    
+    # Assign placeholders
+    login_view = placeholder_auth_view
+    logout_view = placeholder_auth_view
+    refresh_token_view = placeholder_auth_view
+    verify_token_view = placeholder_auth_view
+    forgot_password_view = placeholder_auth_view
+    reset_password_view = placeholder_auth_view
 
+# ============ ROOT VIEW ============
 
-# Simple root view
 @csrf_exempt
 def tcc_api_root(request):
+    """API root endpoint"""
     return JsonResponse({
         'message': 'TCC API Server is running',
         'version': '1.0.0',
         'status': 'operational',
+        'timestamp': request._request_time.isoformat() if hasattr(request, '_request_time') else None,
         'endpoints': {
             'auth': {
                 'login': '/tcc/auth/login/',
-                'register': '/tcc/auth/register/',
                 'logout': '/tcc/auth/logout/',
                 'refresh': '/tcc/auth/refresh/',
                 'verify': '/tcc/auth/verify/',
                 'forgot_password': '/tcc/auth/forgot-password/',
                 'reset_password': '/tcc/auth/reset-password/',
-                'sessions': '/tcc/auth/sessions/',
             },
             'users': {
-                'create': '/tcc/users/',
+                'register': '/tcc/users/register/',
                 'current_profile': '/tcc/users/me/',
-                'user_by_id': '/tcc/users/{id}/',
-                'user_by_email': '/tcc/users/by-email/',
-                'all_users': '/tcc/users/all/',
-                'users_by_role': '/tcc/users/role/{role}/',
-                'search_users': '/tcc/users/search/',
-                'update_user': '/tcc/users/{id}/update/',
-                'update_profile': '/tcc/users/me/update/',
-                'change_status': '/tcc/users/{id}/status/',
+                'user_by_id': '/tcc/users/<id>/',
+                'list_users': '/tcc/users/all/',
                 'check_email': '/tcc/users/check-email/',
-                'delete_user': '/tcc/users/{id}/delete/',
                 'health': '/tcc/health/',
             }
         }
     })
 
+# ============ URL PATTERNS ============
 
 urlpatterns = [
     # Root endpoint
     path('', tcc_api_root, name='tcc-api-root'),
     
-    # Health check endpoint (should be at root level)
+    # Health check
     path('health/', health_check_view, name='health-check'),
     
     # Auth endpoints
     path('auth/login/', login_view, name='auth-login'),
-    path('auth/register/', register_view, name='auth-register'),
     path('auth/logout/', logout_view, name='auth-logout'),
     path('auth/refresh/', refresh_token_view, name='auth-refresh'),
     path('auth/verify/', verify_token_view, name='auth-verify'),
     path('auth/forgot-password/', forgot_password_view, name='auth-forgot-password'),
     path('auth/reset-password/', reset_password_view, name='auth-reset-password'),
-
-    # Session management endpoints
-    path('auth/sessions/', user_sessions_view, name='user-sessions'),
-    path('auth/sessions/<str:session_id>/revoke/', revoke_session_view, name='revoke-session'),
-    path('auth/sessions/revoke-all/', revoke_all_sessions_view, name='revoke-all-sessions'),
-
+    
     # User endpoints
-    path('users/', create_user_view, name='create-user'),
+    path('users/register/', register_user_view, name='user-register'),
+    path('users/admin/create/', create_admin_user_view, name='create-admin-user'),
     path('users/me/', get_current_user_profile_view, name='current-user-profile'),
-    path('users/<int:user_id>/', get_user_by_id_view, name='user-by-id'),
-    path('users/by-email/', get_user_by_email_view, name='user-by-email'),
-    path('users/all/', get_all_users_view, name='all-users'),
-    path('users/role/<str:role>/', get_users_by_role_view, name='users-by-role'),
-    path('users/search/', search_users_view, name='search-users'),
-    path('users/<int:user_id>/update/', update_user_view, name='update-user'),
     path('users/me/update/', update_current_user_profile_view, name='update-current-user'),
-    path('users/<int:user_id>/status/', change_user_status_view, name='change-user-status'),
-    path('users/check-email/', check_email_availability_view, name='check-email'),
+    path('users/all/', get_all_users_view, name='all-users'),
+    path('users/<int:user_id>/', get_user_by_id_view, name='user-by-id'),
+    path('users/<int:user_id>/update/', update_user_view, name='update-user'),
     path('users/<int:user_id>/delete/', delete_user_view, name='delete-user'),
+    path('users/check-email/', check_email_availability_view, name='check-email'),
 ]

@@ -56,8 +56,11 @@ class CreateUserUseCase(BaseUseCase):
             if existing_user:
                 logger.warning(f"User already exists with email: {validated_input.email}")
                 raise UserAlreadyExistsException(
-                    email=validated_input.email, 
-                    details={"email": validated_input.email}
+                    email=validated_input.email,
+                    details={
+                        "email": validated_input.email,
+                        "existing_user_id": existing_user.id if hasattr(existing_user, 'id') else None
+                    }
                 )
             
             # Validate password complexity
