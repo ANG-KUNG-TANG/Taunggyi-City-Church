@@ -1,80 +1,31 @@
-# urls.py - SIMPLIFIED VERSION
-from django.urls import path
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+"""
+URL Configuration - Standard DRF Routing
+Clean, organized, and follows Django/DRF best practices
+"""
+import traceback
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 import logging
 
 logger = logging.getLogger(__name__)
 
-# ============ DIRECT IMPORTS ============
+# ============================================
+# API ROOT ENDPOINT
+# ============================================
 
-# Try absolute imports first
-try:
-    # Import user views directly
-    from .views.user_view import (
-        health_check_view,
-        register_user_view,
-        create_admin_user_view,
-        get_current_user_profile_view,
-        get_user_by_id_view,
-        get_all_users_view,
-        update_user_view,
-        update_current_user_profile_view,
-        check_email_availability_view,
-        delete_user_view,
-    )
-    
-    # Check if the views are callable
-    if not callable(register_user_view):
-        raise ImportError("register_user_view is not callable")
-        
-    logger.info("Successfully imported user views")
-    
-except ImportError as e:
-    logger.error(f"Failed to import user views: {e}")
-    # Re-raise to see the actual error
-    raise
-
-# Try to import auth views (create if they don't exist)
-try:
-    from .views.auth_view import (
-        login_view,
-        logout_view,
-        refresh_token_view,
-        verify_token_view,
-        forgot_password_view,
-        reset_password_view,
-    )
-except ImportError:
-    logger.warning("Auth views not found, using DRF SimpleJWT views")
-    
-    # Create simple placeholder auth views
-    @csrf_exempt
-    def placeholder_auth_view(request):
-        return JsonResponse({
-            'error': 'Auth endpoint not configured',
-            'message': 'This authentication endpoint requires setup',
-            'status': 501
-        }, status=501)
-    
-    # Assign placeholders
-    login_view = placeholder_auth_view
-    logout_view = placeholder_auth_view
-    refresh_token_view = placeholder_auth_view
-    verify_token_view = placeholder_auth_view
-    forgot_password_view = placeholder_auth_view
-    reset_password_view = placeholder_auth_view
-
-# ============ ROOT VIEW ============
-
-@csrf_exempt
-def tcc_api_root(request):
-    """API root endpoint"""
-    return JsonResponse({
-        'message': 'TCC API Server is running',
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def api_root(request):
+    """
+    API Root - Provides overview of available endpoints
+    """
+    return Response({
+        'message': 'TCC API Server',
         'version': '1.0.0',
         'status': 'operational',
-        'timestamp': request._request_time.isoformat() if hasattr(request, '_request_time') else None,
         'endpoints': {
             'auth': {
                 'login': '/tcc/auth/login/',
@@ -86,40 +37,158 @@ def tcc_api_root(request):
             },
             'users': {
                 'register': '/tcc/users/register/',
-                'current_profile': '/tcc/users/me/',
-                'user_by_id': '/tcc/users/<id>/',
-                'list_users': '/tcc/users/all/',
+                'profile': '/tcc/users/profile/',
                 'check_email': '/tcc/users/check-email/',
-                'health': '/tcc/health/',
-            }
-        }
+                'list': '/tcc/users/',
+                'detail': '/tcc/users/{id}/',
+                'by_email': '/tcc/users/by_email/?email=',
+                'search': '/tcc/users/search/?q=',
+            },
+            'health': '/tcc/health/',
+        },
+        'documentation': 'Visit /tcc/docs/ for API documentation'
     })
 
-# ============ URL PATTERNS ============
+
+# ============================================
+# IMPORT VIEWS
+# ============================================
+
+# User views
+from apps.tcc.api.views.user_view import (
+    RegisterView,
+    EmailAvailabilityView,
+    HealthCheckView,
+    ProfileView,
+    UserListView,
+    UserViewSet
+)
+
+try:
+    print("DEBUG: Trying to import auth views...")  
+    from apps.tcc.api.views.auth_view import (
+    LoginView,
+    LogoutView,
+    RefreshTokenView,
+    VerifyTokenView,
+    ForgotPasswordView,
+    ResetPasswordView,
+    AuthStatusView,
+    ChangePasswordView,
+)
+    print("DEBUG: Successfully imported all auth views!")  # ADD THIS
+    auth_views_available = True
+except ImportError as e:
+    print(f"DEBUG: Import failed with error: {e}")  # ADD THIS
+    print(f"DEBUG: Full traceback:")  # ADD THIS
+    traceback.print_exc()  # ADD THIS
+    logger.warning(f"Auth views not available: {e}")
+    auth_views_available = False
+    
+    # Create placeholder views
+    from rest_framework.views import APIView
+    from rest_framework import status
+    
+    class PlaceholderView(APIView):
+        permission_classes = [AllowAny]
+        
+        def get(self, request):
+            return Response({
+                'error': 'Endpoint not implemented',
+                'message': 'This endpoint is not yet available'
+            }, status=status.HTTP_501_NOT_IMPLEMENTED)
+        
+        def post(self, request):
+            return Response({
+                'error': 'Endpoint not implemented',
+                'message': 'This endpoint is not yet available'
+            }, status=status.HTTP_501_NOT_IMPLEMENTED)
+    
+    LoginView = PlaceholderView
+    LogoutView = PlaceholderView
+    RefreshTokenView = PlaceholderView
+    VerifyTokenView = PlaceholderView
+    ForgotPasswordView = PlaceholderView
+    ResetPasswordView = PlaceholderView
+    AuthStatusView = PlaceholderView
+    ChangePasswordView = PlaceholderView
+
+# ============================================
+# ROUTER SETUP
+# ============================================
+
+# Create router for ViewSet
+router = DefaultRouter()
+router.register(r'users', UserViewSet, basename='user')
+
+# The router will create these URLs automatically:
+# GET    /users/          -> list
+# POST   /users/          -> create
+# GET    /users/{pk}/     -> retrieve
+# PUT    /users/{pk}/     -> update
+# PATCH  /users/{pk}/     -> partial_update
+# DELETE /users/{pk}/     -> destroy
+# GET    /users/by_email/ -> custom action
+# GET    /users/search/   -> custom action
+
+
+# ============================================
+# URL PATTERNS
+# ============================================
 
 urlpatterns = [
-    # Root endpoint
-    path('', tcc_api_root, name='tcc-api-root'),
+    # ========================================
+    # ROOT & HEALTH
+    # ========================================
+    path('', api_root, name='api-root'),
+    path('health/', HealthCheckView.as_view(), name='health-check'),
     
-    # Health check
-    path('health/', health_check_view, name='health-check'),
+    # ========================================
+    # AUTHENTICATION ENDPOINTS
+    # ========================================
+    path('auth/login/', LoginView.as_view(), name='auth-login'),
+    path('auth/logout/', LogoutView.as_view(), name='auth-logout'),
+    path('auth/refresh/', RefreshTokenView.as_view(), name='auth-refresh'),
+    path('auth/verify/', VerifyTokenView.as_view(), name='auth-verify'),
+    path('auth/forgot-password/', ForgotPasswordView.as_view(), name='auth-forgot-password'),
+    path('auth/reset-password/', ResetPasswordView.as_view(), name='auth-reset-password'),
     
-    # Auth endpoints
-    path('auth/login/', login_view, name='auth-login'),
-    path('auth/logout/', logout_view, name='auth-logout'),
-    path('auth/refresh/', refresh_token_view, name='auth-refresh'),
-    path('auth/verify/', verify_token_view, name='auth-verify'),
-    path('auth/forgot-password/', forgot_password_view, name='auth-forgot-password'),
-    path('auth/reset-password/', reset_password_view, name='auth-reset-password'),
+    # ========================================
+    # USER ENDPOINTS (Non-ViewSet)
+    # ========================================
     
-    # User endpoints
-    path('users/register/', register_user_view, name='user-register'),
-    path('users/admin/create/', create_admin_user_view, name='create-admin-user'),
-    path('users/me/', get_current_user_profile_view, name='current-user-profile'),
-    path('users/me/update/', update_current_user_profile_view, name='update-current-user'),
-    path('users/all/', get_all_users_view, name='all-users'),
-    path('users/<int:user_id>/', get_user_by_id_view, name='user-by-id'),
-    path('users/<int:user_id>/update/', update_user_view, name='update-user'),
-    path('users/<int:user_id>/delete/', delete_user_view, name='delete-user'),
-    path('users/check-email/', check_email_availability_view, name='check-email'),
+    # Public endpoints
+    path('users/register/', RegisterView.as_view(), name='user-register'),
+    path('users/check-email/', EmailAvailabilityView.as_view(), name='user-check-email'),
+    
+    # Authenticated endpoints
+    path('users/profile/', ProfileView.as_view(), name='user-profile'),
+    path('users/list/', UserListView.as_view(), name='user-list-alt'),  # Alternative to ViewSet list
+    
+    # ========================================
+    # USER VIEWSET ENDPOINTS
+    # ========================================
+    # Include router URLs for full CRUD operations
+    path('', include(router.urls)),
 ]
+
+
+# ============================================
+# URL NAMING CONVENTION
+# ============================================
+"""
+Standard URL naming generated by router:
+- user-list         -> GET /users/
+- user-detail       -> GET /users/{pk}/
+- user-by-email     -> GET /users/by_email/
+- user-search       -> GET /users/search/
+
+Custom URL naming:
+- api-root          -> GET /
+- health-check      -> GET /health/
+- auth-login        -> POST /auth/login/
+- auth-logout       -> POST /auth/logout/
+- user-register     -> POST /users/register/
+- user-profile      -> GET/PUT/PATCH /users/profile/
+- user-check-email  -> GET /users/check-email/
+"""

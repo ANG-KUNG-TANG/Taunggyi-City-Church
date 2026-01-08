@@ -111,7 +111,7 @@ class AuthExceptionHandler:
         """
         Comprehensive decorator for handling auth-domain exceptions.
         
-        Returns: Either domain schema (success) or APIResponse (error)
+        Returns: Either domain schema (success) or dict (error) for proper serialization
         """
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -123,51 +123,51 @@ class AuthExceptionHandler:
                 status_code = getattr(e, 'status_code', 401)
                 error_data = cls._get_error_data(e)
                 
-                # Create APIResponse with error status
-                return APIResponse(
-                    success=False,
-                    message=getattr(e, 'message', None) or "Authentication required",
-                    data=error_data,
-                    status_code=status_code
-                )
+                # Return dict instead of APIResponse object
+                return {
+                    'success': False,
+                    'message': getattr(e, 'message', None) or "Authentication required",
+                    'data': error_data,
+                    'status_code': status_code
+                }
                 
             except (InvalidCredentialsException, AccountInactiveException,
-                   TokenExpiredException, InvalidTokenException, InvalidResetTokenException) as e:
+                TokenExpiredException, InvalidTokenException, InvalidResetTokenException) as e:
                 cls._log_exception(e, func.__name__)
                 status_code = getattr(e, 'status_code', 401)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse(
-                    success=False,
-                    message=getattr(e, 'message', None) or "Authentication failed",
-                    data=error_data,
-                    status_code=status_code
-                )
+                return {
+                    'success': False,
+                    'message': getattr(e, 'message', None) or "Authentication failed",
+                    'data': error_data,
+                    'status_code': status_code
+                }
                 
             except (InsufficientPermissionsException, ResourceAccessException,
-                   MinistryAccessException, AuthorizationException) as e:
+                MinistryAccessException, AuthorizationException) as e:
                 cls._log_exception(e, func.__name__)
                 status_code = getattr(e, 'status_code', 403)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse(
-                    success=False,
-                    message=getattr(e, 'message', None) or "Access denied",
-                    data=error_data,
-                    status_code=status_code
-                )
+                return {
+                    'success': False,
+                    'message': getattr(e, 'message', None) or "Access denied",
+                    'data': error_data,
+                    'status_code': status_code
+                }
                 
             except RateLimitExceededException as e:
                 cls._log_exception(e, func.__name__)
                 status_code = getattr(e, 'status_code', 429)
                 error_data = cls._get_error_data(e)
                 
-                return APIResponse(
-                    success=False,
-                    message=getattr(e, 'message', None) or "Rate limit exceeded",
-                    data=error_data,
-                    status_code=status_code
-                )
+                return {
+                    'success': False,
+                    'message': getattr(e, 'message', None) or "Rate limit exceeded",
+                    'data': error_data,
+                    'status_code': status_code
+                }
             
             except InvalidAuthInputException as e:
                 cls._log_exception(e, func.__name__)
@@ -184,12 +184,12 @@ class AuthExceptionHandler:
                     else:
                         user_message = "Invalid authentication input"
                 
-                return APIResponse(
-                    success=False,
-                    message=user_message,
-                    data=error_data,
-                    status_code=status_code
-                )
+                return {
+                    'success': False,
+                    'message': user_message,
+                    'data': error_data,
+                    'status_code': status_code
+                }
             
             except InvalidUserInputException as e:
                 cls._log_exception(e, func.__name__)
@@ -206,12 +206,12 @@ class AuthExceptionHandler:
                     else:
                         user_message = "Invalid input data"
                 
-                return APIResponse(
-                    success=False,
-                    message=user_message,
-                    data=error_data,
-                    status_code=status_code
-                )
+                return {
+                    'success': False,
+                    'message': user_message,
+                    'data': error_data,
+                    'status_code': status_code
+                }
                 
         return wrapper
 

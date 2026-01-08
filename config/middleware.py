@@ -104,9 +104,6 @@ class DatabaseQueryLoggingMiddleware(MiddlewareMixin):
                     extra={'request_id': get_request_id()}
                 )
         return response
-    
-    
-    
 
 
 class AsyncMiddleware(MiddlewareMixin):

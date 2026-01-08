@@ -75,11 +75,40 @@ class ResetPasswordInputSchema(BaseSchema):
 class LogoutInputSchema(BaseSchema):
     """Schema for logout."""
     refresh_token: Optional[str] = Field(None, description="Refresh token to invalidate")
-
-
 class RefreshTokenInputSchema(BaseSchema):
-    """Schema for token refresh."""
+    """Schema for refresh token - accepts multiple field names."""
+    
     refresh_token: str = Field(..., description="Refresh token")
+    
+    @model_validator(mode='before')
+    @classmethod
+    def extract_token(cls, data):
+        """Extract token from any of the possible field names."""
+        if isinstance(data, dict):
+            # Try all possible field names
+            token = (
+                data.get('refresh_token') or 
+                data.get('refresh') or 
+                data.get('refreshToken')
+            )
+            
+            if not token:
+                raise ValueError('Refresh token is required')
+            
+            # Return dict with just refresh_token
+            return {'refresh_token': token}
+        return data
+    
+    # Add the property back for compatibility
+    @property
+    def actual_refresh_token(self):
+        """Compatibility property - returns the refresh token."""
+        return self.refresh_token
+    
+    def dict(self, *args, **kwargs):
+        """Return dict with only refresh_token."""
+        d = super().dict(*args, **kwargs)
+        return d
     
 class AdminResetPasswordSchema(BaseSchema):
     """Schema for admin to reset user password (no current password needed)."""
@@ -92,3 +121,8 @@ class AdminResetPasswordSchema(BaseSchema):
         if self.new_password != self.confirm_password:
             raise ValueError('Passwords do not match')
         return self
+    
+class VerifyTokenInputSchema(BaseSchema):
+    """Schema for token verification."""
+    token: str = Field(..., description="Token to verify")
+    

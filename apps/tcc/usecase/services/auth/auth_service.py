@@ -45,43 +45,47 @@ class AsyncAuthDomainService:
             logger.error(f"Token revocation failed: {str(e)}")
             return False
     
+    # FIXED: Remove the async keyword and keep @sync_to_async
     @sync_to_async
-    def audit_login_async(self, user_id: int, action: str, request_meta: Optional[Dict] = None) -> None:
-        """
-        Infrastructure: Audit logging
-        """
+    def audit_login_async(self, user_id: int, action: str, meta: Dict[str, Any] = None):
+        """Audit login/logout events"""
         try:
-            ip_address = None
-            user_agent = None
-            metadata = {}
+            from django.contrib.auth import get_user_model
+            from django.contrib.contenttypes.models import ContentType
+            from apps.tcc.models.base.auditlog import AuditLog  # FIXED: Changed import path
             
-            if request_meta:
-                ip_address = self._get_client_ip(request_meta)
-                user_agent = request_meta.get('HTTP_USER_AGENT', '')[:500]
-                metadata = {
-                    'http_referer': request_meta.get('HTTP_REFERER', ''),
-                    'server_name': request_meta.get('SERVER_NAME', ''),
-                }
+            User = get_user_model()
             
-            # Infrastructure: Database operation
+            # Get the User model's content type for generic relations
+            user_content_type = ContentType.objects.get_for_model(User)
+            
+            # Prepare changes
+            ip_address = meta.get('ip') if meta else None
+            user_agent = meta.get('user_agent') if meta else None
+            
+            changes = {
+                "action": action,
+                "ip_address": ip_address,
+                "user_agent": user_agent[:200] if user_agent else None
+            }
+            
+            # Create the audit log
             AuditLog.objects.create(
                 user_id=user_id,
                 action=action,
+                content_type=user_content_type,  # Set to User content type
+                object_id=user_id,               # Set to user_id
+                changes=changes,
+                resource_type="Auth",
                 ip_address=ip_address,
                 user_agent=user_agent,
-                metadata=metadata,
-                timestamp=timezone.now()
             )
+            
+            logger.info(f"Audit logged: {action} for user {user_id}")
         except Exception as e:
-            logger.error(f"Audit logging failed: {str(e)}")
-            # Infrastructure: Error handling
-            self._create_security_event_async(
-                user_id=user_id,
-                event_type='AUDIT_LOG_FAILED',
-                description=f'Audit logging failed: {str(e)}',
-                severity='MEDIUM'
-            )
-
+            logger.error(f"Audit logging failed: {e}", exc_info=True)
+            # Don't raise - audit logging failure shouldn't break auth flow
+            
     def _get_client_ip(self, request_meta: Dict) -> str:
         """
         Infrastructure: Extract client IP
@@ -95,17 +99,24 @@ class AsyncAuthDomainService:
     
     @sync_to_async
     def _create_security_event_async(self, user_id: int, event_type: str, 
-                                   description: str, severity: str = 'MEDIUM') -> None:
+                                description: str, severity: str = 'MEDIUM') -> None:
         """
         Infrastructure: Security event logging
         """
         try:
+            from apps.tcc.models import User
+            user = None
+            if user_id:
+                try:
+                    user = User.objects.get(id=user_id)
+                except User.DoesNotExist:
+                    pass
+            
             SecurityEvent.objects.create(
-                user_id=user_id,
+                user=user,
                 event_type=event_type,
                 description=description,
                 severity=severity,
-                timestamp=timezone.now()
             )
         except Exception as e:
-            logger.error(f"Security event creation failed: {str(e)}")
+            logger.error(f"Security event creation failed: {str(e)}", exc_info=True)

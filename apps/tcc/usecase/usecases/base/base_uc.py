@@ -83,19 +83,12 @@ class BaseUseCase:
 
     async def _execute_main_logic(self, ctx: OperationContext):
         """Execute with transaction support"""
-        if self.config.transactional:
-            # Use a simpler approach for transactional operations
-            # Avoid nested async_to_sync calls
+        if self.config.transactional:            
             try:
-                # Run the async operation within a transaction
                 async def async_transaction():
-                    # This runs in an async context
-                    return await self._on_execute(ctx.input_data, ctx.user, ctx)
-                
-                # Use sync_to_async to run the async function in a thread
+                    return await self._on_execute(ctx.input_data, ctx.user, ctx)                
                 return await sync_to_async(self._run_transaction)(async_transaction)
             except Exception as e:
-                # If there's an async-sync conflict, fall back to non-transactional
                 logger.warning(f"Transactional execution failed, falling back: {e}")
                 return await self._on_execute(ctx.input_data, ctx.user, ctx)
         else:
@@ -117,7 +110,6 @@ class BaseUseCase:
         ctx.end_time = datetime.utcnow()
         duration = (ctx.end_time - ctx.start_time).total_seconds()
         
-        # FIX: Safe check for config and audit_log
         if hasattr(self, 'config') and getattr(self.config, 'audit_log', False):
             await self._log_operation(ctx, duration)
 
@@ -152,24 +144,18 @@ class BaseUseCase:
             exc_info=True
         )
         
-        # If it's already a DomainException or InvalidAuthInputException, re-raise it
         if isinstance(exc, (DomainException, InvalidAuthInputException)):
             return exc
         
-        # Check for common database exceptions
         try:
             from django.db import DatabaseError, IntegrityError
             from django.db.utils import DataError
             
-            # Handle IntegrityError (duplicate entries, foreign key violations)
             if isinstance(exc, IntegrityError):
                 error_msg = str(exc).lower()
                 if "unique" in error_msg or "duplicate" in error_msg:
-                    # This is likely a duplicate email or username
                     if "user" in self.__class__.__name__.lower():
-                        # Import here to avoid circular imports
                         from apps.tcc.usecase.domain_exception.u_exceptions import UserAlreadyExistsException
-                        # Extract email from input data if available
                         email = ctx.input_data.get('email') if ctx.input_data else None
                         return UserAlreadyExistsException(
                             email=email,
@@ -253,13 +239,14 @@ class BaseUseCase:
         data_with_context = data.copy()
         data_with_context['user'] = user
         
-        if context and hasattr(context, 'request'):
-            request = context.request
-            data_with_context['ip_address'] = self._get_client_ip(request)
-            data_with_context['user_agent'] = request.META.get('HTTP_USER_AGENT', 'system')
+        if context and hasattr(context, 'metadata'):
+            original_context = context.metadata.get('context')
+            if original_context and hasattr(original_context, 'request'):
+                request = original_context.request
+                data_with_context['ip_address'] = self._get_client_ip(request)
+                data_with_context['user_agent'] = request.META.get('HTTP_USER_AGENT', 'system')
         
         return data_with_context
-
     # Template methods - override in concrete use cases
     async def _validate_input(self, input_data, ctx: OperationContext):
         pass

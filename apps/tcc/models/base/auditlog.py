@@ -21,8 +21,17 @@ class AuditLog(BaseModel):
         ('IMPORT', 'Import'),
     ]
     
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.BigIntegerField()
+    # Allow null for auth events where there's no specific object
+    content_type = models.ForeignKey(
+        ContentType, 
+        on_delete=models.CASCADE, 
+        null=True,  # ADD THIS
+        blank=True  # ADD THIS
+    )
+    object_id = models.BigIntegerField(
+        null=True,  # ADD THIS
+        blank=True  # ADD THIS
+    )
     content_object = GenericForeignKey('content_type', 'object_id')
     
     action = models.CharField(max_length=20, choices=ACTION_CHOICES)
@@ -42,7 +51,7 @@ class AuditLog(BaseModel):
     # Request context
     request_path = models.CharField(max_length=500, blank=True)
     request_method = models.CharField(max_length=10, blank=True)
-    
+
     class Meta:
         ordering = ['-timestamp']
         indexes = [

@@ -63,7 +63,16 @@ class LogoutUseCase(BaseUseCase):
     async def _on_execute(self, data, user, ctx):
         """Execute logout business logic"""
         token_str = self.validated_input.refresh_token
-        request_meta = ctx.get('request_meta', {}) if ctx else {}
+        
+        # Get request_meta from the context
+        # ctx is an OperationContext object, which has metadata
+        # The original context is stored in ctx.metadata.get('context')
+        request_meta = {}
+        if ctx and hasattr(ctx, 'metadata'):
+            # Get the original context from metadata
+            original_context = ctx.metadata.get('context')
+            if original_context and isinstance(original_context, dict):
+                request_meta = original_context.get('request_meta', {})
         
         # Business Rule: Token revocation (if provided)
         if token_str:

@@ -1,4 +1,5 @@
 from typing import Dict, Any, List, Tuple
+import uuid
 from apps.core.core_exceptions.domain import DomainValidationException
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
 from apps.tcc.usecase.domain_exception.u_exceptions import UserNotFoundException
@@ -32,15 +33,21 @@ class GetUserByIdUseCase(BaseUseCase):
         if not user_id:
             raise DomainValidationException("User ID is required")
         
+        # Validate and clean user_id (handle both UUID and string)
         try:
-            user_id = int(user_id)
-        except (ValueError, TypeError):
-            raise DomainValidationException("Invalid User ID format")
+            # Try to parse as UUID first
+            user_id = str(user_id).strip()
+            # Optionally validate UUID format
+            uuid.UUID(user_id)  # This will raise ValueError if invalid UUID
+        except (ValueError, AttributeError):
+            # If not a valid UUID, check if it's a valid string ID
+            if not isinstance(user_id, str) or not user_id:
+                raise DomainValidationException("Invalid User ID format")
         
         # Business rule: Users can only view their own profile unless they have permission
         if not await self._can_view_user(user, user_id):
             raise DomainValidationException(
-                "Insufficient permissions to view this user",
+                f"Insufficient permissions to view this user (ID: {user_id})",
                 user_message="You do not have permission to view this user."
             )
         
@@ -53,21 +60,25 @@ class GetUserByIdUseCase(BaseUseCase):
         
         return user_entity
     
-    async def _can_view_user(self, current_user, target_user_id: int) -> bool:
+    async def _can_view_user(self, current_user, target_user_id: str) -> bool:
         """Business rule: Check if user can view target user"""
         if not current_user:
             return False
             
         # User can always view their own profile
-        if hasattr(current_user, 'id') and current_user.id == target_user_id:
-            return True
+        # Compare as strings to handle UUIDs properly
+        if hasattr(current_user, 'id'):
+            current_user_id = str(current_user.id)
+            target_user_id_str = str(target_user_id)
+            
+            if current_user_id == target_user_id_str:
+                return True
             
         # Users with view permissions can view others
         if hasattr(current_user, 'has_permission') and callable(current_user.has_permission):
             return current_user.has_permission('can_view_users')
             
         return False
-
 
 class GetUserByEmailUseCase(BaseUseCase):
     """Get user by email - Returns UserEntity"""

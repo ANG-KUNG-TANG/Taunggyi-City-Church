@@ -1,12 +1,17 @@
-from asgiref.sync import async_to_sync
-from functools import wraps
-from rest_framework.decorators import api_view
+"""
+Standard DRF views - Remove custom async complexity
+"""
+from rest_framework.views import APIView
+from rest_framework.response import Response
+import logging
 
-def async_api_view(http_method_names):
-    """Custom decorator to handle async views with DRF"""
-    def decorator(async_view_func):
-        @wraps(async_view_func)
-        def sync_wrapper(request, *args, **kwargs):
-            return async_to_sync(async_view_func)(request, *args, **kwargs)
-        return api_view(http_method_names)(sync_wrapper)
-    return decorator
+logger = logging.getLogger(__name__)
+
+
+class StandardAPIView(APIView):
+    """
+    Standard DRF APIView - Use Django's built-in async support if needed
+    """
+    # This is just a standard APIView
+    # Let DRF handle request/response lifecycle
+    pass

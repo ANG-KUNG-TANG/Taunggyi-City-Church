@@ -90,6 +90,14 @@ class OperationContext:
     start_time: datetime = field(default_factory=datetime.utcnow)
     end_time: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """
+        Get method to make OperationContext behave like a dictionary for metadata.
+        This is added to fix AttributeError where code is trying to call .get() 
+        on OperationContext instead of on metadata.
+        """
+        return self.metadata.get(key, default)
 
 # ============ AUTHORIZATION MANAGER ============
 

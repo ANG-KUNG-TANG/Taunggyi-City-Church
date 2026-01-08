@@ -16,7 +16,6 @@ class DomainException(BaseAppException):
         cause: Optional[Exception] = None,
         user_message: Optional[str] = None
     ):
-        # Ensure context is properly handled
         if context is None:
             from apps.core.core_exceptions.logging.context import context_manager
             context = context_manager.get_context()
@@ -42,7 +41,8 @@ class ValidationException(DomainException):
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
         cause: Optional[Exception] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
+        status_code: int =400
     ):
         details = details or {}
         if field_errors:
@@ -54,11 +54,11 @@ class ValidationException(DomainException):
         super().__init__(
             message=message,
             error_code="VALIDATION_ERROR",
-            status_code=400,
             details=details,
             context=context,
             cause=cause,
-            user_message=user_message
+            user_message=user_message,
+            status_code=status_code
         )
 
 
@@ -161,7 +161,7 @@ class BusinessRuleException(DomainException):
         rule_name: str,
         message: str,
         rule_description: Optional[str] = None,
-        status_code: int = 422,  # Add status_code parameter with default
+        status_code: int = 422, 
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
         cause: Optional[Exception] = None,

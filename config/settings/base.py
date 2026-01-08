@@ -53,23 +53,26 @@ INSTALLED_APPS = [
     
 ]
 AUTH_USER_MODEL = 'tcc.User'
+
+# ──────────────────────────────
+# MIDDLEWARE - UPDATED (Remove JWT Middleware)
+# ──────────────────────────────
 MIDDLEWARE = [
     'config.middleware.AsyncMiddleware',
     'config.middleware.RequestIDMiddleware',
     'config.middleware.GlobalExceptionMiddleware',
     'config.middleware.DatabaseQueryLoggingMiddleware',
-    # "corsheaders.middleware.CorsMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # Uncommented for CORS support
     "django.middleware.security.SecurityMiddleware",
-    
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
-    
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    'apps.core.jwt.middleware.JWTAuthMiddleware',  
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    'apps.core.jwt.token_debugger.TokenDebugMiddleware',  
+
 ]
 
 
@@ -157,36 +160,59 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # REST Framework
 
 REST_FRAMEWORK = {
-    # Use default handler for now to avoid import issues
-    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
-    
-    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'DEFAULT_AUTHENTICATION_CLASSES': [
+        'apps.core.jwt.jwtauth.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication', 
-        'rest_framework.authentication.BasicAuthentication',
-
+        'rest_framework.authentication.TokenAuthentication', 
     ],
+    
+    # Default: Require authentication for all endpoints
+    # Override with @permission_classes([AllowAny]) for public endpoints
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    
+    # Exception handling
+    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
+    
+    # Filtering
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ],
+    
+    # Pagination
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
-    # Disable throttling until Redis is fixed
+    
+    # Throttling (disabled until Redis is configured)
     'DEFAULT_THROTTLE_CLASSES': [],
     'DEFAULT_THROTTLE_RATES': {},
+    
+    # Renderers and Parsers
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',  # Optional: for browsable API
     ],
-    'DEFAULT_PARSER_CLASSES': [  # Fixed typo: was PARSER_CLASSSES
+    'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
         'rest_framework.parsers.FormParser',
         'rest_framework.parsers.MultiPartParser',
     ],
+    
+    # Response format
+    'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S.%fZ',
+    'DATE_FORMAT': '%Y-%m-%d',
+    
+    #Error response
+    'NON_FIELD_ERRORS_KEY': 'errors',
+    'COERCE_DECIMAL_TO_STRING': False,
 }
+
+# ──────────────────────────────
+# JWT Configuration
+# ──────────────────────────────
 
 def decode_jwt_key_from_env(key_str):
     """
@@ -196,30 +222,60 @@ def decode_jwt_key_from_env(key_str):
     if not key_str:
         return None
     
-    # If it's already a string with newlines, use it
     if isinstance(key_str, str) and '\n' in key_str:
         return key_str
     
-    # If it has escaped newlines (\n), convert them
     if isinstance(key_str, str) and '\\n' in key_str:
         return key_str.replace('\\n', '\n')
     
+    try:
+        # Remove any whitespace
+        key_str = key_str.strip()
+        # Check if it looks like base64
+        if len(key_str) > 100 and ' ' not in key_str:
+            # Try to decode as base64
+            decoded = base64.b64decode(key_str).decode('utf-8')
+            return decoded
+    except:
+        pass
+    
     return key_str
 
-# Then update the JWT key loading section:
+# Load JWT keys
 JWT_PRIVATE_KEY = decode_jwt_key_from_env(env('JWT_PRIVATE_KEY', default=''))
 JWT_PUBLIC_KEY = decode_jwt_key_from_env(env('JWT_PUBLIC_KEY', default=''))
+JWT_SECRET_KEY = env('JWT_SECRET_KEY', default='your-default-secret-key-change-this')
 
-# Change JWT_'ALGORITHM': 'HS256',  # Changed to HS256
-JWT_SECRET_KEY = env('JWT_SECRET_KEY', default='')
+# Determine which algorithm to use based on available keys
+if JWT_PRIVATE_KEY and JWT_PUBLIC_KEY:
+    JWT_ALGORITHM = 'RS256'
+    print("✅ Using RS256 algorithm with RSA keys")
+elif JWT_SECRET_KEY:
+    JWT_ALGORITHM = 'HS256'
+    print("✅ Using HS256 algorithm with secret key")
+else:
+    JWT_ALGORITHM = 'HS256'
+    JWT_SECRET_KEY = 'your-fallback-secret-key-for-development'
+    print("⚠️  No JWT keys found, using fallback secret (for development only)")
+
 JWT_CONFIG = {
-    'ACCESS_TOKEN_EXPIRY': env.int('JWT_ACCESS_EXPIRY', default=900),
-    'REFRESH_TOKEN_EXPIRY': env.int('JWT_REFRESH_EXPIRY', default=604800), 
-    'RESET_TOKEN_EXPIRY': env.int('JWT_RESET_EXPIRY', default=1800),
-    'ALGORITHM': 'HS256',  # Force RS256 for RSA keys
-    'ISSUER': env('JWT_ISSUER', default='auth-service'),
-    'AUDIENCE': env.list('JWT_AUDIENCE', default=['api']),
+    'ACCESS_TOKEN_EXPIRY': env.int('JWT_ACCESS_EXPIRY', default=3600),  # Increased from 900 to 3600 (1 hour)
+    'REFRESH_TOKEN_EXPIRY': env.int('JWT_REFRESH_EXPIRY', default=604800),  # 7 days
+    'RESET_TOKEN_EXPIRY': env.int('JWT_RESET_EXPIRY', default=1800),  # 30 minutes
+    'ALGORITHM': JWT_ALGORITHM,
+    'ISSUER': env('JWT_ISSUER', default='tcc-auth-service'),
+    'AUDIENCE': env.list('JWT_AUDIENCE', default=['tcc-api']),
+    'PRIVATE_KEY': JWT_PRIVATE_KEY if JWT_ALGORITHM == 'RS256' else None,
+    'PUBLIC_KEY': JWT_PUBLIC_KEY if JWT_ALGORITHM == 'RS256' else None,
+    'SECRET_KEY': JWT_SECRET_KEY if JWT_ALGORITHM == 'HS256' else None,
 }
+
+# Log JWT configuration
+print(f"🔐 JWT Configuration:")
+print(f"   Algorithm: {JWT_CONFIG['ALGORITHM']}")
+print(f"   Access Token Expiry: {JWT_CONFIG['ACCESS_TOKEN_EXPIRY']} seconds")
+print(f"   Refresh Token Expiry: {JWT_CONFIG['REFRESH_TOKEN_EXPIRY']} seconds")
+print(f"   Issuer: {JWT_CONFIG['ISSUER']}")
 
 # Verify keys are loaded
 #     print(f"   Public key: {'Loaded' if JWT_PUBLIC_KEY else 'Missing'}")
@@ -293,9 +349,6 @@ EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='webmaster@localhost')
 
-# ──────────────────────────────
-# Logging (Enhanced)
-# ──────────────────────────────
 # ──────────────────────────────
 # Logging (Enhanced)
 # ──────────────────────────────
