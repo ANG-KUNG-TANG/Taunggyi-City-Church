@@ -208,32 +208,43 @@ class EmailAvailabilityView(BaseAPIView):
                     "success": False,
                     "message": "Email parameter is required"
                 }, status=status.HTTP_400_BAD_REQUEST)
+           
+            # Create EmailCheckInputSchema instance
+            email_check_data = EmailCheckInputSchema(email=email)
             
-            email_data = EmailCheckInputSchema(email=email)
             controller = self.get_controller()
             
+            # Call the controller method
             result = self.call_async_method(
                 controller.check_email_availability,
-                validated_data=email_data,
+                validated_data=email_check_data,
                 context=self.get_context(request)
             )
             
-            response_data = {
-                'email': email,
-                'available': result.available,
-                'exists': result.exists,
-            }
+            # Handle the response - it should be a dict now
+            if isinstance(result, dict):
+                response_data = {
+                    'email': result.get('email', email),
+                    'available': result.get('available', False),
+                    'exists': result.get('exists', False),
+                }
+            else:
+                # Fallback if it's not a dict
+                response_data = {
+                    'email': email,
+                    'available': False,
+                    'exists': False,
+                }
             
             return Response(
                 APIResponse.create_success(
                     data=response_data,
-                    message=f"Email '{email}' is {'available' if result.available else 'already taken'}"
+                    message=f"Email '{email}' is {'available' if response_data['available'] else 'already taken'}"
                 ).to_dict()
             )
         except Exception as e:
             return handle_exception(e, "Email check")
-
-
+        
 class HealthCheckView(APIView):  # Simplified - doesn't need BaseAPIView
     """Health check endpoint"""
     permission_classes = [AllowAny]
@@ -698,37 +709,154 @@ class UserViewSet(viewsets.ViewSet):
             )
         except Exception as e:
             return handle_exception(e, "Search users")
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
+    def by_role(self, request):
+        """Get users by role - Admin only"""
+        try:
+            current_user = self.get_current_user(request)
+            role = request.query_params.get('role')
+            page, per_page = get_pagination_params(request)
+            
+            if not role:
+                return Response({
+                    "success": False,
+                    "message": "Role parameter is required"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            controller = self.get_controller()
+            users_entities, total_count = self.call_async_method(
+                controller.get_users_by_role,
+                role=role,
+                page=page,
+                per_page=per_page,
+                current_user=current_user,
+                context=self.get_context(request)
+            )
+            
+            items = [entity_to_dict(entity) for entity in users_entities]
+            total_pages = max(1, (total_count + per_page - 1) // per_page)
+            
+            response_data = {
+                'items': items,
+                'role': role,
+                'pagination': {
+                    'total': total_count,
+                    'page': page,
+                    'per_page': per_page,
+                    'total_pages': total_pages,
+                    'has_next': page < total_pages,
+                    'has_prev': page > 1
+                }
+            }
+            
+            return Response(
+                APIResponse.create_success(
+                    data=response_data,
+                    message=f"Found {total_count} users with role '{role}'"
+                ).to_dict()
+            )
+        except Exception as e:
+            return handle_exception(e, "Get users by role")
 
+    @action(detail=True, methods=['patch'], permission_classes=[IsAdminUser])
+    def change_status(self, request, pk=None):
+        """Change user status - Admin only"""
+        try:
+            current_user = self.get_current_user(request)
+            if not current_user or not current_user.is_staff:
+                return Response({
+                    "success": False,
+                    "message": "Admin privileges required"
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            status_value = request.data.get('status')
+            if not status_value:
+                return Response({
+                    "success": False,
+                    "message": "Status parameter is required"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            controller = self.get_controller()
+            
+            user_entity = self.call_async_method(
+                controller.change_user_status,
+                user_id=int(pk),
+                status=status_value,
+                current_user=current_user,
+                context=self.get_context(request)
+            )
+            
+            return Response(
+                APIResponse.create_success(
+                    data=entity_to_dict(user_entity),
+                    message=f"User status changed to {status_value}"
+                ).to_dict()
+            )
+        except Exception as e:
+            return handle_exception(e, "Change user status")
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    def bulk_delete(self, request):
+        """Bulk delete users - Admin only"""
+        try:
+            current_user = self.get_current_user(request)
+            if not current_user or not current_user.is_staff:
+                return Response({
+                    "success": False,
+                    "message": "Admin privileges required"
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            user_ids = request.data.get('user_ids', [])
+            if not user_ids:
+                return Response({
+                    "success": False,
+                    "message": "User IDs are required"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            controller = self.get_controller()
+            
+            # Since controller doesn't have bulk_delete_users method,
+            # we'll implement it by looping through individual deletes
+            deleted_count = 0
+            failed_ids = []
+            
+            for user_id in user_ids:
+                try:
+                    success = self.call_async_method(
+                        controller.delete_user,
+                        user_id=int(user_id),
+                        current_user=current_user,
+                        context=self.get_context(request)
+                    )
+                    if success:
+                        deleted_count += 1
+                    else:
+                        failed_ids.append(user_id)
+                except Exception as e:
+                    failed_ids.append(user_id)
+                    logger.error(f"Failed to delete user {user_id}: {e}")
+            
+            response_data = {
+                'total_requested': len(user_ids),
+                'deleted_count': deleted_count,
+                'failed_count': len(failed_ids),
+                'failed_ids': failed_ids
+            }
+            
+            if deleted_count == len(user_ids):
+                message = f"Successfully deleted all {deleted_count} users"
+            else:
+                message = f"Deleted {deleted_count} out of {len(user_ids)} users. Failed: {len(failed_ids)}"
+            
+            return Response(
+                APIResponse.create_success(
+                    data=response_data,
+                    message=message
+                ).to_dict()
+            )
+        except Exception as e:
+            return handle_exception(e, "Bulk delete users")
 
 # ============================================
 # ROOT VIEW - Add at the end of file
 # ============================================
-
-class RootView(APIView):
-    """Public API root endpoint"""
-    permission_classes = [AllowAny]
-    
-    def get(self, request):
-        """Return API information"""
-        return Response({
-            "success": True,
-            "message": "TCC API Server",
-            "version": "1.0.0",
-            "status": "operational",
-            "timestamp": datetime.now().isoformat(),
-            "endpoints": {
-                "health": "/tcc/health/",
-                "register": "/tcc/users/register/",
-                "login": "/tcc/auth/login/",
-                "profile": "/tcc/users/profile/",
-                "check_email": "/tcc/users/check-email/",
-                "auth": {
-                    "login": "/tcc/auth/login/",
-                    "logout": "/tcc/auth/logout/",
-                    "refresh": "/tcc/auth/refresh/",
-                    "verify": "/tcc/auth/verify/",
-                    "forgot_password": "/tcc/auth/forgot-password/",
-                    "reset_password": "/tcc/auth/reset-password/"
-                }
-            }
-        })

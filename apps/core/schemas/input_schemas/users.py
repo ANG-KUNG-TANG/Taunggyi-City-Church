@@ -109,11 +109,59 @@ class UserSearchInputSchema(BaseSchema):
     page: int = Field(default=1, ge=1, description="Page number")
     per_page: int = Field(default=20, ge=1, le=100, description="Items per page")
 
-class EmailCheckInputSchema(BaseSchema):
-    """Schema for checking email existence - matches repo email_exists."""
-    
-    email: EmailStr = Field(..., description="Email to check")
 
+class EmailCheckInputSchema(BaseSchema):
+    """Schema for email validation - SIMPLIFIED VERSION"""
+    email: str = Field(..., min_length=3, max_length=255, description="Email to check")
+    
+    @validator('email', pre=True)
+    def clean_and_validate_email(cls, v):
+        """Clean and validate email - handles all edge cases"""
+        if not v:
+            raise ValueError('Email is required')
+        
+        # Handle list case (from QueryDict)
+        if isinstance(v, list):
+            if len(v) > 0:
+                v = v[0]
+            else:
+                raise ValueError('Email is required')
+        
+        # Convert to string
+        if not isinstance(v, str):
+            v = str(v)
+        
+        # Clean the email
+        v = v.strip().strip('"').strip("'")
+        
+        # Remove trailing slash
+        if v.endswith('/'):
+            v = v[:-1]
+        
+        # Remove URL encoding
+        v = v.replace('%22', '').replace('%27', '').strip()
+        
+        # Validate format
+        if not v:
+            raise ValueError('Email cannot be empty')
+        
+        if '@' not in v:
+            raise ValueError('Email must contain @')
+        
+        parts = v.split('@')
+        if len(parts) != 2:
+            raise ValueError('Invalid email format')
+        
+        local_part, domain = parts
+        if not local_part or not domain:
+            raise ValueError('Invalid email format')
+        
+        if '.' not in domain:
+            raise ValueError('Invalid domain in email')
+        
+        # Return lowercase
+        return v.lower()
+    
 class PasswordVerificationInputSchema(BaseSchema):
     """Schema for verifying password - matches repo verify_password."""
     

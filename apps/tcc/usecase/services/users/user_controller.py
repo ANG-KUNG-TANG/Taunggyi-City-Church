@@ -201,7 +201,7 @@ class UserController(BaseController):
         
         # FIXED: Pass email in input_data
         return await get_user_by_email_uc.execute(
-            input_data={'email': email},  # CHANGED: Pass in input_data
+            input_data={'email': email},  
             user=current_user,
             context=context
         )
@@ -291,7 +291,6 @@ class UserController(BaseController):
         )
 
     # ========== EMAIL Operations ==========
-    
     @public_endpoint
     @validate_email_check
     @ensure_initialized
@@ -299,16 +298,43 @@ class UserController(BaseController):
         self,
         validated_data: EmailCheckInputSchema,
         context: Dict[str, Any] = None
-    ) -> EmailCheckResponseSchema:
+    ) -> Dict[str, Any]:
         """Check if email exists (public endpoint)"""
+        from datetime import datetime
+        
         check_email_uc = await self._get_use_case('check_email')
         
-        # FIXED: Pass email in input_data
-        return await check_email_uc.execute(
-            input_data={'email': validated_data.email},  # CHANGED: Pass in input_data
-            context=context or {}
-        )
-
+        try:
+            # Execute the use case
+            result = await check_email_uc.execute(
+                input_data={'email': validated_data.email},
+                context=context or {}
+            )
+            
+            # Extract the actual data
+            if hasattr(result, 'model_dump'):
+                result_data = result.model_dump()
+            elif isinstance(result, dict):
+                result_data = result
+            else:
+                result_data = {}
+            
+            # Return only what we need
+            return {
+                'email': result_data.get('email', validated_data.email),
+                'exists': result_data.get('exists', False),
+                'available': result_data.get('available', False),
+                # Don't include id, created_at, updated_at since they're not needed
+            }
+            
+        except Exception as e:
+            logger.error(f"Error checking email: {e}")
+            # Return a default response
+            return {
+                'email': validated_data.email,
+                'exists': False,
+                'available': True,
+            }
     # ========== DELETE Operations ==========
     
     @require_admin

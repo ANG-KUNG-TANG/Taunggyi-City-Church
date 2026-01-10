@@ -34,8 +34,51 @@ logger = logging.getLogger(__name__)
 
 # ============ HELPER FUNCTIONS ============
 
+def _clean_email_param(email_param: Any) -> Any:
+    """Clean email parameter by removing quotes, trailing slashes, and URL artifacts
+    
+    FIXED VERSION: Handles both strings and lists from Django QueryDict
+    """
+    
+    # Handle list case FIRST (Django QueryDict can return lists)
+    if isinstance(email_param, list):
+        logger.debug(f"Email param is a list: {email_param}")
+        if len(email_param) > 0:
+            # Take the first element
+            email_param = email_param[0]
+            logger.debug(f"Extracted first element: {email_param}")
+        else:
+            logger.warning("Empty list received for email parameter")
+            return email_param
+    
+    # Now we should have a string
+    if not isinstance(email_param, str):
+        logger.debug(f"Email param is not a string: {type(email_param)}")
+        return email_param
+    
+    # Remove surrounding quotes (single or double)
+    email_param = email_param.strip().strip('"').strip("'")
+    
+    # Remove trailing slash if present
+    if email_param.endswith('/'):
+        email_param = email_param[:-1]
+    
+    # Also remove any URL-encoded quotes
+    email_param = email_param.replace('%22', '').replace('%27', '')
+    
+    # Remove any leading/trailing whitespace again
+    email_param = email_param.strip()
+    
+    logger.debug(f"Cleaned email param: {email_param}")
+    
+    return email_param
+
+
 def _extract_input_data(request: Union[HttpRequest, Request], data_source: str) -> Dict[str, Any]:
-    """Extract input data from request based on source"""
+    """Extract and clean input data from request based on source
+    
+    FIXED VERSION: Properly handles Django QueryDict lists
+    """
     input_data = {}
     
     # Body data
@@ -59,11 +102,70 @@ def _extract_input_data(request: Union[HttpRequest, Request], data_source: str) 
     
     # Query parameters
     if data_source in ['query', 'all']:
+        logger.debug(f"Extracting query data from request: {type(request)}")
+        
         if hasattr(request, 'query_params') and request.query_params:
-            input_data.update(dict(request.query_params))
+            # DRF Request - handle QueryDict properly
+            query_dict = {}
+            for key in request.query_params.keys():
+                # Use getlist to properly handle potential lists
+                value_list = request.query_params.getlist(key)
+                
+                logger.debug(f"Key '{key}': getlist returned {value_list} (len={len(value_list)})")
+                
+                if key == 'email':
+                    # Special handling for email - always clean it
+                    if value_list:
+                        # Take first value if single, or the whole list if multiple
+                        raw_value = value_list[0] if len(value_list) == 1 else value_list
+                        logger.debug(f"Before cleaning email: {raw_value} (type: {type(raw_value)})")
+                        query_dict[key] = _clean_email_param(raw_value)
+                        logger.debug(f"After cleaning email: {query_dict[key]}")
+                    else:
+                        # Fallback to regular get
+                        query_dict[key] = request.query_params.get(key)
+                else:
+                    # For other params, take single value or list as-is
+                    if len(value_list) == 1:
+                        query_dict[key] = value_list[0]
+                    elif len(value_list) > 1:
+                        query_dict[key] = value_list
+                    else:
+                        query_dict[key] = request.query_params.get(key)
+            
+            logger.debug(f"Processed query_params: {query_dict}")
+            input_data.update(query_dict)
+            
         elif hasattr(request, 'GET') and request.GET:
-            input_data.update(dict(request.GET))
+            # Django HttpRequest - handle QueryDict properly
+            query_dict = {}
+            for key in request.GET.keys():
+                value_list = request.GET.getlist(key)
+                
+                logger.debug(f"Key '{key}': getlist returned {value_list} (len={len(value_list)})")
+                
+                if key == 'email':
+                    # Special handling for email
+                    if value_list:
+                        raw_value = value_list[0] if len(value_list) == 1 else value_list
+                        logger.debug(f"Before cleaning email: {raw_value} (type: {type(raw_value)})")
+                        query_dict[key] = _clean_email_param(raw_value)
+                        logger.debug(f"After cleaning email: {query_dict[key]}")
+                    else:
+                        query_dict[key] = request.GET.get(key)
+                else:
+                    # For other params
+                    if len(value_list) == 1:
+                        query_dict[key] = value_list[0]
+                    elif len(value_list) > 1:
+                        query_dict[key] = value_list
+                    else:
+                        query_dict[key] = request.GET.get(key)
+            
+            logger.debug(f"Processed GET params: {query_dict}")
+            input_data.update(query_dict)
     
+    logger.debug(f"Final input_data for validation: {input_data}")
     return input_data
 
 
@@ -383,6 +485,7 @@ def public_or_authenticated(view_func: Callable) -> Callable:
 
 
 # ============ VALIDATION DECORATORS ============
+
 def validate_with_schema(schema_class: Type[BaseModel], data_source: str = 'body'):
     """Controller-layer validation with Pydantic schemas - CLEANED UP version"""
     def decorator(view_func: Callable) -> Callable:
@@ -420,7 +523,17 @@ def validate_with_schema(schema_class: Type[BaseModel], data_source: str = 'body
                 
                 # Extract and validate data
                 input_data = _extract_input_data(request, data_source)
-                validated_data = schema_class(**input_data)
+                
+                logger.debug(f"Validating with {schema_class.__name__}: {input_data}")
+                
+                try:
+                    validated_data = schema_class(**input_data)
+                except ValidationError as ve:
+                    logger.warning(f"Validation failed for {schema_class.__name__}: {ve.errors()}")
+                    raise DomainValidationException(
+                        message="Input validation failed",
+                        field_errors=_format_validation_errors(ve.errors())
+                    )
                 
                 # Inject validated data into kwargs
                 if 'user_data' in kwargs:
@@ -435,21 +548,13 @@ def validate_with_schema(schema_class: Type[BaseModel], data_source: str = 'body
                 
                 return result
                 
-            except ValidationError as e:
-                logger.warning(f"Validation failed for {schema_class.__name__}: {e.errors()}")
-                raise DomainValidationException(
-                    message="Input validation failed",
-                    field_errors=_format_validation_errors(e.errors())
-                )
             except (ValidationException, UserAlreadyExistsException, DomainValidationException):
                 # Re-raise these specific exceptions without modification
                 raise
             except Exception as e:
                 # For all other unexpected exceptions
                 logger.error(f"Unexpected error in validation decorator: {e}", exc_info=True)
-                raise ValidationException(
-                    message=f"Validation error: {str(e)}",
-                )
+                raise
             finally:
                 # Clear validation flag
                 _wrapped_view._validating = False
@@ -461,17 +566,15 @@ def validate_with_schema(schema_class: Type[BaseModel], data_source: str = 'body
         return _wrapped_view
     return decorator
 
-# Specific validation decorators
+
+# ============ SPECIFIC VALIDATION DECORATORS ============
+
 def validate_user_create(view_func: Callable) -> Callable:
     """Check if already decorated to prevent circular calls"""
-    # Quick fix: Check if this function is already being decorated
     if hasattr(view_func, '_validated_user_create'):
         return view_func
     
-    # Apply the decorator
     decorated = validate_with_schema(UserCreateInputSchema, 'body')(view_func)
-    
-    # Mark as decorated
     decorated._validated_user_create = True
     return decorated
 

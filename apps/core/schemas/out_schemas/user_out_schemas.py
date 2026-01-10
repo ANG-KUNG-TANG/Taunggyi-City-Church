@@ -90,22 +90,30 @@ class UserStatsResponseSchema(BaseResponseSchema):
     users_by_status: Dict[UserStatus, int] = Field(..., description="Users count by status")
     users_by_gender: Dict[Gender, int] = Field(default_factory=dict, description="Users count by gender")
 
-class EmailCheckResponseSchema(BaseResponseSchema):
-    """Email existence check response - matches repo email_exists."""
-    
-    email: str = Field(..., description="Email checked")
-    exists: bool = Field(..., description="Whether email exists")
-    available: bool = Field(..., description="Whether email is available for use")
 
+class EmailCheckResponseSchema(BaseResponseSchema):
+    """Response schema for email availability check"""
+    email: str
+    exists: bool
+    available: bool
+        
+class EmailCheckResponseSchemaWithTimestamps(BaseResponseSchema):
+    """Response schema for email availability check - WITH TIMESTAMPS"""
+    id: Optional[int] = Field(None, description="ID (optional)")
+    email: str = Field(..., description="Email address that was checked")
+    exists: bool = Field(..., description="Whether the email exists in the system")
+    available: bool = Field(..., description="Whether the email is available for registration")
+    created_at: Optional[datetime] = Field(None, description="Creation timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Update timestamp")
+    
+    class Config:
+        from_attributes = True
+        
 class PasswordVerificationResponseSchema(BaseResponseSchema):
     """Password verification response - matches repo verify_password."""
     
     user_id: int = Field(..., description="User ID")
     valid: bool = Field(..., description="Whether password is valid")
-
-# REMOVED: UserCreateResponseSchema, UserUpdateResponseSchema - use generic responses instead
-
-# ADDED: Missing response schemas
 
 class UserLoginResponseSchema(BaseResponseSchema):
     """Response for user login."""

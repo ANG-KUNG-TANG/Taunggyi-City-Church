@@ -28,25 +28,25 @@ def api_root(request):
         'status': 'operational',
         'endpoints': {
             'auth': {
-                'login': '/tcc/auth/login/',
-                'logout': '/tcc/auth/logout/',
-                'refresh': '/tcc/auth/refresh/',
-                'verify': '/tcc/auth/verify/',
-                'forgot_password': '/tcc/auth/forgot-password/',
-                'reset_password': '/tcc/auth/reset-password/',
+                'login': '/api/auth/login/',
+                'logout': '/api/auth/logout/',
+                'refresh': '/api/auth/refresh/',
+                'verify': '/api/auth/verify/',
+                'forgot_password': '/api/auth/forgot-password/',
+                'reset_password': '/api/auth/reset-password/',
             },
             'users': {
-                'register': '/tcc/users/register/',
-                'profile': '/tcc/users/profile/',
-                'check_email': '/tcc/users/check-email/',
-                'list': '/tcc/users/',
-                'detail': '/tcc/users/{id}/',
-                'by_email': '/tcc/users/by_email/?email=',
-                'search': '/tcc/users/search/?q=',
+                'register': '/api/users/register/',
+                'profile': '/api/users/profile/',
+                'check_email': '/api/users/check-email/',
+                'list': '/api/users/',
+                'detail': '/api/users/{id}/',
+                'by_email': '/api/users/by_email/?email=',
+                'search': '/api/users/search/?q=',
             },
-            'health': '/tcc/health/',
+            'health': '/api/health/',
         },
-        'documentation': 'Visit /tcc/docs/ for API documentation'
+        'documentation': 'Visit /api/docs/ for API documentation'
     })
 
 
