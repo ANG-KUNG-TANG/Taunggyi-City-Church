@@ -61,7 +61,6 @@ async def get_password_service() -> PasswordService:
 async def get_login_uc() -> LoginUseCase:
     return LoginUseCase(
         user_repository=await get_user_repository(),
-        jwt_service=await get_jwt_service(),
         password_service=await get_password_service(),
         auth_service=await get_auth_service()
     )

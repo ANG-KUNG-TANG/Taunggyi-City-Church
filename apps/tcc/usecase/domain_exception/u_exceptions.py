@@ -47,6 +47,11 @@ class InvalidUserInputException(DomainValidationException):
             user_message=user_message
         )
 
+class UserUpdateFailedException(BusinessRuleException):
+    ...
+    
+class UserDeleteFailedException(BusinessRuleException):
+    ...
 class UserAlreadyExistsException(BusinessRuleException):
     """Exception when user with same email/username already exists."""
     

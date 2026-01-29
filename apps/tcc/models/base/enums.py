@@ -3,6 +3,7 @@ from django.utils.translation import gettext_lazy as _
 
 class UserRole(models.TextChoices):
     SUPER_ADMIN = "super_admin", _("Super Administrator")
+    ADMIN = "admin", _("Admin")
     STAFF = "staff", _("Staff")
     MINISTRY_LEADER = "ministry_leader", _("Ministry Leader")
     MEMBER = "member", _("Member")

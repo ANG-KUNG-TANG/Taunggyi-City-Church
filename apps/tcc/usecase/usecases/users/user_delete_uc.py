@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class DeleteUserUseCase(BaseUseCase):
-    """Soft delete user - Returns boolean"""
+    """Soft delete user - Returns DeleteResponseSchema"""
     
     def __init__(self, user_repository: UserRepository, **dependencies):
         super().__init__(**dependencies)
@@ -35,15 +35,20 @@ class DeleteUserUseCase(BaseUseCase):
         if not user_id:
             raise DomainValidationException("User ID is required.")
         
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            raise DomainValidationException("Invalid User ID format.")
+        
         # Business rule: Cannot delete self
-        if ctx.user and ctx.user.id == int(user_id):
+        if ctx.user and ctx.user.id == user_id:
             raise DomainValidationException(
                 "Cannot delete your own account",
                 user_message="You cannot delete your own account."
             )
         
         # Business rule: Cannot delete super admin unless you're super admin
-        target_user = await self.user_repository.get_by_id(int(user_id))
+        target_user = await self.user_repository.get_by_id(user_id, user=ctx.user)
         if target_user and hasattr(target_user, 'is_superuser') and target_user.is_superuser:
             if not ctx.user or not hasattr(ctx.user, 'is_superuser') or not ctx.user.is_superuser:
                 raise DomainValidationException(
@@ -51,12 +56,12 @@ class DeleteUserUseCase(BaseUseCase):
                     user_message="You do not have permission to delete super admin accounts."
                 )
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> bool:
-        """Delete user with business logic - Returns boolean success"""
+    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> DeleteResponseSchema:
+        """Delete user with business logic - Returns DeleteResponseSchema"""
         user_id = int(input_data['user_id'])
         
         # 1. Check if user exists
-        existing_user = await self.user_repository.get_by_id(user_id)
+        existing_user = await self.user_repository.get_by_id(user_id, user=user)
         if not existing_user:
             raise UserNotFoundException(
                 user_id=user_id,
@@ -72,8 +77,20 @@ class DeleteUserUseCase(BaseUseCase):
                     user_message="Cannot delete user because they have active records. Please transfer or archive them first."
                 )
         
-        # 3. Soft delete via repository
-        success = await self.user_repository.delete(user_id, user, ctx)
+        # 3. Prepare request context
+        request = None
+        if hasattr(ctx, 'request'):
+            request = ctx.request
+        elif isinstance(ctx, dict) and 'request' in ctx:
+            request = ctx['request']
+        
+        # 4. Soft delete via repository
+        success = await self.user_repository.delete(
+            object_id=user_id,
+            user=user,
+            request=request,
+            soft_delete=True
+        )
         
         if not success:
             raise DomainException(
@@ -81,7 +98,7 @@ class DeleteUserUseCase(BaseUseCase):
                 user_message="Unable to delete user. Please try again."
             )
         
-        # 4. Async side effects
+        # 5. Async side effects
         if hasattr(self, 'notification_service') and self.notification_service:
             asyncio.create_task(
                 self.notification_service.notify_user_deletion(
@@ -90,8 +107,12 @@ class DeleteUserUseCase(BaseUseCase):
                 )
             )
         
-        # 5. Return boolean success
-        return success
+        # 6. Return response schema
+        return DeleteResponseSchema(
+            id=user_id,
+            deleted=success,
+            message=f"User {user_id} deleted successfully."
+        )
 
 
 class BulkDeleteUsersUseCase(BaseUseCase):
@@ -122,18 +143,31 @@ class BulkDeleteUsersUseCase(BaseUseCase):
         if len(user_ids) > 100:
             raise DomainValidationException("Cannot delete more than 100 users at once.")
         
+        # Convert all IDs to integers
+        try:
+            user_ids = [int(uid) for uid in user_ids]
+        except ValueError:
+            raise DomainValidationException("Invalid User ID format in list.")
+        
         # Business rule: Cannot include self in bulk delete
         if user and user.id in user_ids:
             raise DomainValidationException("Cannot delete your own account in bulk operation.")
         
         # Business rule: Cannot delete super admins unless you're super admin
         for user_id in user_ids:
-            target_user = await self.user_repository.get_by_id(user_id)
+            target_user = await self.user_repository.get_by_id(user_id, user=user)
             if target_user and hasattr(target_user, 'is_superuser') and target_user.is_superuser:
                 if not user or not hasattr(user, 'is_superuser') or not user.is_superuser:
                     raise DomainValidationException(
                         f"Cannot delete super admin with ID: {user_id}"
                     )
+        
+        # Prepare request context
+        request = None
+        if hasattr(ctx, 'request'):
+            request = ctx.request
+        elif isinstance(ctx, dict) and 'request' in ctx:
+            request = ctx['request']
         
         # Perform bulk delete
         deleted_count = 0
@@ -141,7 +175,12 @@ class BulkDeleteUsersUseCase(BaseUseCase):
         
         for user_id in user_ids:
             try:
-                success = await self.user_repository.delete(user_id, user, ctx)
+                success = await self.user_repository.delete(
+                    object_id=user_id,
+                    user=user,
+                    request=request,
+                    soft_delete=True
+                )
                 if success:
                     deleted_count += 1
                 else:
@@ -154,5 +193,9 @@ class BulkDeleteUsersUseCase(BaseUseCase):
         return DeleteResponseSchema(
             id=0,  # No single ID for bulk operation
             deleted=deleted_count > 0,
-            message=f"Deleted {deleted_count} users. Failed: {len(failed_users)}"
+            message=f"Deleted {deleted_count} users. Failed: {len(failed_users)}",
+            details={
+                "deleted_count": deleted_count,
+                "failed_users": failed_users
+            }
         )

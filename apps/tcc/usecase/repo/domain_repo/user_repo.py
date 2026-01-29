@@ -58,6 +58,7 @@ class UserRepository(BaseRepository[User, UserEntity]):
             return None
         return UserEntity.from_model(user_model)
     
+    
     @circuit_breaker()
     @with_db_error_handling
     @with_retry(max_attempts=3)
@@ -194,92 +195,94 @@ class UserRepository(BaseRepository[User, UserEntity]):
     
     @with_db_error_handling
     @with_retry(max_attempts=3)
-    @cached(
-        key_template="users:list:{filters_hash}:{page}:{per_page}",
-        ttl=900,  # 15 minutes for list views
-        namespace="users",
-        version="1"
-    )
-    async def get_paginated(self, filters: Dict = None, page: int = 1, per_page: int = 20) -> Tuple[List[UserEntity], int]:
-        """Get paginated users - with caching (PURE data query)"""
+    async def get_paginated(self, filters=None, page=1, page_size=20,include_inactive=False, **kwargs):
+        """Get paginated users - Thread-safe version"""
         try:
-            # Define synchronous functions for database operations
-            def sync_get_queryset():
-                base_queryset = User.objects.filter(is_active=True)
+            from django.db.models import Q
+            
+            # Use asyncio.to_thread for better thread management
+            def sync_get_paginated():
+                User = self.model_class  
+                queryset = User.objects.all()
+                logger.info(f"UserRepository.get_paginated called")
+                logger.info(f"Filters: {filters}")
+                logger.info(f"Page: {page}, Page size: {page_size}")
+                logger.info(f"Include inactive: {include_inactive}")
+    
                 
                 if filters:
+                    # Apply filters
+                    if 'name' in filters and filters['name']:
+                        name = filters.pop('name')
+                        # Search in both first_name and last_name
+                        query = query.filter(
+                            Q(first_name__icontains=name) | 
+                            Q(last_name__icontains=name)
+                        )
+                    
+                    # Apply other filters
                     for key, value in filters.items():
                         if value is not None:
-                            base_queryset = base_queryset.filter(**{key: value})
-                return base_queryset
-            
-            def sync_get_count(queryset):
-                return queryset.count()
-            
-            def sync_get_users(queryset, offset, limit):
-                return list(queryset.order_by('-created_at')[offset:offset + limit])
-            
-            # Get queryset
-            base_queryset = await sync_to_async(sync_get_queryset, thread_sensitive=True)()
-            
-            # Get total count
-            total_count = await sync_to_async(sync_get_count, thread_sensitive=True)(base_queryset)
-            
-            # Apply pagination
-            offset = (page - 1) * per_page
-            users_list = await sync_to_async(sync_get_users, thread_sensitive=True)(base_queryset, offset, per_page)
-            
-            # Convert to entities
-            users = []
-            for user in users_list:
-                users.append(self._model_to_entity(user))
+                            query = query.filter(**{key: value})
+                                
+                # Count total before pagination
+                total_count = queryset.count()
+                total_pages = (total_count + page_size - 1) // page_size
+                offset = (page - 1) * page_size
                 
-            return users, total_count
+                # Apply pagination and ordering
+                users = list(queryset.order_by('-created_at')[offset:offset + page_size])
+                
+                # Convert to entities
+                items = [self._model_to_entity(user) for user in users]
+                
+                return {
+                    'items': items,
+                    'total': total_count,
+                    'page': page,
+                    'page_size': page_size,
+                    'total_pages': total_pages
+                }
+            
+            # Use asyncio.to_thread instead of sync_to_async for better control
+            return await asyncio.to_thread(sync_get_paginated)
             
         except Exception as e:
-            logger.error(f"Error in get_paginated: {str(e)}", exc_info=True)
-            return [], 0
-    
+            logger.error(f"Error in get_paginated: {e}", exc_info=True)
+            raise
+        
     # ============ SPECIALIZED QUERIES ============
     
     @with_db_error_handling
     @with_retry(max_attempts=3)
-    async def search_users(self, search_term: str, page: int = 1, per_page: int = 20) -> Tuple[List[UserEntity], int]:
-        """Search users - no caching due to dynamic nature (PURE data query)"""
-        try:
-            # Define synchronous functions
-            def sync_search():
-                return User.objects.filter(
-                    Q(is_active=True) &
-                    (Q(name__icontains=search_term) | Q(email__icontains=search_term))
-                )
+    async def search_users(self, search_term: str, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+        """Search users - Thread-safe version"""
+        def sync_search():
+            User = self.model_class
             
-            def sync_get_count(queryset):
-                return queryset.count()
+            queryset = User.objects.filter(
+                Q(is_active=True) &
+                (Q(email__icontains=search_term) | 
+                Q(first_name__icontains=search_term) | 
+                Q(last_name__icontains=search_term))
+            ).order_by('-created_at')
             
-            def sync_get_users(queryset, offset, limit):
-                return list(queryset.order_by('-created_at')[offset:offset + limit])
+            total_count = queryset.count()
+            offset = (page - 1) * page_size
+            users = list(queryset[offset:offset + page_size])
             
-            # Get queryset
-            queryset = await sync_to_async(sync_search, thread_sensitive=True)()
+            items = [self._model_to_entity(user) for user in users]
             
-            # Get total count
-            total_count = await sync_to_async(sync_get_count, thread_sensitive=True)(queryset)
-            
-            # Apply pagination
-            offset = (page - 1) * per_page
-            users_list = await sync_to_async(sync_get_users, thread_sensitive=True)(queryset, offset, per_page)
-            
-            # Convert to entities
-            users = []
-            for user in users_list:
-                users.append(self._model_to_entity(user))
-                
-            return users, total_count
-            
-        except Exception as e:
-            logger.error(f"Error in search_users: {str(e)}", exc_info=True)
-            return [], 0
+            return {
+                'items': items,
+                'total': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total_count + page_size - 1) // page_size,
+                'search_term': search_term
+            }
+        
+        return await asyncio.to_thread(sync_search)
     
     @with_db_error_handling
     @with_retry(max_attempts=3)

@@ -32,33 +32,6 @@ from .base_view import get_pagination_params, extract_filters, build_context
 logger = logging.getLogger(__name__)
 
 
-class RootView(APIView):
-    """Public API root endpoint"""
-    permission_classes = [AllowAny]
-    
-    def get(self, request):
-        """Return API information"""
-        return Response({
-            "message": "TCC API Server",
-            "version": "1.0.0",
-            "status": "operational",
-            "timestamp": datetime.now().isoformat(),
-            "endpoints": {
-                "health": "/tcc/health/",
-                "register": "/tcc/users/register/",
-                "login": "/tcc/auth/login/",
-                "profile": "/tcc/users/profile/",
-                "check_email": "/tcc/users/check-email/",
-                "auth": {
-                    "login": "/tcc/auth/login/",
-                    "logout": "/tcc/auth/logout/",
-                    "refresh": "/tcc/auth/refresh/",
-                    "verify": "/tcc/auth/verify/",
-                    "forgot_password": "/tcc/auth/forgot-password/",
-                    "reset_password": "/tcc/auth/reset-password/"
-                }
-            }
-        })
 # ============================================
 # HELPER FUNCTIONS
 # ============================================
@@ -93,23 +66,47 @@ def handle_exception(e: Exception, operation: str) -> Response:
     """Centralized exception handling with proper DRF Response"""
     logger.error(f"{operation} error: {e}", exc_info=True)
     
-    error_mapping = {
-        UserNotFoundException: ("USER_NOT_FOUND", 404),
-        UserAlreadyExistsException: ("USER_ALREADY_EXISTS", 409),
-        DomainValidationException: ("VALIDATION_ERROR", 400),
-    }
+    # Handle UserAlreadyExistsException with a clean message
+    if isinstance(e, UserAlreadyExistsException):
+        # Extract email from exception if available
+        email = getattr(e, 'email' ,'Unknown')
+        # Log at WARNING level since this is a user error, not a system error
+        logger.warning(f"User registration failed: User with email '{email}' already exists")
+        return Response({
+            "success": False,
+            "message": f"User with email '{email}' already exists",
+            "error_code": "USER_ALREADY_EXISTS",
+            "status_code": 409
+        }, status=409)
     
-    error_code, status_code = error_mapping.get(
-        type(e), 
-        ("INTERNAL_ERROR", 500)
-    )
+        
+    # Handle DomainValidationException
+    elif isinstance(e, DomainValidationException):
+        return Response({
+            "success": False,
+            "message": str(e),
+            "error_code": "VALIDATION_ERROR",
+            "status_code": 400
+        }, status=400)
     
-    return Response({
-        "success": False,
-        "message": str(e),
-        "error_code": error_code,
-        "status_code": status_code
-    }, status=status_code)
+    # Handle UserNotFoundException
+    elif isinstance(e, UserNotFoundException):
+        return Response({
+            "success": False,
+            "message": str(e),
+            "error_code": "USER_NOT_FOUND",
+            "status_code": 404
+        }, status=404)
+    
+    # Handle other exceptions
+    else:
+        logger.error(f"Unexpected {operation} error: {e}", exc_info=True)
+        return Response({
+            "success": False,
+            "message": f"An error occurred during {operation}",
+            "error_code": "INTERNAL_ERROR",
+            "status_code": 500
+        }, status=500)
 
 
 def safe_get_controller():
@@ -168,11 +165,13 @@ class BaseAPIView(APIView):
 # ============================================
 
 class RegisterView(BaseAPIView):
-    """User registration - Public endpoint"""
+    """User registration endpoints"""
+    
+    # Public endpoint - normal user registration
     permission_classes = [AllowAny]
     
     def post(self, request):
-        """Register a new user"""
+        """Register a new normal user - Public endpoint"""
         try:
             user_data = UserCreateInputSchema(**request.data)
             controller = self.get_controller()
@@ -192,9 +191,70 @@ class RegisterView(BaseAPIView):
                 status=status.HTTP_201_CREATED
             )
         except Exception as e:
-            return handle_exception(e, "Registration")
-
-
+            return handle_exception(e, "registration")
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    def create_by_admin(self, request):
+        """Create user with specified role - Admin only"""
+        try:
+            current_user = self.get_current_user(request)
+            if not current_user or not current_user.is_staff:
+                return Response({
+                    "success": False,
+                    "message": "Admin privileges required"
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # Extract role from request data (default to 'staff')
+            role = request.data.get('role', 'staff').lower()
+            
+            # Validate role
+            valid_roles = ['staff', 'admin']
+            if role not in valid_roles:
+                return Response({
+                    "success": False,
+                    "message": f"Invalid role. Must be one of: {', '.join(valid_roles)}"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Optional: Check for super admin privileges for creating admin users
+            if role == 'admin':
+                if hasattr(current_user, 'is_superuser') and not current_user.is_superuser:
+                    return Response({
+                        "success": False,
+                        "message": "Super admin privileges required to create admin users"
+                    }, status=status.HTTP_403_FORBIDDEN)
+            
+            # Validate and parse user data
+            user_data = UserCreateInputSchema(**request.data)
+            controller = self.get_controller()
+            
+            # Choose controller method based on role
+            if role == 'staff':
+                controller_method = controller.create_staff_user
+                success_message = "Staff user created successfully"
+            else:  # role == 'admin'
+                controller_method = controller.create_admin_user
+                success_message = "Admin user created successfully"
+            
+            # Execute the controller method
+            user_entity = self.call_async_method(
+                controller_method,
+                user_data=user_data,
+                current_user=current_user,
+                context=self.get_context(request)
+            )
+            
+            return Response(
+                APIResponse.create_success(
+                    data=entity_to_dict(user_entity),
+                    message=success_message,
+                    status_code=status.HTTP_201_CREATED
+                ).to_dict(),
+                status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            role = request.data.get('role', 'staff')
+            return handle_exception(e, f"create {role} user")
+        
 class EmailAvailabilityView(BaseAPIView):
     """Check email availability - Public endpoint"""
     permission_classes = [AllowAny]
@@ -243,7 +303,7 @@ class EmailAvailabilityView(BaseAPIView):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Email check")
+            return handle_exception(e, "email check")
         
 class HealthCheckView(APIView):  # Simplified - doesn't need BaseAPIView
     """Health check endpoint"""
@@ -309,7 +369,7 @@ class ProfileView(BaseAPIView):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Profile retrieval")
+            return handle_exception(e, "profile retrieval")
     
     def put(self, request):
         """Full update of current user profile"""
@@ -346,7 +406,7 @@ class ProfileView(BaseAPIView):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Profile update")
+            return handle_exception(e, "profile update")
 
 
 class UserListView(BaseAPIView):
@@ -367,12 +427,26 @@ class UserListView(BaseAPIView):
             )
             
             controller = self.get_controller()
-            users_entities, total_count = self.call_async_method(
+            result = self.call_async_method(
                 controller.get_all_users,
                 validated_data=query_data,
                 current_user=current_user,
                 context=self.get_context(request)
             )
+            
+            # Handle both possible return types:
+            # 1. Tuple of (users_entities, total_count)
+            # 2. Single value that might be a list or dict
+            if isinstance(result, tuple) and len(result) == 2:
+                users_entities, total_count = result
+            elif isinstance(result, dict) and 'items' in result and 'total' in result:
+                # If the controller returns a dict with items and total
+                users_entities = result.get('items', [])
+                total_count = result.get('total', 0)
+            else:
+                # Assume result is just the list of entities
+                users_entities = result if isinstance(result, list) else []
+                total_count = len(users_entities)
             
             items = [entity_to_dict(entity) for entity in users_entities]
             total_pages = max(1, (total_count + per_page - 1) // per_page)
@@ -396,8 +470,7 @@ class UserListView(BaseAPIView):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Get users")
-
+            return handle_exception(e, "get users")
 
 # ============================================
 # USER VIEWSET - Standard DRF
@@ -445,12 +518,24 @@ class UserViewSet(viewsets.ViewSet):
             )
             
             controller = self.get_controller()
-            users_entities, total_count = self.call_async_method(
+            result = self.call_async_method(
                 controller.get_all_users,
                 validated_data=query_data,
                 current_user=current_user,
                 context=self.get_context(request)
             )
+            
+
+            if isinstance(result, tuple) and len(result) == 2:
+                users_entities, total_count = result
+            elif isinstance(result, dict) and 'items' in result and 'total' in result:
+                # If the controller returns a dict with items and total
+                users_entities = result.get('items', [])
+                total_count = result.get('total', 0)
+            else:
+                # Assume result is just the list of entities
+                users_entities = result if isinstance(result, list) else []
+                total_count = len(users_entities)
             
             items = [entity_to_dict(entity) for entity in users_entities]
             total_pages = max(1, (total_count + per_page - 1) // per_page)
@@ -474,7 +559,7 @@ class UserViewSet(viewsets.ViewSet):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "List users")
+            return handle_exception(e, "list users")
     
     def create(self, request):
         """Create new admin user - Admin only"""
@@ -505,7 +590,7 @@ class UserViewSet(viewsets.ViewSet):
                 status=status.HTTP_201_CREATED
             )
         except Exception as e:
-            return handle_exception(e, "Create admin user")
+            return handle_exception(e, "create admin user")
     
     def retrieve(self, request, pk=None):
         """Get user by ID"""
@@ -540,7 +625,7 @@ class UserViewSet(viewsets.ViewSet):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Get user by ID")
+            return handle_exception(e, "get user by ID")
 
     def parse_and_clean_id(self, id_value):
         """Parse and clean ID values from various formats."""
@@ -593,7 +678,7 @@ class UserViewSet(viewsets.ViewSet):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Update user")
+            return handle_exception(e, "update user")
     
     def partial_update(self, request, pk=None):
         """Partial update user by ID"""
@@ -629,7 +714,7 @@ class UserViewSet(viewsets.ViewSet):
                 raise DomainException("Failed to delete user")
                 
         except Exception as e:
-            return handle_exception(e, "Delete user")
+            return handle_exception(e, "delete user")
     
     @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
     def by_email(self, request):
@@ -659,7 +744,7 @@ class UserViewSet(viewsets.ViewSet):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Get user by email")
+            return handle_exception(e, "get user by email")
     
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def search(self, request):
@@ -708,7 +793,7 @@ class UserViewSet(viewsets.ViewSet):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Search users")
+            return handle_exception(e, "search users")
     @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
     def by_role(self, request):
         """Get users by role - Admin only"""
@@ -756,7 +841,7 @@ class UserViewSet(viewsets.ViewSet):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Get users by role")
+            return handle_exception(e, "get users by role")
 
     @action(detail=True, methods=['patch'], permission_classes=[IsAdminUser])
     def change_status(self, request, pk=None):
@@ -793,7 +878,7 @@ class UserViewSet(viewsets.ViewSet):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Change user status")
+            return handle_exception(e, "change user status")
 
     @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
     def bulk_delete(self, request):
@@ -855,7 +940,7 @@ class UserViewSet(viewsets.ViewSet):
                 ).to_dict()
             )
         except Exception as e:
-            return handle_exception(e, "Bulk delete users")
+            return handle_exception(e, "bulk delete users")
 
 # ============================================
 # ROOT VIEW - Add at the end of file

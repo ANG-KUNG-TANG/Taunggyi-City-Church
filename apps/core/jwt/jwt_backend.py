@@ -153,21 +153,30 @@ class JWTManager:
         self, 
         user_id: str,
         email: str,
-        roles: List[str] = None,
+        role: str,  # Changed: Single role parameter
+        is_superuser: bool = False,
+        is_staff: bool = False,
         session_id: str = None
     ) -> str:
-        """Create access token"""
+        """Create access token with role and permission flags"""
         now = datetime.utcnow()
         expires = now + timedelta(seconds=self.config.access_token_expiry)
         
         # Ensure user_id is string
         user_id_str = str(user_id)
         
+        # Log user permissions for debugging
+        logger.debug(f"Token generation for user {email}: role={role}, "
+                    f"is_superuser={is_superuser}, is_staff={is_staff}")
+        
         payload = {
             "token_type": TokenType.ACCESS.value,
             "sub": user_id_str,
             "email": email,
-            "roles": roles or [],
+            "role": role,  # Single role field
+            "roles": [role],  # List for compatibility
+            "is_superuser": is_superuser,
+            "is_staff": is_staff,
             "session_id": session_id or str(uuid.uuid4()),
             "jti": secrets.token_urlsafe(32),
             "iat": int(now.timestamp()),
@@ -178,8 +187,7 @@ class JWTManager:
         
         try:
             signing_key = self._get_signing_key()
-            logger.debug(f"Signing token with key (first 10 chars): {signing_key[:10]}...")
-            logger.debug(f"Token payload: sub={user_id_str}, email={email}, exp={expires}")
+            logger.debug(f"Creating token with role: {role}, is_superuser: {is_superuser}")
             
             token = pyjwt.encode(
                 payload, 
@@ -190,15 +198,23 @@ class JWTManager:
             if isinstance(token, bytes):
                 token = token.decode('utf-8')
             
-            logger.info(f"Access token created for user {email}")
+            logger.info(f"Access token created for user {email} with role {role}")
             return token
             
         except Exception as e:
             logger.error(f"Failed to create access token: {e}", exc_info=True)
             raise
     
-    def generate_refresh_token(self, user_id: str, email: str, session_id: str = None) -> str:
-        """Create refresh token"""
+    def generate_refresh_token(
+        self, 
+        user_id: str, 
+        email: str, 
+        role: str,
+        is_superuser: bool = False,
+        is_staff: bool = False,
+        session_id: str = None
+    ) -> str:
+        """Create refresh token with user permissions"""
         now = datetime.utcnow()
         expires = now + timedelta(seconds=self.config.refresh_token_expiry)
         
@@ -208,6 +224,9 @@ class JWTManager:
             "token_type": TokenType.REFRESH.value,
             "sub": user_id_str,
             "email": email,
+            "role": role,
+            "is_superuser": is_superuser,
+            "is_staff": is_staff,
             "session_id": session_id or str(uuid.uuid4()),
             "jti": secrets.token_urlsafe(32),
             "iat": int(now.timestamp()),
@@ -226,23 +245,43 @@ class JWTManager:
             if isinstance(token, bytes):
                 token = token.decode('utf-8')
             
-            # Store refresh token in cache
-            self._store_refresh_token(user_id_str, payload['jti'], token, session_id)
+            # Store refresh token in cache with user permissions
+            self._store_refresh_token(
+                user_id_str, 
+                payload['jti'], 
+                token, 
+                session_id,
+                role,
+                is_superuser,
+                is_staff
+            )
             
-            logger.info(f"Refresh token created for user {email}")
+            logger.info(f"Refresh token created for user {email} with role {role}")
             return token
             
         except Exception as e:
             logger.error(f"Failed to create refresh token: {e}", exc_info=True)
             raise
     
-    def _store_refresh_token(self, user_id: str, jti: str, token: str, session_id: str):
-        """Store refresh token in cache"""
+    def _store_refresh_token(
+        self, 
+        user_id: str, 
+        jti: str, 
+        token: str, 
+        session_id: str,
+        role: str,
+        is_superuser: bool,
+        is_staff: bool
+    ):
+        """Store refresh token in cache with user permissions"""
         try:
             cache_data = {
                 "token": token,
                 "user_id": user_id,
                 "session_id": session_id,
+                "role": role,
+                "is_superuser": is_superuser,
+                "is_staff": is_staff,
                 "created_at": datetime.utcnow().isoformat()
             }
             
@@ -252,7 +291,7 @@ class JWTManager:
                 json.dumps(cache_data), 
                 self.config.refresh_token_expiry
             )
-            logger.debug(f"Refresh token stored in cache with key: {cache_key}")
+            logger.debug(f"Refresh token stored with role {role}, is_superuser={is_superuser}")
         except Exception as e:
             logger.error(f"Failed to store refresh token in cache: {e}")
     
@@ -261,12 +300,6 @@ class JWTManager:
         try:
             verification_key = self._get_verification_key()
             logger.debug(f"Verifying token with algorithm: {self.config.algorithm}")
-            logger.debug(f"Verification key type: {type(verification_key)}")
-            logger.debug(f"Verification key (first 20 chars): {str(verification_key)[:20] if verification_key else 'None'}")
-            
-            # Log token info (first and last 10 chars)
-            token_str = token if isinstance(token, str) else str(token)
-            logger.debug(f"Token to verify (first/last 10 chars): {token_str[:10]}...{token_str[-10:]}")
             
             # Decode with verification
             options = {
@@ -276,9 +309,6 @@ class JWTManager:
                 'verify_signature': True,
                 'require': ['exp', 'iat', 'sub']
             }
-            
-            logger.debug(f"Issuer config: {self.config.issuer}")
-            logger.debug(f"Audience config: {self.config.audience}")
             
             decoded = pyjwt.decode(
                 token,
@@ -294,12 +324,22 @@ class JWTManager:
             if 'sub' in decoded and not isinstance(decoded['sub'], str):
                 decoded['sub'] = str(decoded['sub'])
             
+            # Backward compatibility: Ensure role field exists
+            if 'role' not in decoded and 'roles' in decoded:
+                decoded['role'] = decoded['roles'][0] if decoded['roles'] else 'member'
+            
+            # Backward compatibility: Ensure is_superuser and is_staff
+            if 'is_superuser' not in decoded:
+                decoded['is_superuser'] = decoded.get('role') in ['super_admin', 'admin']
+            if 'is_staff' not in decoded:
+                decoded['is_staff'] = decoded.get('role') in ['super_admin', 'admin', 'staff']
+            
             # Validate token type if specified
             if token_type and decoded.get('token_type') != token_type.value:
                 logger.warning(f"Token type mismatch: expected {token_type.value}, got {decoded.get('token_type')}")
                 return False, None
             
-            logger.debug(f"Token verified successfully for user {decoded.get('email')}")
+            logger.debug(f"Token verified for user {decoded.get('email')} with role {decoded.get('role')}")
             return True, decoded
             
         except pyjwt.ExpiredSignatureError:
@@ -313,8 +353,6 @@ class JWTManager:
             return False, None
         except pyjwt.InvalidSignatureError as e:
             logger.error(f"Token verification failed: INVALID SIGNATURE - {e}")
-            logger.error(f"Verification key (first 20 chars): {str(verification_key)[:20] if verification_key else 'None'}")
-            logger.error(f"Algorithm: {self.config.algorithm}")
             return False, None
         except Exception as e:
             logger.error(f"Token verification error: {str(e)}", exc_info=True)
@@ -323,7 +361,7 @@ class JWTManager:
     async def verify_refresh_token(self, token: str) -> Optional[Dict]:
         """Verify refresh token asynchronously and return payload if valid"""
         try:
-            logger.debug(f"Starting verification of refresh token ending in: ...{token[-10:] if len(token) > 10 else token}")
+            logger.debug(f"Verifying refresh token...")
             
             loop = asyncio.get_event_loop()
             
@@ -340,23 +378,7 @@ class JWTManager:
             )
             
             if not is_valid:
-                logger.warning(f"Refresh token verification failed for token ending in: ...{token[-10:] if len(token) > 10 else token}")
-                # Log why it failed by checking the token manually
-                try:
-                    # Try to decode without verification to see what's in it
-                    decoded_without_verify = pyjwt.decode(token, options={"verify_signature": False})
-                    logger.warning(f"Token content (without verification): {decoded_without_verify}")
-                    
-                    # Check if expired
-                    exp = decoded_without_verify.get('exp')
-                    if exp:
-                        exp_time = datetime.fromtimestamp(exp)
-                        now = datetime.now()
-                        if exp_time < now:
-                            logger.warning(f"Token expired at {exp_time}, current time is {now}")
-                except Exception as decode_error:
-                    logger.warning(f"Could not decode token even without verification: {decode_error}")
-                
+                logger.warning("Refresh token verification failed")
                 return None
             
             logger.debug(f"Refresh token verified for user {payload.get('email', 'unknown')}")
@@ -395,7 +417,9 @@ class JWTManager:
         self, 
         user_id: str,
         email: str,
-        roles: List[str] = None,
+        role: str,
+        is_superuser: bool = False,
+        is_staff: bool = False,
         session_id: str = None
     ) -> str:
         """Generate access token asynchronously"""
@@ -405,7 +429,9 @@ class JWTManager:
             self.generate_access_token,
             user_id=user_id,
             email=email,
-            roles=roles,
+            role=role,
+            is_superuser=is_superuser,
+            is_staff=is_staff,
             session_id=session_id
         )
         
@@ -456,17 +482,21 @@ class JWTBackend:
         self, 
         user_id: str, 
         email: str,
-        roles: List[str] = None,
+        role: str,
+        is_superuser: bool = False,
+        is_staff: bool = False,
         session_id: str = None
     ) -> Dict[str, Any]:
-        """Create access and refresh tokens asynchronously"""
+        """Create access and refresh tokens asynchronously with role and permissions"""
         loop = asyncio.get_event_loop()
         
         create_tokens_sync = partial(
             self._create_tokens_sync,
-            user_id=str(user_id),  # Ensure string
+            user_id=str(user_id),
             email=email,
-            roles=roles,
+            role=role,
+            is_superuser=is_superuser,
+            is_staff=is_staff,
             session_id=session_id
         )
         
@@ -479,22 +509,29 @@ class JWTBackend:
         self,
         user_id: str,
         email: str,
-        roles: List[str] = None,
+        role: str,
+        is_superuser: bool = False,
+        is_staff: bool = False,
         session_id: str = None
     ) -> Dict[str, Any]:
-        """Synchronous token creation"""
+        """Synchronous token creation with role and permissions"""
         session_id = session_id or str(uuid.uuid4())
         
         access_token = self.jwt_manager.generate_access_token(
             user_id=user_id,
             email=email,
-            roles=roles,
+            role=role,
+            is_superuser=is_superuser,
+            is_staff=is_staff,
             session_id=session_id
         )
         
         refresh_token = self.jwt_manager.generate_refresh_token(
             user_id=user_id,
             email=email,
+            role=role,
+            is_superuser=is_superuser,
+            is_staff=is_staff,
             session_id=session_id
         )
         
@@ -504,10 +541,20 @@ class JWTBackend:
             "token_type": "bearer",
             "expires_in": self.config.access_token_expiry,
             "expires_at": (datetime.utcnow() + timedelta(seconds=self.config.access_token_expiry)).isoformat(),
-            "session_id": session_id
+            "session_id": session_id,
+            "role": role,
+            "is_superuser": is_superuser,
+            "is_staff": is_staff,
+            "user": {
+                "id": user_id,
+                "email": email,
+                "role": role,
+                "is_superuser": is_superuser,
+                "is_staff": is_staff
+            }
         }
         
-        logger.info(f"Tokens created for user {email}")
+        logger.info(f"Tokens created for user {email} with role {role}")
         return response
     
     async def verify_token(
@@ -540,13 +587,16 @@ class JWTBackend:
     async def refresh_tokens(self, refresh_token: str) -> Dict[str, Any]:
         """Refresh access token using valid refresh token"""
         is_valid, payload = await self.verify_token(refresh_token, TokenType.REFRESH)
-        if not is_valid:
+        if not is_valid or not payload:
             raise ValueError("Invalid refresh token")
         
         @sync_to_async
         def check_cache():
             cache_key = f"refresh_token:{payload['sub']}:{payload.get('jti')}"
-            return cache.get(cache_key)
+            cached = cache.get(cache_key)
+            if cached:
+                return json.loads(cached)
+            return None
         
         cached_data = await check_cache()
         
@@ -554,10 +604,17 @@ class JWTBackend:
             logger.warning(f"Refresh token not found in cache: jti={payload.get('jti')}")
             raise ValueError("Refresh token invalid or expired")
         
+        # Use permissions from cached data (most up-to-date)
+        role = cached_data.get('role', payload.get('role'))
+        is_superuser = cached_data.get('is_superuser', payload.get('is_superuser', False))
+        is_staff = cached_data.get('is_staff', payload.get('is_staff', False))
+        
         return await self.create_tokens(
             user_id=payload['sub'],
             email=payload['email'],
-            roles=payload.get('roles', []),
+            role=role,
+            is_superuser=is_superuser,
+            is_staff=is_staff,
             session_id=payload.get('session_id')
         )
     
@@ -580,7 +637,17 @@ class JWTBackend:
     def get_token_payload(self, token: str) -> Optional[Dict]:
         """Get token payload without verification"""
         try:
-            return pyjwt.decode(token, options={"verify_signature": False})
+            decoded = pyjwt.decode(token, options={"verify_signature": False})
+            
+            # Add backward compatibility
+            if 'role' not in decoded and 'roles' in decoded:
+                decoded['role'] = decoded['roles'][0] if decoded['roles'] else 'member'
+            if 'is_superuser' not in decoded:
+                decoded['is_superuser'] = decoded.get('role') in ['super_admin', 'admin']
+            if 'is_staff' not in decoded:
+                decoded['is_staff'] = decoded.get('role') in ['super_admin', 'admin', 'staff']
+                
+            return decoded
         except Exception as e:
             logger.error(f"Failed to decode token: {e}")
             return None
@@ -589,14 +656,18 @@ class JWTBackend:
         self, 
         user_id: str,
         email: str,
-        roles: List[str] = None,
+        role: str,
+        is_superuser: bool = False,
+        is_staff: bool = False,
         session_id: str = None
     ) -> str:
         """Generate access token asynchronously"""
         return await self.jwt_manager.generate_access_token_async(
             user_id=user_id,
             email=email,
-            roles=roles,
+            role=role,
+            is_superuser=is_superuser,
+            is_staff=is_staff,
             session_id=session_id
         )
 

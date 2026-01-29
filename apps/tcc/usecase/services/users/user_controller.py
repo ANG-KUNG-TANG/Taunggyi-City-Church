@@ -70,6 +70,7 @@ class UserController(BaseController):
             # CREATE
             'create_user': self._dependency_container.get_create_user_uc,
             'create_admin_user': self._dependency_container.get_create_admin_user_uc,
+            'create_staff_user': self._dependency_container.get_create_staff_user_uc,  # ADDED
             'register_user': self._dependency_container.get_register_user_uc,
             
             # READ
@@ -106,10 +107,10 @@ class UserController(BaseController):
         context: Dict[str, Any] = None
     ) -> UserEntity:
         """
-        PUBLIC user registration
+        PUBLIC user registration - Normal users only
         NOTE: NO current_user parameter for public registration
         """
-        logger.info(f"Registering user: {user_data.email}")
+        logger.info(f"Registering normal user: {user_data.email}")
         use_case = await self._get_use_case('create_user')
         
         result = await use_case.execute(
@@ -117,7 +118,7 @@ class UserController(BaseController):
             context=context or {}
         )
         
-        logger.info(f"User registered: {result.id}")
+        logger.info(f"Normal user registered: {result.id} with role: {result.role}")
         return result
     
     @require_admin
@@ -133,7 +134,7 @@ class UserController(BaseController):
         Admin-only: Create admin user
         NOTE: current_user is passed for auditing purposes
         """
-        logger.info(f"Admin creating user: {user_data.email}")
+        logger.info(f"Admin creating admin user: {user_data.email}")
         use_case = await self._get_use_case('create_admin_user')
         
         # For admin creation, pass context with current_user info
@@ -145,6 +146,32 @@ class UserController(BaseController):
         return await use_case.execute(
             input_data=user_data.model_dump(),  # CHANGED: user_data -> input_data
             user=current_user,  # Pass current_user as user parameter
+            context=execution_context
+        )
+    
+    @require_admin
+    @validate_user_create
+    @ensure_initialized
+    async def create_staff_user(
+        self, 
+        user_data: UserCreateInputSchema, 
+        current_user: Any,
+        context: Dict[str, Any] = None
+    ) -> UserEntity:
+        """
+        Admin-only: Create staff user
+        """
+        logger.info(f"Admin creating staff user: {user_data.email}")
+        use_case = await self._get_use_case('create_staff_user')
+        
+        # For staff creation, pass context with current_user info
+        execution_context = context or {}
+        execution_context['current_user_id'] = current_user.id if hasattr(current_user, 'id') else None
+        execution_context['current_user_email'] = getattr(current_user, 'email', None)
+        
+        return await use_case.execute(
+            input_data=user_data.model_dump(),
+            user=current_user,
             context=execution_context
         )
 
@@ -165,12 +192,12 @@ class UserController(BaseController):
         
         # Pass user_id in input_data
         return await get_user_by_id_uc.execute(
-            input_data={'user_id': current_user.id},  # CHANGED: Use input_data
+            input_data={'user_id': current_user.id}, 
             user=current_user,
             context=context
         )
     
-    @admin_or_owner('user_id', 'id')
+    @require_authenticated
     @ensure_initialized
     async def get_user_by_id(
         self, 
@@ -183,7 +210,7 @@ class UserController(BaseController):
         
         # FIXED: Pass user_id in input_data
         return await get_user_by_id_uc.execute(
-            input_data={'user_id': user_id},  # CHANGED: Pass in input_data
+            input_data={'user_id': user_id},  
             user=current_user,
             context=context
         )
@@ -220,14 +247,14 @@ class UserController(BaseController):
         
         # FIXED: Pass filters in input_data
         return await get_all_users_uc.execute(
-            input_data=validated_data.model_dump(),  # CHANGED: filters -> input_data
+            input_data=validated_data.model_dump(), 
             user=current_user,
             context=context
         )
     
     # ========== UPDATE Operations ==========
     
-    @authenticated_with_ownership('user_id', 'id')
+    @require_authenticated
     @validate_user_update
     @ensure_initialized
     async def update_user(
@@ -240,12 +267,11 @@ class UserController(BaseController):
         """Update user by ID (users can update their own, admins can update any)"""
         update_user_uc = await self._get_use_case('update_user')
         
-        # FIXED: Pass both user_id and update_data in input_data
         return await update_user_uc.execute(
             input_data={
                 'user_id': user_id,
                 'update_data': user_data.model_dump(exclude_unset=True)
-            },  # CHANGED: Pass in input_data
+            },  
             user=current_user,
             context=context
         )
@@ -263,7 +289,6 @@ class UserController(BaseController):
         if not current_user or not hasattr(current_user, 'id'):
             raise AuthenticationException("User authentication required")
         
-        # Use the update_user method with current user's ID
         return await self.update_user(
             user_id=current_user.id,
             user_data=user_data,
@@ -283,9 +308,8 @@ class UserController(BaseController):
         """Change user status (admin only)"""
         change_user_status_uc = await self._get_use_case('change_user_status')
         
-        # FIXED: Pass user_id and status in input_data
         return await change_user_status_uc.execute(
-            input_data={'user_id': user_id, 'status': status},  # CHANGED: Pass in input_data
+            input_data={'user_id': user_id, 'status': status}, 
             user=current_user,
             context=context
         )
@@ -305,13 +329,11 @@ class UserController(BaseController):
         check_email_uc = await self._get_use_case('check_email')
         
         try:
-            # Execute the use case
             result = await check_email_uc.execute(
                 input_data={'email': validated_data.email},
                 context=context or {}
             )
             
-            # Extract the actual data
             if hasattr(result, 'model_dump'):
                 result_data = result.model_dump()
             elif isinstance(result, dict):
@@ -319,17 +341,14 @@ class UserController(BaseController):
             else:
                 result_data = {}
             
-            # Return only what we need
             return {
                 'email': result_data.get('email', validated_data.email),
                 'exists': result_data.get('exists', False),
                 'available': result_data.get('available', False),
-                # Don't include id, created_at, updated_at since they're not needed
             }
             
         except Exception as e:
             logger.error(f"Error checking email: {e}")
-            # Return a default response
             return {
                 'email': validated_data.email,
                 'exists': False,
@@ -337,7 +356,7 @@ class UserController(BaseController):
             }
     # ========== DELETE Operations ==========
     
-    @require_admin
+    @require_authenticated
     @ensure_initialized
     async def delete_user(
         self,
@@ -348,9 +367,8 @@ class UserController(BaseController):
         """Delete user by ID (admin only)"""
         delete_user_uc = await self._get_use_case('delete_user')
         
-        # FIXED: Pass user_id in input_data
         return await delete_user_uc.execute(
-            input_data={'user_id': user_id},  # CHANGED: Pass in input_data
+            input_data={'user_id': user_id},  
             user=current_user,
             context=context
         )
@@ -370,14 +388,13 @@ class UserController(BaseController):
         """Get users by role"""
         get_users_by_role_uc = await self._get_use_case('get_users_by_role')
         
-        # FIXED: Pass parameters in input_data
         return await get_users_by_role_uc.execute(
             input_data={'role': role, 'page': page, 'per_page': per_page},
             user=current_user,
             context=context
         )
     
-    @require_admin
+    @require_authenticated
     @validate_user_search
     @ensure_initialized
     async def search_users(
@@ -389,7 +406,6 @@ class UserController(BaseController):
         """Search users"""
         search_users_uc = await self._get_use_case('search_users')
         
-        # FIXED: Pass search data in input_data
         return await search_users_uc.execute(
             input_data=validated_data.model_dump(),
             user=current_user,
@@ -403,7 +419,6 @@ class UserController(BaseController):
         Health check endpoint
         """
         try:
-            # Test basic operations
             from django.db import connection
             from asgiref.sync import sync_to_async
             
@@ -429,7 +444,6 @@ class UserController(BaseController):
             }
 
 
-# Factory functions
 async def create_user_controller(cache: Optional[AsyncCache] = None) -> UserController:
     """Create user controller with cache"""
     controller = UserController(cache=cache)
@@ -437,7 +451,6 @@ async def create_user_controller(cache: Optional[AsyncCache] = None) -> UserCont
     return controller
 
 
-# Singleton instance
 _singleton_controller: Optional[UserController] = None
 
 async def get_user_controller(cache: Optional[AsyncCache] = None) -> UserController:

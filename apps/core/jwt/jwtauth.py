@@ -1,6 +1,6 @@
 """
 DRF-Compatible JWT Authentication Class
-FIXED: Resolves token extraction issues causing "Not enough segments" error
+FIXED: Includes proper role and permission handling
 """
 
 from rest_framework.authentication import BaseAuthentication
@@ -62,7 +62,17 @@ class JWTAuthentication(BaseAuthentication):
             if 'sub' in payload and not isinstance(payload['sub'], str):
                 payload['sub'] = str(payload['sub'])
             
-            logger.info(f"Token verified successfully for user: {payload.get('email')}")
+            # Backward compatibility: Ensure role and permission fields exist
+            if 'role' not in payload:
+                payload['role'] = payload.get('roles', ['member'])[0]
+            if 'is_superuser' not in payload:
+                payload['is_superuser'] = payload.get('role') in ['super_admin', 'admin']
+            if 'is_staff' not in payload:
+                payload['is_staff'] = payload.get('role') in ['super_admin', 'admin', 'staff']
+            
+            logger.info(f"Token verified for user: {payload.get('email')} "
+                       f"with role: {payload.get('role')}, "
+                       f"is_superuser: {payload.get('is_superuser')}")
             
             # Create user object from payload
             user = self.create_jwt_user(payload)
@@ -70,11 +80,15 @@ class JWTAuthentication(BaseAuthentication):
             # Attach extra JWT data to request
             request.user_id = payload.get('sub')
             request.user_email = payload.get('email')
-            request.user_roles = payload.get('roles', [])
+            request.user_role = payload.get('role')
+            request.user_roles = payload.get('roles', [payload.get('role')])
+            request.is_superuser = payload.get('is_superuser', False)
+            request.is_staff = payload.get('is_staff', False)
             request.jti = payload.get('jti')
             request.session_id = payload.get('session_id')
             
-            logger.info(f"Authentication successful for user {user.email}")
+            logger.info(f"Authentication successful for user {user.email} "
+                       f"with role {user.role}")
             return (user, token)
             
         except pyjwt.ExpiredSignatureError:
@@ -112,7 +126,6 @@ class JWTAuthentication(BaseAuthentication):
         parts = token.split('.')
         if len(parts) != 3:
             logger.error(f"JWT has {len(parts)} parts, expected 3")
-            logger.error(f"Parts found: {parts}")
             return False
         
         # Each part should be non-empty
@@ -126,12 +139,10 @@ class JWTAuthentication(BaseAuthentication):
                 return False
         
         # Check for base64url characters
-        import re
         base64url_pattern = r'^[A-Za-z0-9_-]+$'
         for i, part in enumerate(parts):
             if not re.match(base64url_pattern, part):
                 logger.error(f"JWT part {i} contains invalid base64url characters")
-                logger.error(f"Part {i}: '{part[:50]}...'")
                 return False
         
         return True
@@ -141,10 +152,6 @@ class JWTAuthentication(BaseAuthentication):
         Extract JWT token from request headers or cookies.
         
         FIXED: Better token extraction with validation
-        
-        Checks in order:
-        1. Authorization header (Bearer token)
-        2. Cookies (access_token or token)
         """
         token = None
         
@@ -153,7 +160,6 @@ class JWTAuthentication(BaseAuthentication):
         
         if auth_header:
             logger.debug(f"Raw Authorization header: '{auth_header[:100]}'")
-            logger.debug(f"Full Authorization header: {repr(auth_header)}")
             
             # Clean up the header
             auth_header = auth_header.strip()
@@ -243,8 +249,24 @@ class JWTAuthentication(BaseAuthentication):
                 self.username = payload.get('email', '')
                 self.email = payload.get('email', '')
                 
+                # Role and permissions - CRITICAL FIX
+                self.role = payload.get('role')
+                if not self.role and 'roles' in payload:
+                    self.role = payload['roles'][0] if payload['roles'] else 'member'
+                
+                self.roles = payload.get('roles', [self.role] if self.role else ['member'])
+                
+                # Get permission flags from payload
+                self.is_superuser = payload.get('is_superuser', False)
+                self.is_staff = payload.get('is_staff', False)
+                
+                # Override with role-based permissions if not explicitly set
+                if not self.is_superuser and self.role in ['super_admin', 'admin']:
+                    self.is_superuser = True
+                if not self.is_staff and self.role in ['super_admin', 'admin', 'staff']:
+                    self.is_staff = True
+                
                 # JWT-specific attributes
-                self.roles = payload.get('roles', [])
                 self.jti = payload.get('jti')
                 self.session_id = payload.get('session_id')
                 
@@ -253,34 +275,56 @@ class JWTAuthentication(BaseAuthentication):
                 self.is_active = True
                 self.is_anonymous = False
                 
-                # Authorization levels
-                self.is_staff = self._has_role(['admin', 'staff', 'superuser'])
-                self.is_superuser = self._has_role(['admin', 'superuser'])
-                
                 self.backend = 'apps.core.jwt.authentication.JWTAuthentication'
+                
+                logger.debug(f"JWTUser created: {self.email}, "
+                           f"role={self.role}, "
+                           f"is_superuser={self.is_superuser}, "
+                           f"is_staff={self.is_staff}")
             
             def _has_role(self, role_list):
                 """Check if user has any of the specified roles"""
-                return any(role in self.roles for role in role_list)
+                return self.role in role_list if self.role else False
             
             def __str__(self):
-                return f"JWTUser({self.email})"
+                return f"JWTUser({self.email}, role={self.role})"
             
             def __repr__(self):
-                return f"<JWTUser: {self.email} (id={self.id})>"
+                return f"<JWTUser: {self.email} (id={self.id}, role={self.role})>"
             
             def get_username(self):
                 return self.username
             
             # Permission methods
             def has_perm(self, perm, obj=None):
-                return self.is_superuser
+                # Super admin has all permissions
+                if self.role == 'super_admin':
+                    return True
+                # Admin has most permissions except system-level
+                if self.role == 'admin':
+                    return not perm.startswith('system.')
+                # Staff has limited permissions
+                if self.role == 'staff':
+                    return perm.startswith('user.view') or perm.startswith('content.')
+                return False
             
             def has_perms(self, perm_list, obj=None):
-                return self.is_superuser
+                if self.role == 'super_admin':
+                    return True
+                # Check each permission based on role
+                for perm in perm_list:
+                    if not self.has_perm(perm, obj):
+                        return False
+                return True
             
             def has_module_perms(self, app_label):
-                return self.is_superuser
+                if self.role == 'super_admin':
+                    return True
+                if self.role == 'admin':
+                    return app_label not in ['system', 'auth']
+                if self.role == 'staff':
+                    return app_label in ['content', 'user']
+                return False
             
             def __eq__(self, other):
                 if not isinstance(other, JWTUser):

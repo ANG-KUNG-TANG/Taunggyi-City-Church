@@ -59,3 +59,15 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
                 age -= 1
             return age
         return None
+    
+    # @property
+    # def name(self):
+    #     """Return full name combining first and last name."""
+    #     if self.first_name and self.last_name:
+    #         return f"{self.first_name} {self.last_name}"
+    #     elif self.first_name:
+    #         return self.first_name
+    #     elif self.last_name:
+    #         return self.last_name
+    #     else:
+    #         return ""

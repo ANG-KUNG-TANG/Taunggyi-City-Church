@@ -33,16 +33,11 @@ class GetUserByIdUseCase(BaseUseCase):
         if not user_id:
             raise DomainValidationException("User ID is required")
         
-        # Validate and clean user_id (handle both UUID and string)
+        # Convert to integer for repository
         try:
-            # Try to parse as UUID first
-            user_id = str(user_id).strip()
-            # Optionally validate UUID format
-            uuid.UUID(user_id)  # This will raise ValueError if invalid UUID
-        except (ValueError, AttributeError):
-            # If not a valid UUID, check if it's a valid string ID
-            if not isinstance(user_id, str) or not user_id:
-                raise DomainValidationException("Invalid User ID format")
+            user_id = int(user_id)
+        except (ValueError, TypeError):
+            raise DomainValidationException("Invalid User ID format. Must be an integer.")
         
         # Business rule: Users can only view their own profile unless they have permission
         if not await self._can_view_user(user, user_id):
@@ -51,7 +46,9 @@ class GetUserByIdUseCase(BaseUseCase):
                 user_message="You do not have permission to view this user."
             )
         
-        user_entity = await self.user_repository.get_by_id(user_id)
+        # Get user from repository
+        user_entity = await self.user_repository.get_by_id(user_id, user=user)
+        
         if not user_entity:
             raise UserNotFoundException(
                 user_id=user_id,
@@ -60,25 +57,44 @@ class GetUserByIdUseCase(BaseUseCase):
         
         return user_entity
     
-    async def _can_view_user(self, current_user, target_user_id: str) -> bool:
+    async def _can_view_user(self, current_user, target_user_id: int) -> bool:
         """Business rule: Check if user can view target user"""
         if not current_user:
             return False
             
-        # User can always view their own profile
-        # Compare as strings to handle UUIDs properly
+        # Get current user ID - handle different possible attribute names
+        current_user_id = None
+        
+        # Try to get user ID from various possible attributes
         if hasattr(current_user, 'id'):
-            current_user_id = str(current_user.id)
-            target_user_id_str = str(target_user_id)
-            
-            if current_user_id == target_user_id_str:
-                return True
+            current_user_id = current_user.id
+        elif hasattr(current_user, 'user_id'):
+            current_user_id = current_user.user_id
+        elif hasattr(current_user, 'get_id') and callable(current_user.get_id):
+            current_user_id = current_user.get_id()
+        
+        # If we can't determine current user ID, check permissions
+        if current_user_id is None:
+            # If we can't determine the user ID, check if they have permission to view users
+            if hasattr(current_user, 'has_permission') and callable(current_user.has_permission):
+                return current_user.has_permission('can_view_users')
+            return False
+        
+        # Convert current_user_id to string for comparison (to handle both int and str types)
+        current_user_id_str = str(current_user_id)
+        target_user_id_str = str(target_user_id)
+        
+        # User can always view their own profile
+        if current_user_id_str == target_user_id_str:
+            return True
             
         # Users with view permissions can view others
         if hasattr(current_user, 'has_permission') and callable(current_user.has_permission):
             return current_user.has_permission('can_view_users')
             
+        # Default to False for safety
         return False
+
 
 class GetUserByEmailUseCase(BaseUseCase):
     """Get user by email - Returns UserEntity"""
@@ -95,7 +111,9 @@ class GetUserByEmailUseCase(BaseUseCase):
         """Get user by email - Returns Entity"""
         email_input = EmailCheckInputSchema(**input_data)
         
-        user_entity = await self.user_repository.get_by_email(email_input.email)
+        # Get user from repository
+        user_entity = await self.user_repository.get_by_email(email_input.email, user=user)
+        
         if not user_entity:
             raise UserNotFoundException(
                 email=email_input.email,
@@ -107,15 +125,14 @@ class GetUserByEmailUseCase(BaseUseCase):
             # Create a safe copy without sensitive info
             safe_entity = UserEntity(
                 id=user_entity.id,
-                name=user_entity.name,
+                email=user_entity.email,  
                 is_active=user_entity.is_active,
                 role=user_entity.role,
-                # Hide sensitive fields
-                email=None,
-                phone=None,
-                address=None,
-                created_at=user_entity.created_at,
-                updated_at=user_entity.updated_at
+                first_name=getattr(user_entity, 'first_name', ''),
+                last_name=getattr(user_entity, 'last_name', ''),
+                # Hide other sensitive fields
+                created_at=getattr(user_entity, 'created_at', None),
+                updated_at=getattr(user_entity, 'updated_at', None)
             )
             return safe_entity
         
@@ -126,8 +143,28 @@ class GetUserByEmailUseCase(BaseUseCase):
         if not current_user:
             return False
             
+        # Get current user ID - handle different possible attribute names
+        current_user_id = None
+        
+        if hasattr(current_user, 'id'):
+            current_user_id = current_user.id
+        elif hasattr(current_user, 'user_id'):
+            current_user_id = current_user.user_id
+        elif hasattr(current_user, 'get_id') and callable(current_user.get_id):
+            current_user_id = current_user.get_id()
+        
+        # If we can't determine current user ID, check for superuser status
+        if current_user_id is None:
+            if hasattr(current_user, 'is_superuser') and current_user.is_superuser:
+                return True
+            return False
+        
+        # Convert IDs to strings for comparison
+        current_user_id_str = str(current_user_id)
+        target_user_id_str = str(target_user_id)
+        
         # User can view their own sensitive info
-        if hasattr(current_user, 'id') and current_user.id == target_user_id:
+        if current_user_id_str == target_user_id_str:
             return True
             
         # Admins can view sensitive info
@@ -138,40 +175,75 @@ class GetUserByEmailUseCase(BaseUseCase):
 
 
 class ListUsersUseCase(BaseUseCase):
-    """Get all users with pagination - Returns Tuple[List[UserEntity], int]"""
+    """Get all users with pagination - Returns paginated result dict"""
     
     def __init__(self, user_repository: UserRepository, **dependencies):
         super().__init__(**dependencies)
         self.user_repository = user_repository
+        logger.info(f"ListUsersUseCase initialized")
     
     def _setup_configuration(self):
+        logger.info(f"ListUsersUseCase._setup_configuration called")
         self.config.require_authentication = True
         self.config.required_permissions = ['can_view_users']
         self.config.validate_input = True
+        logger.info(f"Config set: require_authentication={self.config.require_authentication}, required_permissions={self.config.required_permissions}")
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> Tuple[List[UserEntity], int]:
-        """Get all users - Returns Tuple of UserEntities and total count"""
+    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> Dict[str, Any]:
+        """Get all users - Returns paginated result dict"""
+        logger.info(f"=== ListUsersUseCase._on_execute START ===")
+        logger.info(f"Current user: {user}")
+        logger.info(f"Current user type: {type(user)}")
+        logger.info(f"Current user attributes: {dir(user) if hasattr(user, '__dir__') else 'No attributes'}")
+        
+        if user:
+            logger.info(f"User ID: {getattr(user, 'id', 'No ID')}")
+            logger.info(f"User email: {getattr(user, 'email', 'No email')}")
+            logger.info(f"User is_superuser: {getattr(user, 'is_superuser', 'No is_superuser attr')}")
+            logger.info(f"User is_staff: {getattr(user, 'is_staff', 'No is_staff attr')}")
+            
+            # Check permissions
+            if hasattr(user, 'has_perm') and callable(user.has_perm):
+                logger.info(f"User has_perm('can_view_users'): {user.has_perm('can_view_users')}")
+            if hasattr(user, 'has_permission') and callable(user.has_permission):
+                logger.info(f"User has_permission('can_view_users'): {user.has_permission('can_view_users')}")
+        
         query_input = UserQueryInputSchema(**input_data)
+        logger.info(f"Query input: {query_input}")
         
         # Apply business rules to filters
         filters = query_input.model_dump(exclude={'page', 'per_page', 'sort_by', 'sort_order'})
+        logger.info(f"Initial filters: {filters}")
         
         # Business rule: Non-admins can only see active users
         if not (hasattr(user, 'is_superuser') and user.is_superuser):
             filters['is_active'] = True
+            logger.info("Added is_active=True filter (non-admin user)")
+        else:
+            logger.info("Admin user - no is_active filter")
+        
+        logger.info(f"Final filters: {filters}")
+        logger.info(f"Calling repository.get_paginated with page={query_input.page}, page_size={query_input.per_page}")
         
         # Get paginated results from repository
-        users, total_count = await self.user_repository.get_paginated(
+        result = await self.user_repository.get_paginated(
             filters=filters,
             page=query_input.page,
-            per_page=query_input.per_page
+            page_size=query_input.per_page,
+            sort_by=query_input.sort_by,
+            include_inactive=False
         )
         
-        return users, total_count
-
+        logger.info(f"Repository returned result: {result}")
+        if isinstance(result, dict) and 'pagination' in result:
+            logger.info(f"Total users from repository: {result.get('pagination', {}).get('total', 0)}")
+            logger.info(f"Items count: {len(result.get('items', []))}")
+        
+        logger.info(f"=== ListUsersUseCase._on_execute END ===")
+        return result
 
 class GetUsersByRoleUseCase(BaseUseCase):
-    """Get users by role with pagination - Returns Tuple[List[UserEntity], int]"""
+    """Get users by role with pagination - Returns paginated result dict"""
     
     def __init__(self, user_repository: UserRepository, **dependencies):
         super().__init__(**dependencies)
@@ -182,8 +254,8 @@ class GetUsersByRoleUseCase(BaseUseCase):
         self.config.required_permissions = ['can_view_users']
         self.config.validate_input = True
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> Tuple[List[UserEntity], int]:
-        """Get users by role - Returns Tuple of UserEntities and total count"""
+    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> Dict[str, Any]:
+        """Get users by role - Returns paginated result dict"""
         role = input_data.get('role')
         page = input_data.get('page', 1)
         per_page = input_data.get('per_page', 20)
@@ -199,17 +271,18 @@ class GetUsersByRoleUseCase(BaseUseCase):
             filters['is_active'] = True
         
         # Get paginated results from repository
-        users, total_count = await self.user_repository.get_paginated(
+        result = await self.user_repository.get_paginated(
             filters=filters,
             page=page,
-            per_page=per_page
+            page_size=per_page,  # Map per_page to page_size
+            include_inactive=False
         )
         
-        return users, total_count
+        return result
 
 
 class SearchUsersUseCase(BaseUseCase):
-    """Search users - Returns Tuple[List[UserEntity], int]"""
+    """Search users - Returns paginated result dict"""
     
     def __init__(self, user_repository: UserRepository, **dependencies):
         super().__init__(**dependencies)
@@ -220,18 +293,19 @@ class SearchUsersUseCase(BaseUseCase):
         self.config.required_permissions = ['can_view_users']
         self.config.validate_input = True
 
-    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> Tuple[List[UserEntity], int]:
-        """Search users - Returns Tuple of UserEntities and total count"""
+    async def _on_execute(self, input_data: Dict[str, Any], user, ctx) -> Dict[str, Any]:
+        """Search users - Returns paginated result dict"""
         search_input = UserSearchInputSchema(**input_data)
         
-        # Search using repository
-        users, total_count = await self.user_repository.search_users(
-            search_input.search_term,
+        # Search using repository's search method which returns dict
+        result = await self.user_repository.search(
+            search_term=search_input.search_term,
             page=search_input.page,
-            per_page=search_input.per_page
+            page_size=search_input.per_page,  # Map per_page to page_size
+            filters={'is_active': True}  # Only active users by default
         )
         
-        return users, total_count
+        return result
 
 
 class CheckEmailExistsUseCase(BaseUseCase):

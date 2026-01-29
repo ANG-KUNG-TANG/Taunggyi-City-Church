@@ -162,7 +162,6 @@ class BaseController:
             try:
                 return await func(*args, **kwargs)
             except InvalidUserInputException as e:
-                # Log validation errors (usually user input issues)
                 logger.info(f"Invalid user input in {func.__name__}: {e}")
                 raise
             except UnauthorizedActionException as e:
@@ -173,7 +172,6 @@ class BaseController:
                 raise
             except Exception as e:
                 logger.error(f"Unexpected error in {func.__name__}: {e}", exc_info=True)
-                # Re-raise to let the global exception handler deal with it
                 raise
         return wrapper
     

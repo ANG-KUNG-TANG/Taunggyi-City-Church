@@ -87,21 +87,26 @@ class UserUpdateInputSchema(BaseSchema):
 class UserQueryInputSchema(BaseSchema):
     """Schema for querying/filtering users - matches repo get_paginated."""
     
-    name: Optional[str] = Field(None, description="Search by name")
+    # CHANGE: Use actual database field names
+    first_name: Optional[str] = Field(None, description="Search by first name")
+    last_name: Optional[str] = Field(None, description="Search by last name")
+    # OR if you have full_name field:
+    # full_name: Optional[str] = Field(None, description="Search by full name")
+    
     email: Optional[str] = Field(None, description="Search by email")
     role: Optional[UserRole] = Field(None, description="Filter by role")
     status: Optional[UserStatus] = Field(None, description="Filter by status")
-    is_active: Optional[bool] = Field(default=True, description="Filter by active status")
+    is_active: Optional[bool] = Field(default=None, description="Filter by active status")  # Changed to None
     gender: Optional[Gender] = Field(None, description="Filter by gender")
     
-    # Pagination - matches repo parameters
+    # Pagination
     page: int = Field(default=1, ge=1, description="Page number")
     per_page: int = Field(default=20, ge=1, le=100, description="Items per page")
     
-    # ADDED: Sorting options
+    # Sorting
     sort_by: Optional[str] = Field(None, description="Field to sort by")
     sort_order: Optional[str] = Field(None, pattern="^(asc|desc)$", description="Sort order: asc or desc")
-
+    
 class UserSearchInputSchema(BaseSchema):
     """Schema for searching users - matches repo search_users."""
     

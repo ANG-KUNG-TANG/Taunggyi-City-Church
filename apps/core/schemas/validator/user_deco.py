@@ -309,7 +309,6 @@ def require_role(*allowed_roles: str):
     Usage: System-wide operations (delete users, view all data)
     """
     def decorator(view_func: Callable) -> Callable:
-        # Add a flag to prevent double decoration
         decorator_name = f'require_role_{"_".join(allowed_roles)}'
         if hasattr(view_func, f'_{decorator_name}'):
             return view_func
@@ -321,18 +320,25 @@ def require_role(*allowed_roles: str):
             if not current_user:
                 raise AuthenticationException("Authentication required")
             
-            # Get user role (supports multiple attribute names)
-            user_role = (
-                getattr(current_user, 'role', None) or
-                getattr(current_user, 'user_type', None) or
-                getattr(current_user, 'role_type', None)
-            )
+            # SUPERUSER BYPASS - Add this critical check
+            if hasattr(current_user, 'is_superuser') and current_user.is_superuser:
+                logger.debug(f"Superuser bypass for user {current_user.email}")
+                return await view_func(controller_instance, *args, **kwargs)
+            
+            # Get user role from the correct attribute
+            user_role = getattr(current_user, 'role', None)
+            
+            # Also check roles list for compatibility
+            if not user_role and hasattr(current_user, 'roles'):
+                roles = getattr(current_user, 'roles', [])
+                user_role = roles[0] if roles else None
             
             # Check if user has any of the allowed roles
             if not user_role or user_role not in allowed_roles:
                 allowed_str = ", ".join(allowed_roles)
                 logger.warning(
-                    f"Role violation: user has role '{user_role}', requires: {allowed_str}"
+                    f"Role violation: user '{current_user.email}' has role '{user_role}', "
+                    f"requires: {allowed_str}"
                 )
                 raise AuthorizationException(
                     f"Required roles: {allowed_str}"
@@ -340,7 +346,6 @@ def require_role(*allowed_roles: str):
             
             return await view_func(controller_instance, *args, **kwargs)
         
-        # Mark as decorated
         setattr(_wrapped_view, f'_{decorator_name}', True)
         return _wrapped_view
     return decorator
@@ -349,37 +354,90 @@ def require_role(*allowed_roles: str):
 # ============ COMMON SHORTCUTS ============
 
 def require_admin(view_func: Callable) -> Callable:
-    """Shortcut for admin-only endpoints"""
-    # Add a flag to prevent double decoration
+    """Shortcut for admin-only endpoints (admin or super_admin)"""
     if hasattr(view_func, '_is_require_admin'):
         return view_func
     
-    decorated = require_role('admin')(view_func)
-    decorated._is_require_admin = True
-    return decorated
-
+    @require_role('admin', 'super_admin')
+    @wraps(view_func)
+    async def _wrapped_view(controller_instance, *args, **kwargs):
+        return await view_func(controller_instance, *args, **kwargs)
+    
+    _wrapped_view._is_require_admin = True
+    return _wrapped_view
 
 def require_superuser(view_func: Callable) -> Callable:
-    """Shortcut for superuser-only endpoints"""
-    # Add a flag to prevent double decoration
+    """Shortcut for superuser-only endpoints (super_admin only)"""
     if hasattr(view_func, '_is_require_superuser'):
         return view_func
     
+    @require_role('super_admin')
     @wraps(view_func)
     async def _wrapped_view(controller_instance, *args, **kwargs):
-        current_user = kwargs.get('current_user')
-        
-        if not current_user:
-            raise AuthenticationException("Authentication required")
-        
-        if not hasattr(current_user, 'is_superuser') or not current_user.is_superuser:
-            raise AuthorizationException("Superuser privileges required")
-        
         return await view_func(controller_instance, *args, **kwargs)
     
     _wrapped_view._is_require_superuser = True
     return _wrapped_view
 
+def admin_or_owner(resource_param: str = 'user_id', user_attr: str = 'id'):
+    """
+    Composite: Admin can access anything, users can only access their own.
+    
+    Design Decision: Admin bypass is explicit in logic
+    Usage: Admin dashboards, support tools
+    """
+    def decorator(view_func: Callable) -> Callable:
+        decorator_name = f'admin_or_owner_{resource_param}_{user_attr}'
+        if hasattr(view_func, f'_{decorator_name}'):
+            return view_func
+        
+        @require_authenticated
+        @wraps(view_func)
+        async def _wrapped_view(controller_instance, *args, **kwargs):
+            current_user = kwargs.get('current_user')
+            resource_id = kwargs.get(resource_param)
+            
+            # Admin bypass for admin and super_admin roles
+            is_admin = (
+                hasattr(current_user, 'is_superuser') and current_user.is_superuser or
+                hasattr(current_user, 'is_staff') and current_user.is_staff or
+                (hasattr(current_user, 'role') and current_user.role in ['admin', 'super_admin'])
+            )
+            
+            if is_admin:
+                logger.debug(f"Admin access granted for {resource_param}={resource_id}")
+                return await view_func(controller_instance, *args, **kwargs)
+            
+            # Ownership check for non-admins
+            if resource_id is not None:
+                user_identifier = getattr(current_user, user_attr, None)
+                if user_identifier and str(resource_id) != str(user_identifier):
+                    logger.warning(
+                        f"Ownership violation: user {current_user.email} "
+                        f"tried to access {resource_param}={resource_id}"
+                    )
+                    raise AuthorizationException(
+                        "You don't have permission to access this resource"
+                    )
+            
+            return await view_func(controller_instance, *args, **kwargs)
+        
+        setattr(_wrapped_view, f'_{decorator_name}', True)
+        return _wrapped_view
+    return decorator
+
+def require_staff(view_func: Callable) -> Callable:
+    """Shortcut for staff-level endpoints (staff, admin, or super_admin)"""
+    if hasattr(view_func, '_is_require_staff'):
+        return view_func
+    
+    @require_role('staff', 'admin', 'super_admin')
+    @wraps(view_func)
+    async def _wrapped_view(controller_instance, *args, **kwargs):
+        return await view_func(controller_instance, *args, **kwargs)
+    
+    _wrapped_view._is_require_staff = True
+    return _wrapped_view
 
 # ============ COMPOSITE DECORATORS (REAL-WORLD PATTERNS) ============
 
@@ -549,19 +607,14 @@ def validate_with_schema(schema_class: Type[BaseModel], data_source: str = 'body
                 return result
                 
             except (ValidationException, UserAlreadyExistsException, DomainValidationException):
-                # Re-raise these specific exceptions without modification
                 raise
             except Exception as e:
-                # For all other unexpected exceptions
                 logger.error(f"Unexpected error in validation decorator: {e}", exc_info=True)
                 raise
             finally:
-                # Clear validation flag
                 _wrapped_view._validating = False
                 
-        # Initialize validation flag
         _wrapped_view._validating = False
-        # Mark as decorated
         setattr(_wrapped_view, f'_{decorator_name}', True)
         return _wrapped_view
     return decorator

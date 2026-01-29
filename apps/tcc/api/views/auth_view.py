@@ -21,9 +21,10 @@ from apps.core.schemas.input_schemas.auth import (
 )
 from apps.core.schemas.common.response import APIResponse
 from apps.tcc.api.views.base_view import build_context
-from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
+from apps.tcc.usecase.domain_exception.u_exceptions import AccountLockedException, InvalidUserInputException
 from apps.tcc.usecase.services.auth.auth_controller import AuthController
 from apps.tcc.usecase.domain_exception.auth_exceptions import (
+    AccountInactiveException,
     InvalidCredentialsException,
     TokenExpiredException,
     InvalidTokenException,
@@ -101,28 +102,83 @@ class BaseAuthView(APIView):
             logger.error(f"Error calling async method {method.__name__}: {e}", exc_info=True)
             raise
     
+    def format_exception_message(e: Exception) -> str:
+        """Format exception message for user consumption"""
+        # Priority 1: user_message attribute
+        if hasattr(e, 'user_message') and e.user_message:
+            return str(e.user_message)
+        
+        # Priority 2: Check for common patterns in the string
+        error_str = str(e)
+        
+        # Remove technical details like operation IDs
+        import re
+        # Remove patterns like "(ID: xxx-xxx-xxx)"
+        error_str = re.sub(r'\(ID: [a-f0-9\-]+\)', '', error_str)
+        
+        # Remove exception class names in brackets
+        error_str = re.sub(r'\[[A-Z_]+\]\s*', '', error_str)
+        
+        # Clean up extra spaces
+        error_str = error_str.strip()
+        
+        # If empty after cleaning, use generic message
+        if not error_str:
+            return "An error occurred during authentication"
+        
+        return error_str
+    
     def handle_auth_exception(self, e: Exception, operation: str) -> Response:
         """Handle authentication-specific exceptions"""
-        logger.error(f"{operation} error: {e}", exc_info=True)
+        logger.error(f"{operation} error type: {type(e).__name__}")
         
+        # Check for specific attributes first
+        if hasattr(e, 'user_message'):
+            message = self.format_exception_message()
+        else:
+            message = str(e)
+        
+        # Determine error code and status
         error_mapping = {
-            InvalidCredentialsException: ("INVALID_CREDENTIALS", 401),
-            TokenExpiredException: ("TOKEN_EXPIRED", 401),
-            InvalidTokenException: ("INVALID_TOKEN", 401),
-            DomainValidationException: ("VALIDATION_ERROR", 400),
+            'InvalidAuthInputException': ("INVALID_CREDENTIALS", 400),
+            'InvalidCredentialsException': ("INVALID_CREDENTIALS", 401),
+            'TokenExpiredException': ("TOKEN_EXPIRED", 401),
+            'InvalidTokenException': ("INVALID_TOKEN", 401),
+            'DomainValidationException': ("VALIDATION_ERROR", 400),
+            'AccountLockedException': ("ACCOUNT_LOCKED", 403),
+            'AccountInactiveException': ("ACCOUNT_INACTIVE", 403),
         }
         
         error_code, status_code = error_mapping.get(
-            type(e), 
+            type(e).__name__, 
             ("INTERNAL_ERROR", 500)
         )
         
-        return Response({
+        # Build response
+        response_data = {
             "success": False,
-            "message": str(e),
+            "message": message,
             "error_code": error_code
-        }, status=status_code)
+        }
+        
+        # Add field errors if they exist
+        if hasattr(e, 'field_errors'):
+            response_data["field_errors"] = e.field_errors
+        
+        return Response(response_data, status=status_code)
+    
+    def _get_exception_type_name(self, e: Exception) -> str:
+        """Get the simple name of the exception class"""
+        return type(e).__name__
 
+    def _is_auth_exception(self, e: Exception) -> bool:
+        """Check if the exception is an authentication exception"""
+        auth_exceptions = [
+            'InvalidAuthInputException', 'InvalidCredentialsException',
+            'TokenExpiredException', 'InvalidTokenException',
+            'AccountLockedException', 'AccountInactiveException'
+        ]
+        return self._get_exception_type_name(e) in auth_exceptions
 
 # ============================================
 # AUTHENTICATION ENDPOINTS
@@ -155,6 +211,13 @@ class LoginView(BaseAuthView):
                 ).to_dict()
             )
         except Exception as e:
+            logger.error(f"LoginView caught exception: {type(e).__name__}")
+            logger.error(f"Exception attributes: {dir(e)}")
+            if hasattr(e, 'user_message'):
+                logger.error(f"Exception user_message: {e.user_message}")
+            if hasattr(e, 'field_errors'):
+                logger.error(f"Exception field_errors: {e.field_errors}")
+            
             return self.handle_auth_exception(e, "Login")
 
 
@@ -163,39 +226,41 @@ class LogoutView(BaseAuthView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        """
-        Logout user and invalidate tokens
+        logger.info(f"LoginView.post() called with data: {request.data}")
+        logger.info(f"Request method: {request.method}")
+        logger.info(f"Content type: {request.content_type}")
         
-        Request body (optional):
-        {
-            "refresh_token": "..."
-        }
-        
-        Response:
-        {
-            "success": true,
-            "message": "Logout successful"
-        }
-        """
         try:
-            refresh_token = request.data.get('refresh_token')
-            controller = self.get_controller()
+            # Validate input
+            logger.info(f"Attempting to validate login data: {request.data}")
+            login_data = LoginInputSchema(**request.data)
+            logger.info(f"Login data validated successfully")
             
-            success = self.call_async_method(
-                controller.logout,
-                input_data={'refresh_token': refresh_token} if refresh_token else {},
-                current_user=request.user,  # FIX: Add current_user parameter
+            controller = self.get_controller()
+            logger.info(f"Controller obtained: {controller}")
+            
+            # Convert Pydantic model to dict for controller
+            login_dict = login_data.dict()
+            logger.info(f"Login dict: {login_dict.keys()}")
+            
+            # Call controller method
+            logger.info(f"Calling controller.login()...")
+            auth_result = self.call_async_method(
+                controller.login,
+                input_data=login_dict,
                 context=self.get_context(request)
             )
+            logger.info(f"Controller.login() completed successfully")
             
             return Response(
                 APIResponse.create_success(
-                    data={'logged_out': success},
-                    message="Logout successful"
+                    data=auth_result,
+                    message="Login successful"
                 ).to_dict()
             )
         except Exception as e:
-            return self.handle_auth_exception(e, "Logout")
+            logger.error(f"LoginView error details:", exc_info=True)
+            return self.handle_auth_exception(e, "Login")
 
 class RefreshTokenView(BaseAuthView):
     permission_classes = [AllowAny]

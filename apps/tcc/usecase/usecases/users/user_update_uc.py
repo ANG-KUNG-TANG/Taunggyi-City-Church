@@ -39,6 +39,9 @@ class UpdateUserUseCase(BaseUseCase):
             raise DomainValidationException("Update data is required.")
         
         try:
+            # Convert user_id to integer
+            user_id = int(user_id)
+            
             # Validate update schema
             UserUpdateInputSchema(**update_data)
             
@@ -49,6 +52,8 @@ class UpdateUserUseCase(BaseUseCase):
                     user_message="You do not have permission to update this user."
                 )
                 
+        except ValueError:
+            raise DomainValidationException("Invalid User ID format.")
         except Exception as e:
             logger.error(f"Update validation failed: {str(e)}")
             raise
@@ -63,7 +68,7 @@ class UpdateUserUseCase(BaseUseCase):
             return True
             
         # User can update their own profile
-        if hasattr(current_user, 'id') and current_user.id == int(target_user_id):
+        if hasattr(current_user, 'id') and current_user.id == target_user_id:
             return True
             
         return False
@@ -74,7 +79,7 @@ class UpdateUserUseCase(BaseUseCase):
         update_data = input_data.get('update_data', {})
         
         # 1. Check if user exists
-        existing_user = await self.user_repository.get_by_id(user_id)
+        existing_user = await self.user_repository.get_by_id(user_id, user=user)
         if not existing_user:
             raise UserNotFoundException(
                 user_id=user_id,
@@ -87,15 +92,29 @@ class UpdateUserUseCase(BaseUseCase):
                 # Remove email from update for now
                 logger.warning(f"Email change requested for user {user_id} but no verification service available")
                 del update_data['email']
+            else:
+                # Send verification email
+                await self.email_verification_service.send_email_change_verification(
+                    user_id=user_id,
+                    old_email=existing_user.email,
+                    new_email=update_data['email']
+                )
+                logger.info(f"Email verification sent for user {user_id}")
         
-        # 3. Add audit context if available
-        if hasattr(self, '_add_audit_context'):
-            update_data_with_context = self._add_audit_context(update_data, user, ctx)
-        else:
-            update_data_with_context = update_data
+        # 3. Prepare context for audit (if needed)
+        request = None
+        if hasattr(ctx, 'request'):
+            request = ctx.request
+        elif isinstance(ctx, dict) and 'request' in ctx:
+            request = ctx['request']
         
         # 4. Update via repository
-        updated_entity = await self.user_repository.update(user_id, update_data_with_context)
+        updated_entity = await self.user_repository.update(
+            object_id=user_id,
+            data=update_data,
+            user=user,
+            request=request
+        )
         
         if not updated_entity:
             raise DomainException(
@@ -138,15 +157,22 @@ class ChangeUserStatusUseCase(BaseUseCase):
         user_id = int(input_data['user_id'])
         new_status = input_data['status']
         
-        # Business rule: Cannot deactivate self
+        # 1. Check if user exists
+        target_user = await self.user_repository.get_by_id(user_id, user=user)
+        if not target_user:
+            raise UserNotFoundException(
+                user_id=user_id,
+                user_message="User not found."
+            )
+        
+        # 2. Business rule: Cannot deactivate self
         if user and user.id == user_id and new_status == 'inactive':
             raise DomainValidationException(
                 "Cannot deactivate your own account",
                 user_message="You cannot deactivate your own account."
             )
         
-        # Business rule: Cannot change status of super admin
-        target_user = await self.user_repository.get_by_id(user_id)
+        # 3. Business rule: Cannot change status of super admin
         if target_user and hasattr(target_user, 'is_superuser') and target_user.is_superuser:
             if user and not hasattr(user, 'is_superuser') or not user.is_superuser:
                 raise DomainValidationException(
@@ -154,24 +180,31 @@ class ChangeUserStatusUseCase(BaseUseCase):
                     user_message="You do not have permission to modify super admin accounts."
                 )
         
-        # Add audit context if available
-        status_update_data = {'status': new_status}
-        if hasattr(self, '_add_audit_context'):
-            update_data = self._add_audit_context(status_update_data, user, ctx)
-        else:
-            update_data = status_update_data
+        # 4. Prepare context for audit
+        request = None
+        if hasattr(ctx, 'request'):
+            request = ctx.request
+        elif isinstance(ctx, dict) and 'request' in ctx:
+            request = ctx['request']
         
-        updated_entity = await self.user_repository.update(user_id, update_data)
+        # 5. Update status
+        status_update_data = {'status': new_status}
+        updated_entity = await self.user_repository.update(
+            object_id=user_id,
+            data=status_update_data,
+            user=user,
+            request=request
+        )
         
         if not updated_entity:
             raise DomainException("Failed to change user status")
         
-        # Async: Log status change
+        # 6. Async: Log status change
         if hasattr(self, 'notification_service') and self.notification_service:
             asyncio.create_task(
                 self.notification_service.notify_status_change(
                     user_id=user_id,
-                    old_status=target_user.status,
+                    old_status=getattr(target_user, 'status', 'active'),
                     new_status=new_status
                 )
             )
