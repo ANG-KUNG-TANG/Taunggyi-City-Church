@@ -38,18 +38,6 @@ logger = logging.getLogger(__name__)
 # HELPER FUNCTION
 # ============================================
 
-def build_context(request):
-    """Build context for controller"""
-    return {
-        'request': request,
-        'user': request.user if hasattr(request, 'user') else None,
-        'session': getattr(request, 'session', None),
-        'meta': {
-            'remote_addr': request.META.get('REMOTE_ADDR'),
-            'user_agent': request.META.get('HTTP_USER_AGENT'),
-        }
-    }
-
 def safe_get_auth_controller():
     """
     Safely get auth controller instance, handling both sync and async factories
@@ -102,6 +90,7 @@ class BaseAuthView(APIView):
             logger.error(f"Error calling async method {method.__name__}: {e}", exc_info=True)
             raise
     
+    @staticmethod
     def format_exception_message(e: Exception) -> str:
         """Format exception message for user consumption"""
         # Priority 1: user_message attribute
@@ -134,7 +123,7 @@ class BaseAuthView(APIView):
         
         # Check for specific attributes first
         if hasattr(e, 'user_message'):
-            message = self.format_exception_message()
+            message = self.format_exception_message(e)
         else:
             message = str(e)
         
@@ -226,20 +215,14 @@ class LogoutView(BaseAuthView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        logger.info(f"LoginView.post() called with data: {request.data}")
-        logger.info(f"Request method: {request.method}")
-        logger.info(f"Content type: {request.content_type}")
-        
+      
         try:
             # Validate input
             logger.info(f"Attempting to validate login data: {request.data}")
             login_data = LoginInputSchema(**request.data)
-            logger.info(f"Login data validated successfully")
             
             controller = self.get_controller()
-            logger.info(f"Controller obtained: {controller}")
-            
-            # Convert Pydantic model to dict for controller
+
             login_dict = login_data.dict()
             logger.info(f"Login dict: {login_dict.keys()}")
             
@@ -352,6 +335,7 @@ class DebugRefreshView(APIView):
     
 class VerifyTokenView(BaseAuthView):  
     """Token verification endpoint"""
+    authentication_classes = []  # Disable JWT authentication
     permission_classes = [AllowAny]
     
     def post(self, request):
@@ -360,7 +344,7 @@ class VerifyTokenView(BaseAuthView):
         
         Request body:
         {
-            "token": "..."
+            "access_token": "..."
         }
         
         Response:
@@ -374,12 +358,11 @@ class VerifyTokenView(BaseAuthView):
         }
         """
         try:
-            verify_data = VerifyTokenInputSchema(**request.data)
             controller = self.get_controller()
             
             verification_result = self.call_async_method(
                 controller.verify_token,
-                input_data=verify_data.dict(),  # FIX: Use input_data parameter
+                input_data=request.data,  # Pass the raw request data
                 context=self.get_context(request)
             )
             
@@ -391,7 +374,6 @@ class VerifyTokenView(BaseAuthView):
             )
         except Exception as e:
             return self.handle_auth_exception(e, "Token verification")
-
 
 class ForgotPasswordView(BaseAuthView):
     """Forgot password endpoint"""

@@ -2,6 +2,7 @@ import logging
 import traceback
 from typing import Dict, Any
 
+from apps.core.schemas.input_schemas.auth import VerifyTokenInputSchema
 from apps.core.schemas.out_schemas.aut_out_schemas import (
     LoginResponseSchema, LogoutResponseSchema, 
     TokenRefreshResponseSchema, ForgotPasswordResponseSchema,
@@ -149,14 +150,29 @@ class AuthController(BaseController):
 
      
     @BaseController.handle_exceptions
-    async def verify_token(self, input_data: Dict[str, Any], context=None) -> AuthSuccessResponseSchema:
-        """Verify if token is still valid using VerifyTokenUseCase"""
-        if not self._initialized:
-            await self.initialize()
+    async def verify_token(self, input_data, context):
+        """Verify token endpoint"""
+        # Transform the data - accept multiple field names
+        transformed_data = {}
         
-        # Pass the input data (which contains the token) to the use case
-        return await self.verify_token_uc.execute(input_data, None, context)
-
+        if input_data:
+            # Map all possible token field names to 'token'
+            token = (
+                input_data.get('token') or 
+                input_data.get('access_token') or 
+                input_data.get('accessToken') or
+                input_data.get('Authorization')
+            )
+            
+            if token:
+                # Clean the token (remove 'Bearer ' prefix if present)
+                if token.startswith('Bearer '):
+                    token = token[7:]
+                
+                transformed_data['token'] = token
+        
+        # Now call the use case with transformed data
+        return await self.verify_token_uc.execute(transformed_data, None, context)
 
 async def create_auth_controller() -> AuthController:
     """Factory function to create and initialize AuthController"""

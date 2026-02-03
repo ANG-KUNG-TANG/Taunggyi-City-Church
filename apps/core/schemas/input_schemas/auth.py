@@ -163,6 +163,31 @@ class AdminResetPasswordSchema(BaseSchema):
         return self
     
 class VerifyTokenInputSchema(BaseSchema):
-    """Schema for token verification."""
-    token: str = Field(..., description="Token to verify")
+    """Schema for token verification - accepts multiple field names."""
     
+    token: Optional[str] = Field(None, description="Token to verify")
+    
+    @model_validator(mode='before')
+    @classmethod
+    def extract_token(cls, data):
+        """Extract token from any of the possible field names."""
+        if isinstance(data, dict):
+            # Try all possible field names
+            token = (
+                data.get('token') or 
+                data.get('access_token') or 
+                data.get('accessToken') or
+                data.get('Authorization')
+            )
+            
+            if not token:
+                # Return empty dict - token might be in header
+                return {}
+            
+            # Clean the token (remove 'Bearer ' prefix if present)
+            if token.startswith('Bearer '):
+                token = token[7:]
+            
+            # Return dict with just token
+            return {'token': token}
+        return data

@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 class ResetPasswordUseCase(BaseUseCase):
     """Reset password using reset token"""
+    
+    # Configuration constants
+    PASSWORD_HISTORY_CHECK_COUNT = 5  # Check last 5 passwords
 
     def __init__(self, user_repository: UserRepository,
                  auth_service: AsyncAuthDomainService,
@@ -93,7 +96,6 @@ class ResetPasswordUseCase(BaseUseCase):
 
     async def _on_execute(self, data, user, ctx):
         """Process password reset"""
-        # FIXED: Use 'token' instead of 'reset_token' to match schema
         reset_token = self.validated_input.token
         new_password = self.validated_input.new_password
         request_meta = ctx.get('request_meta', {}) if ctx else {}
@@ -125,27 +127,35 @@ class ResetPasswordUseCase(BaseUseCase):
                 user_message=f"Password is too weak: {strength_message}"
             )
         
-        # 4. Check password history (optional - prevent reuse)
+        # 4. Check password history (prevent reuse) - FIXED: Handle None case
         password_history = getattr(user_entity, 'password_history', [])
-        for old_hash in password_history[-5:]:  # Check last 5 passwords
-            if await self.password_service.verify_password(new_password, old_hash):
-                raise InvalidUserInputException(
-                    field_errors={"new_password": ["Cannot reuse previous passwords"]},
-                    user_message="You cannot reuse a previous password."
-                )
+        if password_history:  # Only check if history exists
+            if isinstance(password_history, list):
+                for old_hash in password_history[-self.PASSWORD_HISTORY_CHECK_COUNT:]:
+                    if await self.password_service.verify_password(new_password, old_hash):
+                        raise InvalidUserInputException(
+                            field_errors={"new_password": ["Cannot reuse previous passwords"]},
+                            user_message="You cannot reuse a previous password."
+                        )
         
         # 5. Hash new password
         hashed_password = await self.password_service.hash_password(new_password)
         
         # 6. Update user
-        await self.user_repository.update(user_id, {
+        update_data = {
             'password_hash': hashed_password,
             'last_password_change': datetime.utcnow(),
             'failed_login_attempts': 0,  # Reset on password change
             'is_locked': False,
-            'lock_reason': None,
             'requires_password_change': False
-        })
+        }
+        
+        # Only add lock_reason if the field exists in the model
+        # (some models might not have this field)
+        if hasattr(user_entity, 'lock_reason'):
+            update_data['lock_reason'] = None
+        
+        await self.user_repository.update(user_id, update_data)
         
         # 7. Invalidate reset token
         await self.auth_service.invalidate_reset_token(reset_token)

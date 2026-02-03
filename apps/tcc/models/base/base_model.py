@@ -1,16 +1,10 @@
-import uuid
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
-import json
-
 from apps.tcc.models.base.manager import BaseModelManager
-from apps.tcc.utils.fields import SnowflakeField  # We'll update this field
-
-# Import the snowflake generator
 from apps.tcc.utils.snowflake import generate_snowflake_id, decompose_snowflake_id
 
 class BaseModel(models.Model):
@@ -105,6 +99,7 @@ class BaseModel(models.Model):
     def save(self, *args, **kwargs):
         """Override save to handle Snowflake ID generation and validation"""
         
+        is_new = self._state.adding
         # Generate Snowflake ID if this is a new instance
         if not self.id:
             self.id = generate_snowflake_id()
@@ -117,7 +112,7 @@ class BaseModel(models.Model):
             self.created_at = timezone.now()
         
         # Increment version on updates
-        if self.pk:
+        if not is_new:
             self.version += 1
         
         # Set updated_by if provided in kwargs
