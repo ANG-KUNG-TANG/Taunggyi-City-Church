@@ -59,21 +59,30 @@ def api_root(request):
             'users': {
                 # Public Registration
                 'public_register': f'{base_url}/users/register/',
+                'public_register_singular': f'{base_url}/user/register/',
                 
-                # Admin User Creation (via ViewSet - standard REST)
+                # Admin User Creation
                 'admin_create': f'{base_url}/users/',
+                'admin_create_singular': f'{base_url}/user/',
                 
-                # Admin User Creation (flexible with role parameter)
+                # Admin User Creation (flexible)
                 'admin_create_flexible': f'{base_url}/users/create-by-admin/',
+                'admin_create_flexible_singular': f'{base_url}/user/create-by-admin/',
                 
                 # User Profile & Management
                 'profile': f'{base_url}/users/profile/',
+                'profile_singular': f'{base_url}/user/profile/',
+                'get_by_id': f'{base_url}/users/by-id/?id=',
+                'get_by_id_singular': f'{base_url}/user/by-id/?id=',
                 'email_check': f'{base_url}/users/check-email/',
-                'list_all': f'{base_url}/users/',
+                'email_check_singular': f'{base_url}/user/check-email/',
                 
-                # Individual User Operations
+                # Individual User Operations (both singular and plural)
                 'user_operations': {
+                    'list': f'{base_url}/users/',
+                    'list_singular': f'{base_url}/user/',
                     'retrieve': f'{base_url}/users/{{id}}/',
+                    'retrieve_singular': f'{base_url}/user/{{id}}/',
                     'update': f'{base_url}/users/{{id}}/',
                     'partial_update': f'{base_url}/users/{{id}}/',
                     'delete': f'{base_url}/users/{{id}}/',
@@ -83,17 +92,22 @@ def api_root(request):
                 # Search & Filter Operations
                 'search_operations': {
                     'by_email': f'{base_url}/users/by_email/?email=',
+                    'by_email_singular': f'{base_url}/user/by_email/?email=',
                     'by_role': f'{base_url}/users/by_role/?role=',
-                    'search': f'{base_url}/users/search/?q='
+                    'by_role_singular': f'{base_url}/user/by_role/?role=',
+                    'search': f'{base_url}/users/search/?q=',
+                    'search_singular': f'{base_url}/user/search/?q='
                 },
                 
                 # Bulk Operations
                 'bulk_operations': {
-                    'bulk_delete': f'{base_url}/users/bulk_delete/'
+                    'bulk_delete': f'{base_url}/users/bulk_delete/',
+                    'bulk_delete_singular': f'{base_url}/user/bulk_delete/'
                 },
                 
                 # Alternative Views
-                'alternative_list': f'{base_url}/users/list/'
+                'alternative_list': f'{base_url}/users/list/',
+                'alternative_list_singular': f'{base_url}/user/list/'
             },
             
             # System
@@ -102,37 +116,7 @@ def api_root(request):
                 'api_root': f'{base_url}/'
             }
         },
-        'user_creation_methods': {
-            'public_registration': {
-                'endpoint': f'{base_url}/users/register/',
-                'method': 'POST',
-                'permissions': 'Public',
-                'purpose': 'Regular users self-registration',
-                'default_role': 'VISITOR',
-                'required_fields': ['email', 'password', 'first_name', 'last_name'],
-                'note': 'No authentication required'
-            },
-            'admin_create_standard': {
-                'endpoint': f'{base_url}/users/',
-                'method': 'POST',
-                'permissions': 'Admin only',
-                'purpose': 'Standard REST admin user creation (always creates admin)',
-                'default_role': 'ADMIN',
-                'required_fields': ['email', 'password', 'first_name', 'last_name'],
-                'note': 'Uses UserViewSet create method, always creates ADMIN users'
-            },
-            'admin_create_flexible': {
-                'endpoint': f'{base_url}/users/create-by-admin/',
-                'method': 'POST',
-                'permissions': 'Admin only',
-                'purpose': 'Flexible admin creation with role parameter',
-                'parameters': {
-                    'role': 'staff or admin (default: staff)'
-                },
-                'required_fields': ['email', 'password', 'first_name', 'last_name'],
-                'note': 'Allows creating both STAFF and ADMIN users via role parameter'
-            }
-        },
+        'note': 'API supports both singular (/api/user/) and plural (/api/users/) endpoints for user operations',
         'status_codes': {
             '200': 'Success',
             '201': 'Created',
@@ -180,6 +164,7 @@ from apps.tcc.api.views.user_view import (
     HealthCheckView,
     ProfileView,
     UserListView,
+    GetyByid,
     UserViewSet
 )
 
@@ -236,34 +221,42 @@ except ImportError as e:
 
 
 # ============================================
-# ROUTER SETUP
-# ============================================
-
-# Create main router
-router = DefaultRouter(trailing_slash=False)
-
-# Register UserViewSet - This provides CRUD operations
-router.register(r'users', UserViewSet, basename='user')
-
-# The router will create these URLs automatically:
-# GET    /api/users          -> list
-# POST   /api/users          -> create (creates ADMIN users by default)
-# GET    /api/users/{pk}     -> retrieve
-# PUT    /api/users/{pk}     -> update
-# PATCH  /api/users/{pk}     -> partial_update
-# DELETE /api/users/{pk}     -> destroy
-
-# Custom actions from UserViewSet (configured via @action decorator):
-# GET    /api/users/by_email     -> by_email
-# GET    /api/users/search       -> search
-# GET    /api/users/by_role      -> by_role
-# POST   /api/users/bulk_delete  -> bulk_delete
-# PATCH  /api/users/{pk}/change_status -> change_status
-
-
-# ============================================
 # URL PATTERNS
 # ============================================
+
+# Helper function to create both singular and plural patterns
+def create_user_patterns(prefix='users'):
+    """Create user URL patterns with given prefix (users/user)"""
+    return [
+        # List and create
+        path(f'{prefix}/', UserViewSet.as_view({
+            'get': 'list',
+            'post': 'create'
+        }), name=f'{prefix}-list-create'),
+        
+        # Detail operations
+        path(f'{prefix}/<int:pk>/', UserViewSet.as_view({
+            'get': 'retrieve',
+            'put': 'update',
+            'patch': 'partial_update',
+            'delete': 'destroy'
+        }), name=f'{prefix}-detail'),
+        
+        # UserViewSet custom actions
+        path(f'{prefix}/by_email/', UserViewSet.as_view({'get': 'by_email'}), name=f'{prefix}-by-email'),
+        path(f'{prefix}/search/', UserViewSet.as_view({'get': 'search'}), name=f'{prefix}-search'),
+        path(f'{prefix}/by_role/', UserViewSet.as_view({'get': 'by_role'}), name=f'{prefix}-by-role'),
+        path(f'{prefix}/bulk_delete/', UserViewSet.as_view({'post': 'bulk_delete'}), name=f'{prefix}-bulk-delete'),
+        path(f'{prefix}/<int:pk>/change_status/', UserViewSet.as_view({'patch': 'change_status'}), name=f'{prefix}-change-status'),
+        
+        # Other user endpoints
+        path(f'{prefix}/register/', RegisterView.as_view(), name=f'{prefix}-register'),
+        path(f'{prefix}/create-by-admin/', RegisterView.as_view(), name=f'{prefix}-create-by-admin'),
+        path(f'{prefix}/check-email/', EmailAvailabilityView.as_view(), name=f'{prefix}-check-email'),
+        path(f'{prefix}/profile/', ProfileView.as_view(), name=f'{prefix}-profile'),
+        path(f'{prefix}/by-id/', GetyByid.as_view(), name=f'{prefix}-by-id'),
+        path(f'{prefix}/list/', UserListView.as_view(), name=f'{prefix}-list-alt'),
+    ]
 
 urlpatterns = [
     # ========================================
@@ -286,34 +279,11 @@ urlpatterns = [
         path('change-password/', ChangePasswordView.as_view(), name='auth-change-password'),
         path('status/', AuthStatusView.as_view(), name='auth-status'),
     ])),
-    
-    # ========================================
-    # USER MANAGEMENT ENDPOINTS
-    # ========================================
-    path('users/', include([
-        # Public Registration (No authentication required)
-        path('register/', RegisterView.as_view(), name='user-register'),
-        
-        # Admin-only User Creation with Role Parameter
-        # Note: Since create_by_admin is an @action, we need to use as_view with method mapping
-        path('create-by-admin/', 
-             RegisterView.as_view(), 
-             name='user-create-by-admin'),
-        
-        # Email Availability Check (Public)
-        path('check-email/', EmailAvailabilityView.as_view(), name='user-check-email'),
-        
-        # User Profile (Authenticated)
-        path('profile/', ProfileView.as_view(), name='user-profile'),
-        
-        # Alternative List View
-        path('list/', UserListView.as_view(), name='user-list-alt'),
-        
-        # Include ViewSet URLs (CRUD operations)
-        # This includes: /users/, /users/{id}/, and all @action endpoints
-        path('', include(router.urls)),
-    ])),
 ]
+
+# Add both singular and plural user patterns
+urlpatterns += create_user_patterns('users')  # /api/users/ endpoints
+urlpatterns += create_user_patterns('user')   # /api/user/ endpoints
 
 
 # ============================================
@@ -336,7 +306,7 @@ additional_patterns = [
 """
 URL Name Reference:
 
-Authentication:
+Authentication (same for both):
 - auth-login           -> POST   /api/auth/login/
 - auth-logout          -> POST   /api/auth/logout/
 - auth-refresh         -> POST   /api/auth/refresh/
@@ -346,101 +316,40 @@ Authentication:
 - auth-change-password -> POST   /api/auth/change-password/
 - auth-status          -> GET    /api/auth/status/
 
-User Management:
-- user-register        -> POST   /api/users/register/ (Public)
-- user-create-by-admin -> POST   /api/users/create-by-admin/ (Admin only, flexible role)
-- user-check-email     -> GET    /api/users/check-email/ (Public)
-- user-profile         -> GET/PUT/PATCH /api/users/profile/ (Authenticated)
-- user-list-alt        -> GET    /api/users/list/ (Alternative list)
+User Management (PLURAL - /api/users/):
+- users-list-create     -> GET/POST /api/users/
+- users-detail          -> GET/PUT/PATCH/DELETE /api/users/{id}/
+- users-by-email        -> GET    /api/users/by_email/
+- users-search          -> GET    /api/users/search/
+- users-by-role         -> GET    /api/users/by_role/
+- users-bulk-delete     -> POST   /api/users/bulk_delete/
+- users-change-status   -> PATCH  /api/users/{id}/change_status/
+- users-register        -> POST   /api/users/register/
+- users-create-by-admin -> POST   /api/users/create-by-admin/
+- users-check-email     -> GET    /api/users/check-email/
+- users-profile         -> GET/PUT/PATCH /api/users/profile/
+- users-by-id           -> GET    /api/users/by-id/?id=
+- users-list-alt        -> GET    /api/users/list/
 
-UserViewSet (router-generated):
-- user-list            -> GET    /api/users
-- user-detail          -> GET    /api/users/{id}
-- user-create          -> POST   /api/users (Admin only, creates ADMIN users)
-- user-update          -> PUT    /api/users/{id}
-- user-partial-update  -> PATCH  /api/users/{id}
-- user-delete          -> DELETE /api/users/{id}
-- user-by-email        -> GET    /api/users/by_email
-- user-search          -> GET    /api/users/search
-- user-by-role         -> GET    /api/users/by_role
-- user-bulk-delete     -> POST   /api/users/bulk_delete
-- user-change-status   -> PATCH  /api/users/{id}/change_status
+User Management (SINGULAR - /api/user/):
+- user-list-create     -> GET/POST /api/user/
+- user-detail          -> GET/PUT/PATCH/DELETE /api/user/{id}/
+- user-by-email        -> GET    /api/user/by_email/
+- user-search          -> GET    /api/user/search/
+- user-by-role         -> GET    /api/user/by_role/
+- user-bulk-delete     -> POST   /api/user/bulk_delete/
+- user-change-status   -> PATCH  /api/user/{id}/change_status/
+- user-register        -> POST   /api/user/register/
+- user-create-by-admin -> POST   /api/user/create-by-admin/
+- user-check-email     -> GET    /api/user/check-email/
+- user-profile         -> GET/PUT/PATCH /api/user/profile/
+- user-by-id           -> GET    /api/user/by-id/?id=
+- user-list-alt        -> GET    /api/user/list/
 
 System:
 - api-root             -> GET    /api/
 - api-version          -> GET    /api/version/
 - health-check         -> GET    /api/health/
-"""
-
-
-# ============================================
-# API DOCUMENTATION
-# ============================================
-"""
-COMPREHENSIVE USER CREATION API DOCUMENTATION
-
-Three ways to create users:
-
-1. PUBLIC REGISTRATION (No auth required)
-   Endpoint: POST /api/users/register/
-   Purpose: Self-registration for regular users
-   Defaults: role=VISITOR, status=PENDING
-   Example Request:
-     POST /api/users/register/
-     {
-       "email": "user@example.com",
-       "password": "Password123!",
-       "first_name": "John",
-       "last_name": "Doe",
-       "phone": "+1234567890"
-     }
-
-2. ADMIN CREATE - STANDARD (Admin auth required)
-   Endpoint: POST /api/users/
-   Purpose: Standard REST admin user creation
-   Defaults: role=ADMIN, status=ACTIVE
-   Note: Always creates ADMIN users
-   Example Request:
-     POST /api/users/
-     Headers: Authorization: Bearer <admin_token>
-     {
-       "email": "admin@example.com",
-       "password": "AdminPass123!",
-       "first_name": "Admin",
-       "last_name": "User"
-     }
-
-3. ADMIN CREATE - FLEXIBLE (Admin auth required)
-   Endpoint: POST /api/users/create-by-admin/
-   Purpose: Flexible admin creation with role parameter
-   Parameters: role (staff/admin, default: staff)
-   Example - Create staff:
-     POST /api/users/create-by-admin/
-     Headers: Authorization: Bearer <admin_token>
-     {
-       "email": "staff@example.com",
-       "password": "StaffPass123!",
-       "first_name": "Jane",
-       "last_name": "Smith",
-       "role": "staff"
-     }
-   Example - Create admin:
-     POST /api/users/create-by-admin/
-     Headers: Authorization: Bearer <admin_token>
-     {
-       "email": "admin2@example.com",
-       "password": "AdminPass456!",
-       "first_name": "Another",
-       "last_name": "Admin",
-       "role": "admin"
-     }
-
-Key Differences:
-- /users/register/         -> Public, creates VISITOR
-- /users/                  -> Admin only, creates ADMIN (standard REST)
-- /users/create-by-admin/  -> Admin only, creates STAFF or ADMIN based on role parameter
-
-All endpoints check for duplicate emails and return 409 Conflict if user already exists.
 """
 
 
@@ -461,6 +370,10 @@ def handler404(request, exception=None):
         'error': 'The requested resource was not found on this server.',
         'requested_url': request.path,
         'available_endpoints': '/api/',
+        'suggestions': [
+            'Use /api/users/ (plural) or /api/user/ (singular) for user operations',
+            'Check the API root at /api/ for all available endpoints'
+        ],
         'status_code': 404
     }, status=404)
 

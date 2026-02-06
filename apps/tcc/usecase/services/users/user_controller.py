@@ -201,14 +201,14 @@ class UserController(BaseController):
     @ensure_initialized
     async def get_user_by_id(
         self, 
-        user_id: int,
+        user_id: int,  # Parameter name is user_id
         current_user: Any,
         context: Dict[str, Any] = None
     ) -> UserEntity:
         """Get user by ID (admins can view any, users can only view themselves)"""
         get_user_by_id_uc = await self._get_use_case('get_user_by_id')
         
-        # FIXED: Pass user_id in input_data
+        # This is correct - matches parameter name
         return await get_user_by_id_uc.execute(
             input_data={'user_id': user_id},  
             user=current_user,

@@ -73,25 +73,51 @@ class GetUserByIdUseCase(BaseUseCase):
         elif hasattr(current_user, 'get_id') and callable(current_user.get_id):
             current_user_id = current_user.get_id()
         
-        # If we can't determine current user ID, check permissions
-        if current_user_id is None:
-            # If we can't determine the user ID, check if they have permission to view users
-            if hasattr(current_user, 'has_permission') and callable(current_user.has_permission):
-                return current_user.has_permission('can_view_users')
-            return False
-        
-        # Convert current_user_id to string for comparison (to handle both int and str types)
-        current_user_id_str = str(current_user_id)
+        # Convert current_user_id to string for comparison
+        current_user_id_str = str(current_user_id) if current_user_id is not None else None
         target_user_id_str = str(target_user_id)
         
         # User can always view their own profile
         if current_user_id_str == target_user_id_str:
             return True
-            
-        # Users with view permissions can view others
+        
+        # ================================================
+        # FIX: Check for super_admin/admin permissions
+        # ================================================
+        
+        # Method 1: Check for is_superuser or is_admin flag
+        if hasattr(current_user, 'is_superuser') and current_user.is_superuser:
+            return True
+        
+        if hasattr(current_user, 'is_admin') and current_user.is_admin:
+            return True
+        
+        # Method 2: Check role names
+        if hasattr(current_user, 'role'):
+            role = str(current_user.role).lower()
+            if role in ['super_admin', 'admin', 'superadmin', 'administrator']:
+                return True
+        
+        # Method 3: Check for specific permissions
         if hasattr(current_user, 'has_permission') and callable(current_user.has_permission):
-            return current_user.has_permission('can_view_users')
-            
+            # Check for any permission that indicates admin access
+            permissions_to_check = ['can_view_users', 'can_view_all_users', 'admin_access', 'super_admin']
+            for permission in permissions_to_check:
+                if current_user.has_permission(permission):
+                    return True
+        
+        # Method 4: Check for role object (if role is an object with permissions)
+        if hasattr(current_user, 'role') and hasattr(current_user.role, 'is_admin'):
+            if current_user.role.is_admin:
+                return True
+        
+        # Method 5: Check if current_user has permissions attribute
+        if hasattr(current_user, 'permissions'):
+            permissions_list = getattr(current_user, 'permissions', [])
+            if isinstance(permissions_list, list):
+                if 'admin' in permissions_list or 'super_admin' in permissions_list:
+                    return True
+        
         # Default to False for safety
         return False
 

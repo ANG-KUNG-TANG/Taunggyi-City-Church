@@ -472,6 +472,120 @@ class UserListView(BaseAPIView):
         except Exception as e:
             return handle_exception(e, "get users")
 
+class GetyByid(BaseAPIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, user_id=None):
+        """
+        Get user by ID
+        Supports both:
+        - Query parameter: /api/users/by-id/?id=123
+        - Path parameter: /api/users/123/ (if configured)
+        """
+        try:
+            # Try to get user_id from path parameter first
+            if user_id is None:
+                # Fall back to query parameter
+                user_id = request.query_params.get('id')
+            
+            if not user_id:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "User ID is required. Use ?id=123 or path parameter",
+                        "example_usage": {
+                            "query_param": "/api/users/by-id/?id=123",
+                            "path_param": "/api/users/123/"
+                        }
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Convert to int if it's a string
+            try:
+                user_id = int(user_id)
+            except (ValueError, TypeError):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Invalid user ID format",
+                        "provided_id": user_id
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get current user from authentication
+            current_user = self.get_current_user(request)
+            if not current_user:
+                return Response(
+                    {"success": False, "message": "Authentication required"},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            # IMPORTANT: Users can only view their own profile unless they're admin
+            # Check if current user is trying to view their own profile
+            # You need to get the current user's ID from the token/authentication
+            current_user_id = self.get_current_user_id(request)  # You need to implement this
+            
+            # If not admin and trying to view another user, deny access
+            if not self.is_admin(request) and current_user_id != user_id:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Insufficient permissions to view this user",
+                        "detail": "Users can only view their own profile. Admins can view any user.",
+                        "requested_user_id": user_id,
+                        "your_user_id": current_user_id
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            controller = self.get_controller()
+            user_entity = self.call_async_method(
+                controller.get_user_by_id,
+                user_id=user_id,
+                current_user=current_user,  # Pass the authenticated user object
+                context=self.get_context(request)
+            )
+            
+            return Response(
+                APIResponse.create_success(
+                    data=entity_to_dict(user_entity),
+                    message="User retrieved successfully"
+                ).to_dict()
+            )
+        except DomainValidationException as e:
+            # Handle domain validation exceptions (like permission errors)
+            if "Insufficient permissions" in str(e):
+                return Response(
+                    {
+                        "success": False,
+                        "message": str(e),
+                        "detail": "You don't have permission to view this user's profile"
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            return handle_exception(e, "user retrieval")
+        except Exception as e:
+            return handle_exception(e, "user retrieval")
+    
+    def get_current_user_id(self, request):
+        """Extract current user's ID from the request"""
+        # Assuming your authentication stores user ID in request.user or similar
+        if hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
+            return request.user.id
+        elif hasattr(request, 'auth') and request.auth:
+            # Try to get from token payload
+            return request.auth.get('user_id')
+        return None
+    
+    def is_admin(self, request):
+        """Check if current user is admin"""
+        if hasattr(request, 'user') and request.user:
+            # Check user roles - adjust based on your user model
+            return hasattr(request.user, 'is_admin') and request.user.is_admin
+        return False
+        
 # ============================================
 # USER VIEWSET - Standard DRF
 # ============================================
@@ -503,6 +617,11 @@ class UserViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.error(f"Error calling async method {method.__name__}: {e}", exc_info=True)
             raise
+    
+    def get_user_by_id(self, request, id=None):
+        """Get user by ID endpoint"""
+        view = GetyByid()
+        return view.get(request, user_id=id)
     
     def list(self, request):
         """List all users with pagination"""
@@ -941,7 +1060,3 @@ class UserViewSet(viewsets.ViewSet):
             )
         except Exception as e:
             return handle_exception(e, "bulk delete users")
-
-# ============================================
-# ROOT VIEW - Add at the end of file
-# ============================================
