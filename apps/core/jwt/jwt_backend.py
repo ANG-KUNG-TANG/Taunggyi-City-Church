@@ -80,7 +80,7 @@ class TokenConfig:
         self.access_token_expiry = (
             access_token_expiry or 
             jwt_config.get('ACCESS_TOKEN_EXPIRY') or 
-            int(os.getenv('JWT_ACCESS_EXPIRY', 900))  # 15 minutes default
+            int(os.getenv('JWT_ACCESS_EXPIRY', 900))  
         )
         
         self.refresh_token_expiry = (
@@ -153,7 +153,7 @@ class JWTManager:
         self, 
         user_id: str,
         email: str,
-        role: str,  # Changed: Single role parameter
+        role: str,  
         is_superuser: bool = False,
         is_staff: bool = False,
         session_id: str = None

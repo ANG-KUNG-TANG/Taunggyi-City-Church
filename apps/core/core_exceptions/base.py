@@ -1,8 +1,6 @@
 import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any
-
-# Import from context.py to avoid duplication
 from apps.core.core_exceptions.logging.context import ErrorContext
 
 class BaseAppException(Exception):

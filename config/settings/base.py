@@ -62,7 +62,7 @@ MIDDLEWARE = [
     'config.middleware.RequestIDMiddleware',
     'config.middleware.GlobalExceptionMiddleware',
     'config.middleware.DatabaseQueryLoggingMiddleware',
-    "corsheaders.middleware.CorsMiddleware",  # Uncommented for CORS support
+    "corsheaders.middleware.CorsMiddleware",  
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",

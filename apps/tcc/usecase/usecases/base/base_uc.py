@@ -39,7 +39,6 @@ class BaseUseCase:
         pass
 
     async def execute(self, input_data, user=None, context=None):
-        """Main execution entry point"""
         operation_ctx = OperationContext(
             operation_id=str(uuid.uuid4()),
             user=user,
@@ -56,18 +55,20 @@ class BaseUseCase:
 
         except InvalidAuthInputException as exc:
             operation_ctx.error = exc
-            raise exc
-        
+            raise
+
         except DomainException as exc:
             operation_ctx.error = exc
-            raise exc
-        
+            raise
+
         except Exception as exc:
             operation_ctx.error = exc
             processed = await self._handle_exception(exc, operation_ctx)
             raise processed
+
         finally:
             await self._finalize_execution(operation_ctx)
+
             
     async def _before_execute(self, ctx: OperationContext):
         """Pre-execution: auth, authorization, validation"""

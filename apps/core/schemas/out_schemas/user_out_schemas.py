@@ -70,12 +70,12 @@ class UserSimpleResponseSchema(BaseResponseSchema):
     # ADDED: Optional profile picture for UI
     profile_picture: Optional[str] = Field(None, description="Profile picture URL")
 
-# UPDATED: Use generic paginated response
+
 class UserListResponseSchema(PaginatedResponseSchema[UserSimpleResponseSchema]):
     """Paginated user list response - matches repo get_paginated return."""
     pass
 
-# UPDATED: Use generic paginated response with search term
+
 class UserSearchResponseSchema(PaginatedResponseSchema[UserSimpleResponseSchema]):
     """User search response - matches repo search_users return."""
     search_term: str = Field(..., description="Search term used")

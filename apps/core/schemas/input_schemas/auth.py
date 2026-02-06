@@ -1,5 +1,6 @@
-from typing import Optional
-from pydantic import Field, EmailStr, model_validator, validator
+import re
+from typing import Any, Dict, Optional
+from pydantic import Field, EmailStr, field_validator, model_validator, validator
 from apps.core.schemas.input_schemas.base import BaseSchema
 
 
@@ -75,6 +76,7 @@ class ResetPasswordInputSchema(BaseSchema):
 class LogoutInputSchema(BaseSchema):
     """Schema for logout."""
     refresh_token: Optional[str] = Field(None, description="Refresh token to invalidate")
+    
 class RefreshTokenInputSchema(BaseSchema):
     """Schema for refresh token - accepts multiple field names."""
     
@@ -82,7 +84,7 @@ class RefreshTokenInputSchema(BaseSchema):
     
     @model_validator(mode='before')
     @classmethod
-    def extract_token(cls, data):
+    def extract_token(cls, data: Any) -> Dict[str, Any]:
         """Extract token from any of the possible field names."""
         if isinstance(data, dict):
             # Try all possible field names
@@ -95,17 +97,55 @@ class RefreshTokenInputSchema(BaseSchema):
             if not token:
                 raise ValueError('Refresh token is required')
             
+            # Clean the token immediately
+            if isinstance(token, str):
+                # Remove any quotes, whitespace
+                token = token.strip().strip('"\'').strip()
+                
+                # Remove any newline characters
+                token = re.sub(r'[\n\r]+', '', token)
+            
             # Return dict with just refresh_token
             return {'refresh_token': token}
         return data
     
+    @field_validator('refresh_token')
+    @classmethod
+    def validate_token_format(cls, v: str) -> str:
+        """Validate that the token looks like a valid JWT."""
+        if not v:
+            raise ValueError('Refresh token is required')
+        
+        # Check minimum length
+        if len(v) < 10:
+            raise ValueError('Token is too short')
+        
+        # Check if it looks like a JWT (has dots)
+        if '.' not in v:
+            raise ValueError('Invalid token format')
+        
+        # Check for exactly 2 dots (3 parts)
+        if v.count('.') != 2:
+            raise ValueError('Invalid JWT format')
+        
+        # Check each part for base64url characters
+        parts = v.split('.')
+        base64url_pattern = r'^[A-Za-z0-9_-]+$'
+        for i, part in enumerate(parts):
+            if not part:
+                raise ValueError(f'JWT part {i+1} is empty')
+            if not re.match(base64url_pattern, part):
+                raise ValueError(f'JWT part {i+1} contains invalid characters')
+        
+        return v
+    
     # Add the property back for compatibility
     @property
-    def actual_refresh_token(self):
+    def actual_refresh_token(self) -> str:
         """Compatibility property - returns the refresh token."""
         return self.refresh_token
     
-    def dict(self, *args, **kwargs):
+    def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """Return dict with only refresh_token."""
         d = super().dict(*args, **kwargs)
         return d
@@ -123,6 +163,31 @@ class AdminResetPasswordSchema(BaseSchema):
         return self
     
 class VerifyTokenInputSchema(BaseSchema):
-    """Schema for token verification."""
-    token: str = Field(..., description="Token to verify")
+    """Schema for token verification - accepts multiple field names."""
     
+    token: Optional[str] = Field(None, description="Token to verify")
+    
+    @model_validator(mode='before')
+    @classmethod
+    def extract_token(cls, data):
+        """Extract token from any of the possible field names."""
+        if isinstance(data, dict):
+            # Try all possible field names
+            token = (
+                data.get('token') or 
+                data.get('access_token') or 
+                data.get('accessToken') or
+                data.get('Authorization')
+            )
+            
+            if not token:
+                # Return empty dict - token might be in header
+                return {}
+            
+            # Clean the token (remove 'Bearer ' prefix if present)
+            if token.startswith('Bearer '):
+                token = token[7:]
+            
+            # Return dict with just token
+            return {'token': token}
+        return data

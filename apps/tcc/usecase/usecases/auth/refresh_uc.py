@@ -1,10 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import jwt as pyjwt
 from typing import Dict, Any
 from pydantic import ValidationError
 
 from apps.core.schemas.input_schemas.auth import RefreshTokenInputSchema
-from apps.core.schemas.out_schemas.aut_out_schemas import TokenRefreshResponseSchema
+from apps.core.schemas.out_schemas.aut_out_schemas import TokenRefreshResponseSchema, TokenResponseSchema
 from apps.tcc.usecase.domain_exception.u_exceptions import InvalidUserInputException
 from apps.tcc.usecase.usecases.base.base_uc import BaseUseCase
 from apps.tcc.usecase.repo.domain_repo.user_repo import UserRepository
@@ -30,7 +30,7 @@ class RefreshTokenUseCase(BaseUseCase):
         """Validate refresh token input"""
         logger.debug(f"Refresh UC input_data: {data}")
         logger.debug(f"Type of input_data: {type(data)}")
-    
+        
         # Ensure data is a dict
         if not isinstance(data, dict):
             logger.error(f"Expected dict but got {type(data)}")
@@ -39,39 +39,11 @@ class RefreshTokenUseCase(BaseUseCase):
                 user_message="Invalid request format."
             )
         
-        # Extract refresh token from various possible field names
-        refresh_token = (
-            data.get('refresh_token') or 
-            data.get('refresh') or 
-            data.get('refreshToken')
-        )
-        
-        logger.debug(f"Extracted refresh_token: {refresh_token[:30] if refresh_token else 'None'}...")
-        
-        # Check if token exists
-        if not refresh_token:
-            logger.error(f"Refresh token missing. Available keys: {list(data.keys())}")
-            raise InvalidUserInputException(
-                field_errors={"refresh_token": ["Refresh token is required"]},
-                user_message="Refresh token is required."
-            )
-        
-        # Ensure it's a string and clean it
-        refresh_token = str(refresh_token).strip()
-        
-        if not refresh_token:
-            raise InvalidUserInputException(
-                field_errors={"refresh_token": ["Refresh token cannot be empty"]},
-                user_message="Refresh token cannot be empty."
-            )
-        
-        # Normalize the data to use 'refresh_token' as the key
-        normalized_data = {'refresh_token': refresh_token}
-        
-        # Validate with Pydantic schema
+        # Validate with Pydantic schema - let the schema handle extraction and validation
         try:
-            self.validated_input = RefreshTokenInputSchema(**normalized_data)
-            logger.debug("Pydantic validation successful")
+            self.validated_input = RefreshTokenInputSchema.model_validate(data)
+            logger.debug(f"Pydantic validation successful. Token length: {len(self.validated_input.refresh_token)}")
+            
         except ValidationError as e:
             logger.error(f"Pydantic validation failed: {e.errors()}")
             
@@ -83,10 +55,14 @@ class RefreshTokenUseCase(BaseUseCase):
                 
                 # Customize error messages based on error type
                 error_type = error.get('type', '')
-                if 'missing' in error_type:
-                    msg = "Refresh token is required"
-                elif 'string' in error_type:
-                    msg = "Refresh token must be a valid string"
+                if 'missing' in error_type or 'value_error' in error_type:
+                    # Check if it's our custom validation message
+                    if 'is required' in msg or 'required' in error_type:
+                        msg = "Refresh token is required"
+                    elif 'too short' in msg:
+                        msg = "Token is too short"
+                    elif 'Invalid token format' in msg or 'JWT' in msg:
+                        msg = "Invalid token format"
                 
                 if field not in field_errors:
                     field_errors[field] = []
@@ -107,48 +83,11 @@ class RefreshTokenUseCase(BaseUseCase):
         refresh_token = self.validated_input.refresh_token
         
         logger.info(f"Attempting to refresh token. Token length: {len(refresh_token)}")
-        logger.info(f"Refresh token (first 100 chars): {refresh_token[:100]}...")
         
-        # Check JWT format
+        # Quick sanity check - the schema should have already validated format
         parts = refresh_token.split('.')
         if len(parts) != 3:
-            logger.error(f"Invalid JWT format: expected 3 parts, got {len(parts)}")
-            raise InvalidUserInputException(
-                field_errors={"refresh_token": ["Invalid token format"]},
-                user_message="Invalid token format."
-            )
-        
-        logger.info(f"JWT format valid: header={parts[0][:20]}..., payload={parts[1][:20]}..., signature={parts[2][:20]}...")
-        
-        # First, try to decode without verification to see what's in the token
-        try:
-            unverified_payload = pyjwt.decode(
-                refresh_token, 
-                options={"verify_signature": False}
-            )
-            logger.info(f"Token decoded (without verification):")
-            logger.info(f"  - token_type: {unverified_payload.get('token_type')}")
-            logger.info(f"  - sub: {unverified_payload.get('sub')}")
-            logger.info(f"  - email: {unverified_payload.get('email')}")
-            logger.info(f"  - iss: {unverified_payload.get('iss')}")
-            logger.info(f"  - aud: {unverified_payload.get('aud')}")
-            logger.info(f"  - jti: {unverified_payload.get('jti')}")
-            logger.info(f"  - iat: {unverified_payload.get('iat')} ({datetime.fromtimestamp(unverified_payload.get('iat')).isoformat() if unverified_payload.get('iat') else 'N/A'})")
-            logger.info(f"  - exp: {unverified_payload.get('exp')} ({datetime.fromtimestamp(unverified_payload.get('exp')).isoformat() if unverified_payload.get('exp') else 'N/A'})")
-            
-            # Check expiration
-            if unverified_payload.get('exp'):
-                current_time = time.time()
-                exp_time = unverified_payload.get('exp')
-                if exp_time < current_time:
-                    logger.warning(f"Token expired! exp={exp_time}, current={current_time}")
-                    raise InvalidUserInputException(
-                        field_errors={"refresh_token": ["Refresh token has expired"]},
-                        user_message="Refresh token has expired. Please login again."
-                    )
-            
-        except Exception as decode_error:
-            logger.error(f"Cannot decode token even without verification: {decode_error}")
+            logger.error(f"Invalid JWT format after validation: expected 3 parts, got {len(parts)}")
             raise InvalidUserInputException(
                 field_errors={"refresh_token": ["Invalid token format"]},
                 user_message="Invalid token format."
@@ -158,31 +97,16 @@ class RefreshTokenUseCase(BaseUseCase):
         try:
             logger.info("Calling jwt_service.verify_refresh_token...")
             token_payload = await self.jwt_service.verify_refresh_token(refresh_token)
-            logger.info(f"Token verification result type: {type(token_payload)}")
             
-            if token_payload:
-                logger.info(f"Token verification SUCCESS!")
-                logger.info(f"Token payload keys: {list(token_payload.keys())}")
-                logger.info(f"Token user (sub): {token_payload.get('sub')}")
-                logger.info(f"Token type: {token_payload.get('token_type')}")
-            else:
-                logger.warning("Token verification returned None!")
+            if not token_payload:
+                logger.warning("Token verification returned None - invalid or expired")
+                raise InvalidUserInputException(
+                    field_errors={"refresh_token": ["Invalid or expired refresh token"]},
+                    user_message="Invalid or expired refresh token. Please login again."
+                )
                 
-                # Try to understand why verification failed
-                # Check if it's an audience issue
-                if 'aud' in unverified_payload:
-                    logger.info(f"Token audience: {unverified_payload.get('aud')}")
-                    logger.info(f"Expected audience from config: This should match what's in JWT config")
-                
-                # Check if it's a token type issue
-                token_type = unverified_payload.get('token_type')
-                if token_type != 'refresh':
-                    logger.error(f"Wrong token type! Expected 'refresh', got '{token_type}'")
-                    raise InvalidUserInputException(
-                        field_errors={"refresh_token": ["Not a refresh token"]},
-                        user_message="This is not a refresh token. Please provide a valid refresh token."
-                    )
-                
+            logger.info(f"Token verification SUCCESS for user: {token_payload.get('email', 'unknown')}")
+            
         except Exception as e:
             logger.error(f"Token verification failed with exception: {e}", exc_info=True)
             
@@ -202,29 +126,7 @@ class RefreshTokenUseCase(BaseUseCase):
                 user_message=error_msg
             )
         
-        # 2. Check if token payload is valid
-        if not token_payload:
-            logger.warning("Token verification returned None. Token might be invalid or expired.")
-            
-            # Try to manually verify to get specific error
-            try:
-                # This will raise a specific exception
-                from apps.core.jwt.jwt_backend import TokenType
-                is_valid, payload = self.jwt_service.verify_token_sync(
-                    refresh_token, 
-                    token_type=TokenType.REFRESH
-                )
-                if not is_valid:
-                    logger.error("Manual verification also failed!")
-            except Exception as manual_error:
-                logger.error(f"Manual verification error: {manual_error}")
-            
-            raise InvalidUserInputException(
-                field_errors={"refresh_token": ["Invalid or expired refresh token"]},
-                user_message="Invalid or expired refresh token."
-            )
-        
-        # 3. Extract user_id from token
+        # 2. Extract user_id from token
         user_id = token_payload.get('sub')
         if not user_id:
             logger.error(f"Token payload missing 'sub' field: {token_payload}")
@@ -233,23 +135,30 @@ class RefreshTokenUseCase(BaseUseCase):
                 user_message="Invalid token format."
             )
         
+        # Convert to string if needed
+        user_id = str(user_id)
         logger.info(f"Extracted user_id from token: {user_id}")
         
-        # 4. Check if token is blacklisted
+        # 3. Check if token is blacklisted
         token_id = token_payload.get('jti')
-        is_blacklisted = await self.jwt_service.is_token_blacklisted(
-            user_id=user_id,
-            token_id=token_id
-        )
+        if token_id:
+            try:
+                is_blacklisted = await self.jwt_service.is_token_blacklisted(
+                    user_id=user_id,
+                    token_id=token_id
+                )
+                
+                if is_blacklisted:
+                    logger.warning(f"Token is blacklisted: user_id={user_id}, token_id={token_id}")
+                    raise InvalidUserInputException(
+                        field_errors={"refresh_token": ["Token has been revoked"]},
+                        user_message="Refresh token has been revoked. Please login again."
+                    )
+            except Exception as e:
+                logger.error(f"Error checking token blacklist: {e}")
+                # Continue anyway - don't fail refresh if blacklist check fails
         
-        if is_blacklisted:
-            logger.warning(f"Token is blacklisted: user_id={user_id}, token_id={token_id}")
-            raise InvalidUserInputException(
-                field_errors={"refresh_token": ["Token has been revoked"]},
-                user_message="Refresh token has been revoked. Please login again."
-            )
-        
-        # 5. Get user data
+        # 4. Get user data
         user_entity = await self.user_repository.get_by_id(user_id)
         if not user_entity:
             logger.error(f"User not found for ID: {user_id}")
@@ -258,7 +167,7 @@ class RefreshTokenUseCase(BaseUseCase):
                 user_message="User account not found."
             )
         
-        # 6. Check account status
+        # 5. Check account status
         if getattr(user_entity, 'is_locked', False):
             logger.warning(f"User account is locked: {user_id}")
             raise InvalidUserInputException(
@@ -273,23 +182,72 @@ class RefreshTokenUseCase(BaseUseCase):
                 user_message="Your account is inactive."
             )
         
+        # 6. Extract user role and permissions
+        # Get role - single string expected by JWTBackend
+        user_role = getattr(user_entity, 'role', None)
+        
+        # Fallback logic if no direct role attribute
+        if not user_role:
+            user_roles = getattr(user_entity, 'roles', [])
+            if user_roles:
+                if isinstance(user_roles, list):
+                    user_role = user_roles[0] if user_roles else 'member'
+                else:
+                    user_role = str(user_roles)
+            else:
+                user_role = 'member'
+        
+        # Ensure role is a string
+        user_role = str(user_role)
+        
+        # Get permission flags with defaults
+        is_superuser = getattr(user_entity, 'is_superuser', False)
+        is_staff = getattr(user_entity, 'is_staff', False)
+        
+        logger.info(f"Generating new access token for user: {user_entity.email}, role: {user_role}")
+        
         # 7. Generate new access token
-        user_roles = getattr(user_entity, 'roles', [])
-        if not user_roles and hasattr(user_entity, 'role'):
-            user_roles = [user_entity.role]
-        
-        logger.info(f"Generating new access token for user: {user_id}, email: {user_entity.email}")
-        
-        new_access_token = await self.jwt_service.generate_access_token_async(
-            user_id=user_id,
-            email=user_entity.email,
-            roles=user_roles
-        )
+        try:
+            # Try with all parameters first
+            new_access_token = await self.jwt_service.generate_access_token_async(
+                user_id=user_id,
+                email=user_entity.email,
+                role=user_role,
+                is_superuser=is_superuser,
+                is_staff=is_staff
+            )
+            
+        except TypeError as e:
+            logger.warning(f"Token generation with all parameters failed: {e}")
+            # Try minimal parameters as fallback
+            try:
+                new_access_token = await self.jwt_service.generate_access_token_async(
+                    user_id=user_id,
+                    email=user_entity.email,
+                    role=user_role
+                )
+            except Exception as e2:
+                logger.error(f"All token generation attempts failed: {e2}")
+                raise InvalidUserInputException(
+                    field_errors={"token": ["Failed to generate new access token"]},
+                    user_message="Unable to refresh token. Please try logging in again."
+                )
         
         logger.info(f"New access token generated successfully for user: {user_entity.email}")
         
-        return TokenRefreshResponseSchema(
+        # Create expires_at timestamp (current time + 15 minutes)
+        expires_in = 900  # 15 minutes
+        expires_at = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
+        
+        # Create the TokenResponseSchema with all required fields
+        token_response = TokenResponseSchema(
             access_token=new_access_token,
-            expires_in=900,  # 15 minutes
+            expires_in=expires_in,
+            expires_at=expires_at,
             token_type="bearer"
+        )
+        
+        # Then wrap it in TokenRefreshResponseSchema
+        return TokenRefreshResponseSchema(
+            tokens=token_response
         )

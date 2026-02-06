@@ -63,50 +63,23 @@ def entity_to_dict(entity) -> dict:
 
 
 def handle_exception(e: Exception, operation: str) -> Response:
-    """Centralized exception handling with proper DRF Response"""
-    logger.error(f"{operation} error: {e}", exc_info=True)
-    
-    # Handle UserAlreadyExistsException with a clean message
-    if isinstance(e, UserAlreadyExistsException):
-        # Extract email from exception if available
-        email = getattr(e, 'email' ,'Unknown')
-        # Log at WARNING level since this is a user error, not a system error
-        logger.warning(f"User registration failed: User with email '{email}' already exists")
-        return Response({
+    logger.warning(f"{operation} failed: {e}")
+
+    # Default values
+    status_code = 400
+
+    # If the exception defines its own status code, use it
+    if hasattr(e, "status_code"):
+        status_code = e.status_code
+
+    return Response(
+        {
             "success": False,
-            "message": f"User with email '{email}' already exists",
-            "error_code": "USER_ALREADY_EXISTS",
-            "status_code": 409
-        }, status=409)
-    
-        
-    # Handle DomainValidationException
-    elif isinstance(e, DomainValidationException):
-        return Response({
-            "success": False,
-            "message": str(e),
-            "error_code": "VALIDATION_ERROR",
-            "status_code": 400
-        }, status=400)
-    
-    # Handle UserNotFoundException
-    elif isinstance(e, UserNotFoundException):
-        return Response({
-            "success": False,
-            "message": str(e),
-            "error_code": "USER_NOT_FOUND",
-            "status_code": 404
-        }, status=404)
-    
-    # Handle other exceptions
-    else:
-        logger.error(f"Unexpected {operation} error: {e}", exc_info=True)
-        return Response({
-            "success": False,
-            "message": f"An error occurred during {operation}",
-            "error_code": "INTERNAL_ERROR",
-            "status_code": 500
-        }, status=500)
+            "message": str(e)
+        },
+        status=status_code
+    )
+
 
 
 def safe_get_controller():

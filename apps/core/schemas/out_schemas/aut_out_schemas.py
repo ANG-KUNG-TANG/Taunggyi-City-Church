@@ -99,3 +99,6 @@ class ForgotPasswordResponseSchema(BaseModel):
 class ResetPasswordResponseSchema(BaseModel):
     message: str
     reset_successful: bool = True
+    
+class verityResponseSchema(BaseModel):
+    ...
