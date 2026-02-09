@@ -2,8 +2,8 @@ from datetime import date
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from apps.tcc.models.base.base_model import BaseModel
-from apps.tcc.models.users.user_manager import UserManager  
-from apps.tcc.models.base.enums import UserRole, UserStatus, Gender, MaritalStatus
+from .user_manager import UserManager  
+from ..base.enums import UserRole, UserStatus, Gender, MaritalStatus
 
 class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     # Personal Information

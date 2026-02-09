@@ -1,16 +1,48 @@
 from django.db import models
-from django.conf import settings
 from django.utils import timezone
-from django.core.exceptions import ValidationError
-from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes.fields import GenericForeignKey
-from apps.tcc.models.base.manager import BaseModelManager
+from django.conf import settings  # Add this
 from apps.tcc.utils.snowflake import generate_snowflake_id, decompose_snowflake_id
 
+
+class BaseModelManager(models.Manager):
+    """Custom manager for BaseModel with Snowflake ID support"""
+    
+    def get_queryset(self):
+        """Return only active objects by default"""
+        return super().get_queryset().filter(is_active=True)
+    
+    def all_with_inactive(self):
+        """Return all objects including inactive ones"""
+        return super().get_queryset()
+    
+    def inactive(self):
+        """Return only inactive objects"""
+        return super().get_queryset().filter(is_active=False)
+    
+    def create_with_id(self, **kwargs):
+        """Create object with explicit Snowflake ID"""
+        if 'id' not in kwargs:
+            kwargs['id'] = generate_snowflake_id()
+        return self.create(**kwargs)
+    
+    def bulk_create_with_ids(self, objs, batch_size=None):
+        """Bulk create objects with Snowflake IDs"""
+        for obj in objs:
+            if not obj.id:
+                obj.id = generate_snowflake_id()
+        return super().bulk_create(objs, batch_size=batch_size)
+    
+    def get_by_snowflake(self, snowflake_id):
+        """Get object by Snowflake ID"""
+        return self.get_queryset().get(id=snowflake_id)
+    
+    def filter_by_snowflake_range(self, start_id, end_id):
+        """Filter objects by Snowflake ID range"""
+        return self.get_queryset().filter(id__range=(start_id, end_id))
+
+
 class BaseModel(models.Model):
-    """
-    Base model with Snowflake ID instead of UUID
-    """
+    """Base model with Snowflake ID instead of UUID"""
     
     # Use Snowflake ID as primary key
     id = models.BigIntegerField(
@@ -24,7 +56,7 @@ class BaseModel(models.Model):
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
     
-    # User References
+    # User References - Use settings.AUTH_USER_MODEL with a lambda to avoid circular imports
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -43,7 +75,7 @@ class BaseModel(models.Model):
     # Basic fields
     is_active = models.BooleanField(default=True)
     
-    # Meta information (JSON field for flexible data)
+    # Meta information
     meta_info = models.JSONField(default=dict, blank=True)
     
     # Version for optimistic locking
@@ -72,7 +104,7 @@ class BaseModel(models.Model):
     
     def __str__(self):
         return f"{self.__class__.__name__} ({self.id})"
-    
+
     def __repr__(self):
         """Detailed representation for debugging"""
         return f"<{self.__class__.__name__} {self.id} active={self.is_active}>"
@@ -104,9 +136,6 @@ class BaseModel(models.Model):
         if not self.id:
             self.id = generate_snowflake_id()
         
-        # Pre-save validation
-        self.full_clean()
-        
         # Update timestamps
         if not self.created_at:
             self.created_at = timezone.now()
@@ -117,8 +146,9 @@ class BaseModel(models.Model):
         
         # Set updated_by if provided in kwargs
         user = kwargs.pop('user', None)
-        if user and user.is_authenticated:
-            if not is_new:  # Creating
+        if user:
+            # User is passed as an instance, not as a model class
+            if is_new and not self.created_by:
                 self.created_by = user
             self.updated_by = user
         
@@ -134,7 +164,7 @@ class BaseModel(models.Model):
         self.is_active = False
         self.deleted_at = timezone.now()
         
-        if user and user.is_authenticated:
+        if user:
             self.deleted_by = user
         
         # Save without triggering signals if needed
@@ -151,17 +181,10 @@ class BaseModel(models.Model):
         self.deleted_at = None
         self.deleted_by = None
         
-        if user and user.is_authenticated:
+        if user:
             self.updated_by = user
         
         self.save(update_fields=['is_active', 'deleted_at', 'deleted_by', 'updated_by'])
-        
-        # Import inside method to avoid circular imports
-        try:
-            from apps.tcc.models.base.signals import model_restored
-            model_restored.send(sender=self.__class__, instance=self)
-        except ImportError:
-            pass  # Signals not available yet
     
     def hard_delete(self, *args, **kwargs):
         """
@@ -176,57 +199,54 @@ class BaseModel(models.Model):
         user = kwargs.pop('user', None)
         self.soft_delete(user=user)
     
-    # Permission & Security Methods
+    # Permission & Security Methods - Simplified to avoid circular imports
     def can_view(self, user):
         """
         Check if user can view this object
-        Override in subclasses for custom logic
         """
-        if not user or not user.is_authenticated:
+        if not user:
             return False
         
         # Admin can view everything
-        if hasattr(user, 'is_admin') and user.is_admin:
+        if hasattr(user, 'is_superuser') and user.is_superuser:
             return True
         
         # Created by user
-        if self.created_by == user:
+        if self.created_by and self.created_by.id == user.id:
             return True
         
-        # Zone leader logic can be added in subclasses
         return False
     
     def can_edit(self, user):
         """
         Check if user can edit this object
         """
-        if not user or not user.is_authenticated:
+        if not user:
             return False
         
         # Admin can edit everything
-        if hasattr(user, 'is_admin') and user.is_admin:
+        if hasattr(user, 'is_superuser') and user.is_superuser:
             return True
         
         # Created by user (and not deleted)
-        if self.created_by == user and self.is_active:
+        if self.created_by and self.created_by.id == user.id and self.is_active:
             return True
         
-        # Zone leader logic can be added in subclasses
         return False
     
     def can_delete(self, user):
         """
         Check if user can delete this object
         """
-        if not user or not user.is_authenticated:
+        if not user:
             return False
         
         # Admin can delete everything
-        if hasattr(user, 'is_admin') and user.is_admin:
+        if hasattr(user, 'is_superuser') and user.is_superuser:
             return True
         
         # Created by user (and not already deleted)
-        if self.created_by == user and self.is_active:
+        if self.created_by and self.created_by.id == user.id and self.is_active:
             return True
         
         return False
@@ -300,78 +320,6 @@ class BaseModel(models.Model):
         
         return new_instance
     
-    def save_with_audit(self, user, request=None, *args, **kwargs):
-        """
-        Save with automatic audit logging
-        """
-        is_new = self._state.adding
-        action = 'CREATE' if is_new else 'UPDATE'
-        
-        # Get request info if available
-        ip_address = ""
-        user_agent = ""
-        request_path = ""
-        request_method = ""
-        
-        if request:
-            ip_address = self._get_client_ip(request)
-            user_agent = request.META.get('HTTP_USER_AGENT', '')
-            request_path = request.path
-            request_method = request.method
-        
-        # Save the object
-        self.save(*args, **kwargs)
-        
-        # Log the action - import inside method
-        try:
-            from apps.tcc.utils.audit_logging import AuditLogger
-            
-            if is_new:
-                AuditLogger.log_create(user, self, ip_address, user_agent)
-            else:
-                # For updates, you might want to track what changed
-                changes = self._get_changes()
-                AuditLogger.log_update(user, self, changes, ip_address, user_agent)
-        except ImportError:
-            pass  # Audit logging not available
-    
-    def delete_with_audit(self, user, request=None, *args, **kwargs):
-        """
-        Delete with automatic audit logging
-        """
-        # Get request info if available
-        ip_address = ""
-        user_agent = ""
-        
-        if request:
-            ip_address = self._get_client_ip(request)
-            user_agent = request.META.get('HTTP_USER_AGENT', '')
-        
-        # Log before deletion
-        try:
-            from apps.tcc.utils.audit_logging import AuditLogger
-            AuditLogger.log_delete(user, self, ip_address, user_agent)
-        except ImportError:
-            pass  # Audit logging not available
-        
-        # Perform deletion (soft delete by default)
-        self.soft_delete(user=user)
-    
-    def _get_client_ip(self, request):
-        """Get client IP address from request"""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
-    
-    def _get_changes(self):
-        """Get changes made in this update (simplified version)"""
-        # This would need to be implemented based on your specific needs
-        # You might want to use django-model-utils or similar for change tracking
-        return {}
-
     @classmethod
     def get_by_snowflake_id(cls, snowflake_id):
         """
@@ -381,14 +329,14 @@ class BaseModel(models.Model):
             return cls.objects.get(id=snowflake_id)
         except cls.DoesNotExist:
             return None
-
+    
     @classmethod
     def get_by_snowflake_ids(cls, snowflake_ids):
         """
         Get multiple objects by Snowflake IDs
         """
         return cls.objects.filter(id__in=snowflake_ids)
-
+    
     def get_creation_time_from_id(self):
         """
         Extract creation time from Snowflake ID
