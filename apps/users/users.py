@@ -1,11 +1,10 @@
 from datetime import date
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
-from apps.tcc.models.base.base_model import BaseModel
 from .user_manager import UserManager  
 from ..tcc.models.base.enums import UserRole, UserStatus, Gender, MaritalStatus
 
-class User(AbstractBaseUser, PermissionsMixin, BaseModel):
+class User(AbstractBaseUser, PermissionsMixin):
     # Personal Information
     name = models.CharField(max_length=120, help_text="Full name of the member")
     email = models.EmailField(unique=True, db_index=True, help_text="Primary email for login and communication")
