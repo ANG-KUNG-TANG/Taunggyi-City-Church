@@ -46,3 +46,8 @@ logs/
 jwt_keys/
 *.pem
 *.key
+
+#backup
+*.backup
+# Local backup files
+*.backup
