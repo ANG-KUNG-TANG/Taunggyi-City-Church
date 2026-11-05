@@ -29,10 +29,8 @@ class APIResponse(BaseModel, Generic[T]):
     )
 
     model_config = ConfigDict(
-        json_encoders={
-            datetime: lambda v: v.isoformat() if v else None
-        },
-        arbitrary_types_allowed=True
+        json_encoders={datetime: lambda v: v.isoformat() if v else None},
+        arbitrary_types_allowed=True,
     )
 
     # ----------------------------------------
@@ -40,10 +38,7 @@ class APIResponse(BaseModel, Generic[T]):
     # ----------------------------------------
     @classmethod
     def create_success(
-        cls,
-        message: str = "Success",
-        data: Optional[T] = None,
-        status_code: int = 200
+        cls, message: str = "Success", data: Optional[T] = None, status_code: int = 200
     ) -> "APIResponse[T]":
         return cls(
             success=True,
@@ -52,7 +47,7 @@ class APIResponse(BaseModel, Generic[T]):
             timestamp=datetime.utcnow(),
             status_code=status_code,
             error_type=None,
-            errors=None
+            errors=None,
         )
 
     # ----------------------------------------
@@ -81,7 +76,7 @@ class APIResponse(BaseModel, Generic[T]):
             timestamp=datetime.utcnow(),
             status_code=status_code,
             error_type=error_type,
-            errors=errors
+            errors=errors,
         )
 
     # ----------------------------------------

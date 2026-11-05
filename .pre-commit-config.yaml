@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 25.9.0
+    hooks:
+      - id: black
+        files: ^backend/
+        exclude: ^backend/(\.venv|venv|migrations)/
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+        files: ^backend/
+        exclude: '(^backend/(\.venv|venv|migrations)/|^backend/apps/members/(manager|services)\.py$|^backend/apps/reports/generators\.py$)'
+        args:
+          - --select=E9,F63,F7,F82

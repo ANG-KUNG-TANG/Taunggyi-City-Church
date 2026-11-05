@@ -8,7 +8,7 @@
 
 # class SermonBaseSchema(BaseSchema):
 #     """Base sermon schema with common fields."""
-    
+
 #     title: str = Field(..., min_length=1, max_length=200)
 #     preacher: str = Field(..., min_length=1, max_length=120)
 #     bible_passage: Optional[str] = Field(None, max_length=100)
@@ -25,7 +25,7 @@
 #     @classmethod
 #     def validate_title(cls, v):
 #         return v.strip()
-    
+
 #     @field_validator('duration_minutes')
 #     @classmethod
 #     def validate_duration(cls, v: Optional[int]) -> Optional[int]:
@@ -33,7 +33,7 @@
 #         if v and v > 480:  # 8 hours max
 #             raise ValueError("Sermon duration too long")
 #         return v
-    
+
 #     @field_validator('bible_passage')
 #     @classmethod
 #     def validate_bible_reference(cls, v: Optional[str]) -> Optional[str]:
@@ -41,7 +41,7 @@
 #         if v and not cls.is_valid_bible_reference(v):
 #             raise ValueError("Invalid bible reference format")
 #         return v
-    
+
 #     @staticmethod
 #     def is_valid_bible_reference(reference: str) -> bool:
 #         """Basic bible reference validation."""
@@ -54,7 +54,7 @@
 
 # class SermonUpdateSchema(BaseSchema):
 #     """Schema for updating sermon information."""
-    
+
 #     title: Optional[str] = Field(None, min_length=1, max_length=200)
 #     preacher: Optional[str] = Field(None, min_length=1, max_length=120)
 #     bible_passage: Optional[str] = Field(None, max_length=100)
@@ -69,17 +69,17 @@
 
 # class SermonResponseSchema(SermonBaseSchema, BaseResponseSchema):
 #     """Schema for sermon response."""
-    
+
 #     view_count: int = 0
 #     like_count: int = 0
-    
+
 #     model_config = ConfigDict(
 #         json_encoders={
 #             datetime: lambda v: v.isoformat(),
 #         }
 #     )
-    
-    
+
+
 # class SermonListResponseSchema(BaseSchema):
 #     """Schema for listing multiple sermons with pagination support."""
 

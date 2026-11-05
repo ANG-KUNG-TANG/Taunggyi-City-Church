@@ -6,9 +6,10 @@ from decimal import Decimal
 from backend.core.schemas.input_schemas.base import BaseResponseSchema, BaseSchema
 from apps.tcc.models.base.enums import EventStatus, EventType, RegistrationStatus
 
+
 class EventBase(BaseSchema):
     """Base event schema with common fields."""
-    
+
     title: str
     description: Optional[str] = None
     location: Optional[str] = None
@@ -20,23 +21,24 @@ class EventBase(BaseSchema):
     cost: Optional[Decimal] = None
     image_url: Optional[str] = None
 
+
 class EventCreateSchema(EventBase):
     """Schema for creating a new event."""
-    
-    @field_validator('end_date')
+
+    @field_validator("end_date")
     @classmethod
     def validate_event_duration(cls, v: datetime, info) -> datetime:
         """Validate event duration."""
         data = info.data
-        if 'start_date' in data and data['start_date']:
-            event_duration = v - data['start_date']
+        if "start_date" in data and data["start_date"]:
+            event_duration = v - data["start_date"]
             if event_duration.total_seconds() > 86400:  # 24 hours
                 raise ValueError("Event duration cannot exceed 24 hours")
             if event_duration.total_seconds() < 0:
                 raise ValueError("End date cannot be before start date")
         return v
-    
-    @field_validator('start_date')
+
+    @field_validator("start_date")
     @classmethod
     def validate_start_date(cls, v: datetime) -> datetime:
         """Validate event start date."""
@@ -44,9 +46,10 @@ class EventCreateSchema(EventBase):
             raise ValueError("Event cannot be in the past")
         return v
 
+
 class EventUpdateSchema(BaseSchema):
     """Schema for updating event information."""
-    
+
     title: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
@@ -58,12 +61,13 @@ class EventUpdateSchema(BaseSchema):
     cost: Optional[Decimal] = None
     image_url: Optional[str] = None
 
+
 class EventResponseSchema(EventBase, BaseResponseSchema):
     """Schema for event response."""
-    
+
     attendee_count: int = 0
     available_spots: Optional[int] = None
-    
+
     model_config = ConfigDict(
         json_encoders={
             datetime: lambda v: v.isoformat(),
@@ -71,17 +75,19 @@ class EventResponseSchema(EventBase, BaseResponseSchema):
         }
     )
 
+
 class EventRegistrationCreateSchema(BaseSchema):
     """Schema for event registration."""
-    
+
     event_id: int
     user_id: int
     status: RegistrationStatus = RegistrationStatus.PENDING
     notes: Optional[str] = None
 
+
 class EventRegistrationResponseSchema(BaseResponseSchema):
     """Schema for event registration response."""
-    
+
     event_id: int
     user_id: int
     status: RegistrationStatus
@@ -89,18 +95,20 @@ class EventRegistrationResponseSchema(BaseResponseSchema):
     event_title: Optional[str] = None
     user_name: Optional[str] = None
 
+
 class EventListResponseSchema(BaseSchema):
     """Schema for listing multiple events with pagination support."""
-    
+
     events: List[EventResponseSchema]
     total: int
     page: int
     per_page: int
     total_pages: int
 
+
 class EventRegistrationListResponseSchema(BaseSchema):
     """Schema for listing multiple event registrations with pagination support."""
-    
+
     registrations: List[EventRegistrationResponseSchema]
     total: int
     page: int

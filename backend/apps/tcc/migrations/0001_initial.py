@@ -8,40 +8,150 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('auth', '0012_alter_user_first_name_max_length'),
+        ("auth", "0012_alter_user_first_name_max_length"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='User',
+            name="User",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('password', models.CharField(max_length=128, verbose_name='password')),
-                ('last_login', models.DateTimeField(blank=True, null=True, verbose_name='last login')),
-                ('name', models.CharField(help_text='Full name of the member', max_length=120)),
-                ('email', models.EmailField(db_index=True, help_text='Primary email for login and communication', max_length=254, unique=True)),
-                ('phone_number', models.CharField(blank=True, max_length=20, null=True)),
-                ('gender', models.CharField(blank=True, choices=[('male', 'Male'), ('female', 'Female'), ('other', 'Other'), ('prefer_not_to_say', 'Prefer not to say')], max_length=20)),
-                ('marital_status', models.CharField(blank=True, choices=[('single', 'Single'), ('married', 'Married'), ('divorced', 'Divorced'), ('widowed', 'Widowed'), ('separated', 'Separated')], max_length=20)),
-                ('date_of_birth', models.DateField(blank=True, help_text="The user's date of birth", null=True)),
-                ('testimony', models.TextField(blank=True, help_text='Personal testimony or spiritual journey')),
-                ('baptism_date', models.DateField(blank=True, null=True)),
-                ('membership_date', models.DateField(blank=True, null=True)),
-                ('role', models.CharField(choices=[('super_admin', 'Super Administrator'), ('admin', 'Admin'), ('staff', 'Staff'), ('ministry_leader', 'Ministry Leader'), ('member', 'Member'), ('visitor', 'Visitor')], default='visitor', max_length=20)),
-                ('status', models.CharField(choices=[('active', 'Active'), ('inactive', 'Inactive'), ('pending', 'Pending Approval'), ('suspended', 'Suspended')], default='pending', max_length=20)),
-                ('is_staff', models.BooleanField(default=False)),
-                ('is_superuser', models.BooleanField(default=False)),
-                ('is_active', models.BooleanField(default=True)),
-                ('email_notifications', models.BooleanField(default=True)),
-                ('sms_notifications', models.BooleanField(default=False)),
-                ('groups', models.ManyToManyField(blank=True, help_text='The groups this user belongs to. A user will get all permissions granted to each of their groups.', related_name='user_set', related_query_name='user', to='auth.group', verbose_name='groups')),
-                ('user_permissions', models.ManyToManyField(blank=True, help_text='Specific permissions for this user.', related_name='user_set', related_query_name='user', to='auth.permission', verbose_name='user permissions')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("password", models.CharField(max_length=128, verbose_name="password")),
+                (
+                    "last_login",
+                    models.DateTimeField(
+                        blank=True, null=True, verbose_name="last login"
+                    ),
+                ),
+                (
+                    "name",
+                    models.CharField(
+                        help_text="Full name of the member", max_length=120
+                    ),
+                ),
+                (
+                    "email",
+                    models.EmailField(
+                        db_index=True,
+                        help_text="Primary email for login and communication",
+                        max_length=254,
+                        unique=True,
+                    ),
+                ),
+                (
+                    "phone_number",
+                    models.CharField(blank=True, max_length=20, null=True),
+                ),
+                (
+                    "gender",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("male", "Male"),
+                            ("female", "Female"),
+                            ("other", "Other"),
+                            ("prefer_not_to_say", "Prefer not to say"),
+                        ],
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "marital_status",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("single", "Single"),
+                            ("married", "Married"),
+                            ("divorced", "Divorced"),
+                            ("widowed", "Widowed"),
+                            ("separated", "Separated"),
+                        ],
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "date_of_birth",
+                    models.DateField(
+                        blank=True, help_text="The user's date of birth", null=True
+                    ),
+                ),
+                (
+                    "testimony",
+                    models.TextField(
+                        blank=True, help_text="Personal testimony or spiritual journey"
+                    ),
+                ),
+                ("baptism_date", models.DateField(blank=True, null=True)),
+                ("membership_date", models.DateField(blank=True, null=True)),
+                (
+                    "role",
+                    models.CharField(
+                        choices=[
+                            ("super_admin", "Super Administrator"),
+                            ("admin", "Admin"),
+                            ("staff", "Staff"),
+                            ("ministry_leader", "Ministry Leader"),
+                            ("member", "Member"),
+                            ("visitor", "Visitor"),
+                        ],
+                        default="visitor",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("active", "Active"),
+                            ("inactive", "Inactive"),
+                            ("pending", "Pending Approval"),
+                            ("suspended", "Suspended"),
+                        ],
+                        default="pending",
+                        max_length=20,
+                    ),
+                ),
+                ("is_staff", models.BooleanField(default=False)),
+                ("is_superuser", models.BooleanField(default=False)),
+                ("is_active", models.BooleanField(default=True)),
+                ("email_notifications", models.BooleanField(default=True)),
+                ("sms_notifications", models.BooleanField(default=False)),
+                (
+                    "groups",
+                    models.ManyToManyField(
+                        blank=True,
+                        help_text="The groups this user belongs to. A user will get all permissions granted to each of their groups.",
+                        related_name="user_set",
+                        related_query_name="user",
+                        to="auth.group",
+                        verbose_name="groups",
+                    ),
+                ),
+                (
+                    "user_permissions",
+                    models.ManyToManyField(
+                        blank=True,
+                        help_text="Specific permissions for this user.",
+                        related_name="user_set",
+                        related_query_name="user",
+                        to="auth.permission",
+                        verbose_name="user permissions",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'User',
-                'verbose_name_plural': 'Users',
-                'db_table': 'users',
-                'ordering': ['name'],
+                "verbose_name": "User",
+                "verbose_name_plural": "Users",
+                "db_table": "users",
+                "ordering": ["name"],
             },
         ),
     ]
