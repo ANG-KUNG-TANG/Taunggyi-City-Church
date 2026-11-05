@@ -1,1 +1,1 @@
-vic
+"""Member application services."""
