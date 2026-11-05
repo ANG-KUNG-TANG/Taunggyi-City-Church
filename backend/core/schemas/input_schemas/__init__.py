@@ -13,31 +13,31 @@
 #     # Base schemas
 #     'BaseSchema',
 #     'BaseResponseSchema',
-    
+
 #     # User schemas
 #     'UserCreate',
 #     'UserUpdate',
 #     'UserResponse',
 #     'UserLogin',
 #     'UserPasswordChange',
-    
+
 #     # Sermon schemas
 #     'SermonCreate',
 #     'SermonUpdate',
 #     'SermonResponse',
-    
+
 #     # Prayer schemas
 #     'PrayerRequestCreate',
 #     'PrayerRequestUpdate',
 #     'PrayerRequestResponse',
-    
+
 #     # Event schemas
 #     'EventCreate',
 #     'EventUpdate',
 #     'EventResponse',
 #     'EventRegistrationCreate',
 #     'EventRegistrationResponse',
-    
+
 #     # Donation schemas
 #     'DonationCreate',
 #     'DonationUpdate',
@@ -45,7 +45,7 @@
 #     'FundTypeCreate',
 #     'FundTypeUpdate',
 #     'FundTypeResponse',
-    
+
 #     # Common schemas
 #     'PaginatedResponse',
 #     'PaginationParams',

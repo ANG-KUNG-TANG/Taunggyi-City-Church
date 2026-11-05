@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+
 class UserRole(models.TextChoices):
     SUPER_ADMIN = "super_admin", _("Super Administrator")
     ADMIN = "admin", _("Admin")
@@ -62,7 +63,8 @@ class PrayerCategory(models.TextChoices):
     FINANCIAL = "financial", _("Financial")
     FAMILY = "family", _("Family")
     OTHER = "other", _("Other")
-    GENERAL = "general", _('General')
+    GENERAL = "general", _("General")
+
 
 class PrayerStatus(models.TextChoices):
     ACTIVE = "active", _("Active")
@@ -75,7 +77,7 @@ class EventStatus(models.TextChoices):
     PUBLISHED = "published", _("Published")
     CANCELLED = "cancelled", _("Cancelled")
     COMPLETED = "completed", _("Completed")
-    UPCOMING = 'Upcoming',_('Upcoming')
+    UPCOMING = "Upcoming", _("Upcoming")
 
 
 class EventType(models.TextChoices):
@@ -121,6 +123,7 @@ class FamilyRole(models.TextChoices):
 def get_choice_display(choices, value):
     """Get human-readable display value for a choice"""
     return dict(choices.choices).get(value, value)
+
 
 def get_choice_keys(choices):
     """Get all keys for a choices enum"""

@@ -37,30 +37,27 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
-    'daphne',
-    'channels',
+    "daphne",
+    "channels",
     "django.contrib.staticfiles",
-
     "rest_framework",
     "django_filters",
     "django_cleanup.apps.CleanupConfig",
     "corsheaders",
     "crispy_forms",
     "crispy_bootstrap5",
-
     "apps.tcc.apps.TccConfig",
-
 ]
-AUTH_USER_MODEL = 'tcc.User'
+AUTH_USER_MODEL = "tcc.User"
 
 # ──────────────────────────────
 # MIDDLEWARE - UPDATED (Remove JWT Middleware)
 # ──────────────────────────────
 MIDDLEWARE = [
-    'config.middleware.AsyncMiddleware',
-    'config.middleware.RequestIDMiddleware',
-    'config.middleware.GlobalExceptionMiddleware',
-    'config.middleware.DatabaseQueryLoggingMiddleware',
+    "config.middleware.AsyncMiddleware",
+    "config.middleware.RequestIDMiddleware",
+    "config.middleware.GlobalExceptionMiddleware",
+    "config.middleware.DatabaseQueryLoggingMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -70,18 +67,13 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    'core.jwt.token_debugger.TokenDebugMiddleware',
-
+    "core.jwt.token_debugger.TokenDebugMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
 ASGI_APPLICATION = "config.asgi.application"
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
-    }
-}
+CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 # ──────────────────────────────
 # Templates
 # ──────────────────────────────
@@ -129,7 +121,9 @@ DATABASES = {
 # Auth & Password
 # ──────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -158,59 +152,52 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # REST Framework
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'core.jwt.jwtauth.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.TokenAuthentication',
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "core.jwt.jwtauth.JWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.TokenAuthentication",
     ],
-
     # Default: Require authentication for all endpoints
     # Override with @permission_classes([AllowAny]) for public endpoints
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
     ],
-
     # Exception handling
-    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
-
+    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
     # Filtering
-    'DEFAULT_FILTER_BACKENDS': [
-        'django_filters.rest_framework.DjangoFilterBackend',
-        'rest_framework.filters.SearchFilter',
-        'rest_framework.filters.OrderingFilter',
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.SearchFilter",
+        "rest_framework.filters.OrderingFilter",
     ],
-
     # Pagination
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
-
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
     # Throttling (disabled until Redis is configured)
-    'DEFAULT_THROTTLE_CLASSES': [],
-    'DEFAULT_THROTTLE_RATES': {},
-
+    "DEFAULT_THROTTLE_CLASSES": [],
+    "DEFAULT_THROTTLE_RATES": {},
     # Renderers and Parsers
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
-        'rest_framework.renderers.BrowsableAPIRenderer',  # Optional: for browsable API
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",  # Optional: for browsable API
     ],
-    'DEFAULT_PARSER_CLASSES': [
-        'rest_framework.parsers.JSONParser',
-        'rest_framework.parsers.FormParser',
-        'rest_framework.parsers.MultiPartParser',
+    "DEFAULT_PARSER_CLASSES": [
+        "rest_framework.parsers.JSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
     ],
-
     # Response format
-    'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S.%fZ',
-    'DATE_FORMAT': '%Y-%m-%d',
-
-    #Error response
-    'NON_FIELD_ERRORS_KEY': 'errors',
-    'COERCE_DECIMAL_TO_STRING': False,
+    "DATETIME_FORMAT": "%Y-%m-%dT%H:%M:%S.%fZ",
+    "DATE_FORMAT": "%Y-%m-%d",
+    # Error response
+    "NON_FIELD_ERRORS_KEY": "errors",
+    "COERCE_DECIMAL_TO_STRING": False,
 }
 
 # ──────────────────────────────
 # JWT Configuration
 # ──────────────────────────────
+
 
 def decode_jwt_key_from_env(key_str):
     """
@@ -220,52 +207,55 @@ def decode_jwt_key_from_env(key_str):
     if not key_str:
         return None
 
-    if isinstance(key_str, str) and '\n' in key_str:
+    if isinstance(key_str, str) and "\n" in key_str:
         return key_str
 
-    if isinstance(key_str, str) and '\\n' in key_str:
-        return key_str.replace('\\n', '\n')
+    if isinstance(key_str, str) and "\\n" in key_str:
+        return key_str.replace("\\n", "\n")
 
     try:
         # Remove any whitespace
         key_str = key_str.strip()
         # Check if it looks like base64
-        if len(key_str) > 100 and ' ' not in key_str:
+        if len(key_str) > 100 and " " not in key_str:
             # Try to decode as base64
-            decoded = base64.b64decode(key_str).decode('utf-8')
+            decoded = base64.b64decode(key_str).decode("utf-8")
             return decoded
     except:
         pass
 
     return key_str
 
+
 # Load JWT keys
-JWT_PRIVATE_KEY = decode_jwt_key_from_env(env('JWT_PRIVATE_KEY', default=''))
-JWT_PUBLIC_KEY = decode_jwt_key_from_env(env('JWT_PUBLIC_KEY', default=''))
-JWT_SECRET_KEY = env('JWT_SECRET_KEY', default='your-default-secret-key-change-this')
+JWT_PRIVATE_KEY = decode_jwt_key_from_env(env("JWT_PRIVATE_KEY", default=""))
+JWT_PUBLIC_KEY = decode_jwt_key_from_env(env("JWT_PUBLIC_KEY", default=""))
+JWT_SECRET_KEY = env("JWT_SECRET_KEY", default="your-default-secret-key-change-this")
 
 # Determine which algorithm to use based on available keys
 if JWT_PRIVATE_KEY and JWT_PUBLIC_KEY:
-    JWT_ALGORITHM = 'RS256'
+    JWT_ALGORITHM = "RS256"
     print("✅ Using RS256 algorithm with RSA keys")
 elif JWT_SECRET_KEY:
-    JWT_ALGORITHM = 'HS256'
+    JWT_ALGORITHM = "HS256"
     print("✅ Using HS256 algorithm with secret key")
 else:
-    JWT_ALGORITHM = 'HS256'
-    JWT_SECRET_KEY = 'your-fallback-secret-key-for-development'
+    JWT_ALGORITHM = "HS256"
+    JWT_SECRET_KEY = "your-fallback-secret-key-for-development"
     print("⚠️  No JWT keys found, using fallback secret (for development only)")
 
 JWT_CONFIG = {
-    'ACCESS_TOKEN_EXPIRY': env.int('JWT_ACCESS_EXPIRY', default=3600),  # Increased from 900 to 3600 (1 hour)
-    'REFRESH_TOKEN_EXPIRY': env.int('JWT_REFRESH_EXPIRY', default=604800),  # 7 days
-    'RESET_TOKEN_EXPIRY': env.int('JWT_RESET_EXPIRY', default=1800),  # 30 minutes
-    'ALGORITHM': JWT_ALGORITHM,
-    'ISSUER': env('JWT_ISSUER', default='tcc-auth-service'),
-    'AUDIENCE': env.list('JWT_AUDIENCE', default=['tcc-api']),
-    'PRIVATE_KEY': JWT_PRIVATE_KEY if JWT_ALGORITHM == 'RS256' else None,
-    'PUBLIC_KEY': JWT_PUBLIC_KEY if JWT_ALGORITHM == 'RS256' else None,
-    'SECRET_KEY': JWT_SECRET_KEY if JWT_ALGORITHM == 'HS256' else None,
+    "ACCESS_TOKEN_EXPIRY": env.int(
+        "JWT_ACCESS_EXPIRY", default=3600
+    ),  # Increased from 900 to 3600 (1 hour)
+    "REFRESH_TOKEN_EXPIRY": env.int("JWT_REFRESH_EXPIRY", default=604800),  # 7 days
+    "RESET_TOKEN_EXPIRY": env.int("JWT_RESET_EXPIRY", default=1800),  # 30 minutes
+    "ALGORITHM": JWT_ALGORITHM,
+    "ISSUER": env("JWT_ISSUER", default="tcc-auth-service"),
+    "AUDIENCE": env.list("JWT_AUDIENCE", default=["tcc-api"]),
+    "PRIVATE_KEY": JWT_PRIVATE_KEY if JWT_ALGORITHM == "RS256" else None,
+    "PUBLIC_KEY": JWT_PUBLIC_KEY if JWT_ALGORITHM == "RS256" else None,
+    "SECRET_KEY": JWT_SECRET_KEY if JWT_ALGORITHM == "HS256" else None,
 }
 
 # Verify keys are loaded
@@ -282,20 +272,16 @@ CACHE_DEFAULT_EXPIRE = env.int("CACHE_DEFAULT_EXPIRE", default=300)
 
 if CACHE_BACKEND == "locmen":
     CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "tcc-cache",
-        "TIMEOUT": 300,
-        "OPTIONS": {
-            "MAX_ENTRIES": 1000,
-            "CULL_FREQUENCY":3
-        }
-    },
-    'sessions':{
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "tcc-cache",
+            "TIMEOUT": 300,
+            "OPTIONS": {"MAX_ENTRIES": 1000, "CULL_FREQUENCY": 3},
+        },
+        "sessions": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        },
     }
-}
-
 
     # Use cache for sessions when Redis is available
     SESSION_ENGINE = "django.contrib.sessions.backends.cache"
@@ -317,10 +303,10 @@ else:
 # ──────────────────────────────
 # CORS
 # ──────────────────────────────
-CORS_ALLOW_ALL_ORIGINS = env.bool('CORS_ALLOW_ALL', default=False)
-CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL", default=False)
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
 CORS_ALLOW_CREDENTIALS = True
-CORS_EXPOSE_HEADERS = ['X-Request-ID']
+CORS_EXPOSE_HEADERS = ["X-Request-ID"]
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 # ──────────────────────────────
@@ -332,13 +318,15 @@ CRISPY_TEMPLATE_PACK = "bootstrap5"
 # ──────────────────────────────
 # Email
 # ──────────────────────────────
-EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
-EMAIL_HOST = env('EMAIL_HOST', default='localhost')
-EMAIL_PORT = env.int('EMAIL_PORT', default=587)
-EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
-EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
-EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='webmaster@localhost')
+EMAIL_BACKEND = env(
+    "EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = env("EMAIL_HOST", default="localhost")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
 
 # ──────────────────────────────
 # Logging (Enhanced)
@@ -347,59 +335,71 @@ LOGS_DIR = BASE_DIR / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'structured': {
-            'format': '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}'
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "structured": {
+            "format": '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}'
         },
-        'detailed': {
-            'format': '%(asctime)s %(levelname)s %(name)s [%(module)s:%(funcName)s] %(message)s'
+        "detailed": {
+            "format": "%(asctime)s %(levelname)s %(name)s [%(module)s:%(funcName)s] %(message)s"
         },
-        'with_request_id': {
-            'format': '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s","req":"%(request_id)s"}'
-        }
+        "with_request_id": {
+            "format": '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s","req":"%(request_id)s"}'
+        },
     },
-    'filters': {
+    "filters": {
         # We'll add the request_id filter back once the middleware is working
     },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'structured',  # Using simple format without request_id for now
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "structured",  # Using simple format without request_id for now
         },
-        'file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': LOGS_DIR / 'app.log',
-            'maxBytes': 10*1024*1024,
-            'backupCount': 10,
-            'formatter': 'structured',  # Using simple format without request_id for now
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOGS_DIR / "app.log",
+            "maxBytes": 10 * 1024 * 1024,
+            "backupCount": 10,
+            "formatter": "structured",  # Using simple format without request_id for now
         },
-        'error_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': LOGS_DIR / 'errors.log',
-            'level': 'ERROR',
-            'maxBytes': 10*1024*1024,
-            'backupCount': 10,
-            'formatter': 'detailed',  # Using simple format without request_id for now
+        "error_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOGS_DIR / "errors.log",
+            "level": "ERROR",
+            "maxBytes": 10 * 1024 * 1024,
+            "backupCount": 10,
+            "formatter": "detailed",  # Using simple format without request_id for now
         },
-        'db_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': LOGS_DIR / 'database.log',
-            'level': 'INFO',
-            'maxBytes': 10*1024*1024,
-            'backupCount': 5,
-            'formatter': 'structured',  # Using simple format without request_id for now
+        "db_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOGS_DIR / "database.log",
+            "level": "INFO",
+            "maxBytes": 10 * 1024 * 1024,
+            "backupCount": 5,
+            "formatter": "structured",  # Using simple format without request_id for now
         },
     },
-    'loggers': {
-        'django': {'handlers': ['console', 'file'], 'level': 'INFO', 'propagate': False},
-        'django.request': {'handlers': ['error_file'], 'level': 'ERROR', 'propagate': False},
-        'django.db.backends': {'handlers': ['db_file'], 'level': 'INFO', 'propagate': False},
-        'db': {'handlers': ['db_file', 'console'], 'level': 'INFO', 'propagate': False},
-        'api': {'handlers': ['console', 'file'], 'level': 'INFO', 'propagate': False},
+    "loggers": {
+        "django": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["error_file"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "handlers": ["db_file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "db": {"handlers": ["db_file", "console"], "level": "INFO", "propagate": False},
+        "api": {"handlers": ["console", "file"], "level": "INFO", "propagate": False},
     },
-    'root': {'handlers': ['console'], 'level': 'INFO'},
+    "root": {"handlers": ["console"], "level": "INFO"},
 }
 
 # ──────────────────────────────
@@ -413,25 +413,27 @@ LOGGING = {
 # ──────────────────────────────
 # Snowflake ID Configuration
 # ──────────────────────────────
-SNOWFLAKE_DATACENTER_ID = env.int('SNOWFLAKE_DATACENTER_ID', default=1)
-SNOWFLAKE_MACHINE_ID = env.int('SNOWFLAKE_MACHINE_ID', default=1)
-SNOWFLAKE_EPOCH = env.int('SNOWFLAKE_EPOCH', default=1672531200000)
+SNOWFLAKE_DATACENTER_ID = env.int("SNOWFLAKE_DATACENTER_ID", default=1)
+SNOWFLAKE_MACHINE_ID = env.int("SNOWFLAKE_MACHINE_ID", default=1)
+SNOWFLAKE_EPOCH = env.int("SNOWFLAKE_EPOCH", default=1672531200000)
 
 # ──────────────────────────────
 # Application Constants
 # ──────────────────────────────
-MAX_FILE_UPLOAD_SIZE = env.int('MAX_FILE_UPLOAD_SIZE', default=10)
-DEFAULT_PAGE_SIZE = env.int('DEFAULT_PAGE_SIZE', default=20)
+MAX_FILE_UPLOAD_SIZE = env.int("MAX_FILE_UPLOAD_SIZE", default=10)
+DEFAULT_PAGE_SIZE = env.int("DEFAULT_PAGE_SIZE", default=20)
 
 # ──────────────────────────────
 # Security Settings
 # ──────────────────────────────
-SECURE_HSTS_SECONDS = env.int('SECURE_HSTS_SECONDS', default=0)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=False)
-SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=False)
-SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=False)
-SESSION_COOKIE_SECURE = env.bool('SESSION_COOKIE_SECURE', default=False)
-CSRF_COOKIE_SECURE = env.bool('CSRF_COOKIE_SECURE', default=False)
-SECURE_BROWSER_XSS_FILTER = env.bool('SECURE_BROWSER_XSS_FILTER', default=True)
-SECURE_CONTENT_TYPE_NOSNIFF = env.bool('SECURE_CONTENT_TYPE_NOSNIFF', default=True)
-X_FRAME_OPTIONS = env('X_FRAME_OPTIONS', default='DENY')
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False
+)
+SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=False)
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=False)
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=False)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=False)
+SECURE_BROWSER_XSS_FILTER = env.bool("SECURE_BROWSER_XSS_FILTER", default=True)
+SECURE_CONTENT_TYPE_NOSNIFF = env.bool("SECURE_CONTENT_TYPE_NOSNIFF", default=True)
+X_FRAME_OPTIONS = env("X_FRAME_OPTIONS", default="DENY")

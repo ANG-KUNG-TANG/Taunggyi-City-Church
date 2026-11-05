@@ -37,6 +37,8 @@ class EventRegistrationResponseSchema(BaseResponseSchema):
     notes: Optional[str] = None
 
 
-class EventRegistrationListResponseSchema(PaginatedResponse[EventRegistrationResponseSchema]):
+class EventRegistrationListResponseSchema(
+    PaginatedResponse[EventRegistrationResponseSchema]
+):
     pending_count: int = 0
     confirmed_count: int = 0

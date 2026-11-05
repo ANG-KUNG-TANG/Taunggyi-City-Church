@@ -12,15 +12,19 @@ logger = logging.getLogger(__name__)
 # Thread local storage for request ID
 _request_local = threading.local()
 
+
 def get_request_id():
     """Get current request ID from thread local"""
-    return getattr(_request_local, 'request_id', 'NO_REQUEST_ID')
+    return getattr(_request_local, "request_id", "NO_REQUEST_ID")
+
 
 class RequestIDFilter(logging.Filter):
     """Add request ID to log records"""
+
     def filter(self, record):
         record.request_id = get_request_id()
         return True
+
 
 class RequestIDMiddleware:
     """Add unique request ID to each request"""
@@ -30,20 +34,21 @@ class RequestIDMiddleware:
 
     def __call__(self, request):
         # Process request
-        request.id = request.META.get('HTTP_X_REQUEST_ID', str(uuid.uuid4()))
+        request.id = request.META.get("HTTP_X_REQUEST_ID", str(uuid.uuid4()))
         _request_local.request_id = request.id
 
         # Get response
         response = self.get_response(request)
 
         # Add request ID to response header
-        response['X-Request-ID'] = request.id
+        response["X-Request-ID"] = request.id
 
         # Clean up
-        if hasattr(_request_local, 'request_id'):
+        if hasattr(_request_local, "request_id"):
             del _request_local.request_id
 
         return response
+
 
 class SecurityHeadersMiddleware:
     """Add security headers to responses"""
@@ -55,12 +60,13 @@ class SecurityHeadersMiddleware:
         response = self.get_response(request)
 
         # Add security headers
-        response['X-Content-Type-Options'] = 'nosniff'
-        response['X-Frame-Options'] = 'DENY'
-        response['X-XSS-Protection'] = '1; mode=block'
-        response['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response["X-Content-Type-Options"] = "nosniff"
+        response["X-Frame-Options"] = "DENY"
+        response["X-XSS-Protection"] = "1; mode=block"
+        response["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
         return response
+
 
 class GlobalExceptionMiddleware:
     """Global exception handler"""
@@ -75,17 +81,18 @@ class GlobalExceptionMiddleware:
         logger.error(
             f"Unhandled exception: {str(exception)}",
             exc_info=True,
-            extra={'request_id': get_request_id()}
+            extra={"request_id": get_request_id()},
         )
 
         # Return JSON error for API requests
-        if request.path.startswith('/api/'):
-            return JsonResponse({
-                'error': 'Internal server error',
-                'request_id': get_request_id()
-            }, status=500)
+        if request.path.startswith("/api/"):
+            return JsonResponse(
+                {"error": "Internal server error", "request_id": get_request_id()},
+                status=500,
+            )
 
         return None
+
 
 class DatabaseQueryLoggingMiddleware(MiddlewareMixin):
     """Log database query performance"""
@@ -95,13 +102,13 @@ class DatabaseQueryLoggingMiddleware(MiddlewareMixin):
         request.db_query_count = 0
 
     def process_response(self, request, response):
-        if hasattr(request, 'db_query_start_time'):
+        if hasattr(request, "db_query_start_time"):
             duration = time.time() - request.db_query_start_time
             if duration > 1.0:  # Log slow requests
                 logger.warning(
                     f"Slow database queries: {duration:.2f}s, "
                     f"{getattr(request, 'db_query_count', 0)} queries",
-                    extra={'request_id': get_request_id()}
+                    extra={"request_id": get_request_id()},
                 )
         return response
 
@@ -111,7 +118,9 @@ class AsyncMiddleware(MiddlewareMixin):
 
     def process_view(self, request, view_func, view_args, view_kwargs):
         # Check if the view is async
-        if hasattr(view_func, '__code__') and view_func.__code__.co_flags & 0x80:  # CO_COROUTINE flag
+        if (
+            hasattr(view_func, "__code__") and view_func.__code__.co_flags & 0x80
+        ):  # CO_COROUTINE flag
             # Wrap async view to run in sync context
             request._async_view = True
         return None
