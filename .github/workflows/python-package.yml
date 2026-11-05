@@ -21,10 +21,16 @@ jobs:
     name: Backend Quality Checks
 
     runs-on: ubuntu-latest
-
+        
     # Environment variables required by Django in CI
     env:
       SECRET_KEY: "ci-only-dummy-secret-key"
+      DB_NAME: "tcc_ci_db"
+      DB_USER: "tcc_ci_user"
+      DB_PASSWORD: "ci-only-dummy-password"
+      DB_HOST: "127.0.0.1"
+      DB_PORT: "5432"
+
 
     defaults:
       run:
