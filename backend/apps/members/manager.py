@@ -1,1 +1,1 @@
-r
+"""Member management utilities."""

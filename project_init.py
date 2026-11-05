@@ -1,6 +1,9 @@
 """
-TCC Project Auto Initialization Script
-Fully automatic: creates venv with Python 3.12, installs deps, prepares environment, and runs Django setup.
+TCC Project Initialization Script
+Reuses or creates a virtual environment, verifies dependencies, prepares
+environment files and VS Code settings, checks Django configuration,
+and optionally collects static files. Database migrations are currently
+performed automatically during Django setup.
 """
 
 import os, sys, subprocess, platform, shutil, json
@@ -9,8 +12,8 @@ from pathlib import Path
 class ProjectInitializer:
     def __init__(self):
         self.project_root = Path(__file__).parent
-        self.venv_path = self.project_root / "viro"
-        self.requirements_file = self.project_root / "requirements.txt"
+        self.venv_path = self.project_root / "backend" / ".venv"
+        self.requirements_file = self.project_root / "backend" / "requirements.txt"
         self.is_windows = platform.system() == "Windows"
         self.python_executable = None
         self.pip_executable = None
@@ -19,370 +22,462 @@ class ProjectInitializer:
     # ----------------------------------------------------------
     def print_header(self):
         print("=" * 60)
-        print("🚀  TCC Project Auto Initialization (Python 3.12)")
+        print("🚀  TCC Project Auto Initialization")
         print("=" * 60)
+
 
     # ----------------------------------------------------------
     def find_python_312(self):
-        """Find Python 3.12 executable with better Windows support"""
-        print("🔍 Looking for Python 3.12...")
-        
-        # Common Python 3.12 locations on Windows
-        possible_paths = [
-            # User might have installed Python 3.12 in different locations
-            "python3.12", "python312", 
-            "py -3.12", "py -3.12-32", "py -3.12-64",
-            # Common installation paths
-            "C:\\Python312\\python.exe",
-            "C:\\Program Files\\Python312\\python.exe", 
-            "C:\\Users\\" + os.getenv('USERNAME') + "\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
-            # Environment variables
-            os.getenv('PYTHON312_PATH', ''),
-            # Check if Python 3.12 is available via python command
-            "python"
-        ]
-        
-        for path_cmd in possible_paths:
-            if not path_cmd.strip():
-                continue
-                
-            try:
-                if path_cmd.startswith("py "):
-                    # Handle Windows py launcher
-                    cmd = path_cmd.split() + ["--version"]
-                else:
-                    cmd = [path_cmd, "--version"]
-                    
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                if result.returncode == 0 and "3.12" in result.stdout:
-                    print(f"✅ Found Python 3.12: {path_cmd}")
-                    return path_cmd
-            except (FileNotFoundError, subprocess.SubprocessError, subprocess.TimeoutExpired):
-                continue
-        
-        # Last resort: check current Python version
-        current_version = sys.version_info
-        if current_version.major == 3 and current_version.minor == 12:
-            print("✅ Using current Python 3.12")
-            return sys.executable
-        
-        print("\n❌ Python 3.12 not found automatically.")
-        print("\n🔧 Please install Python 3.12 from:")
-        print("   https://www.python.org/downloads/release/python-3120/")
-        print("\n📋 Or try one of these solutions:")
-        print("   1. Install Python 3.12 using the Windows installer")
-        print("   2. Use the Python launcher: 'py -3.12' should work after installation")
-        print("   3. Add Python 3.12 to your PATH during installation")
-        
-        # Ask user for manual path
-        manual_path = input("\n📁 Or enter the full path to Python 3.12 executable (or press Enter to exit): ").strip()
-        if manual_path and os.path.exists(manual_path):
-            return manual_path
-        else:
-            sys.exit(1)
+        """Use the Python interpreter running this initializer."""
+        return sys.executable
 
     # ----------------------------------------------------------
     def check_python_version(self):
+        """Check the current Python interpreter without requiring 3.12."""
         print("🔍 Checking Python version...")
+
         self.python_12 = self.find_python_312()
-        
-        # Verify it's actually 3.12 with better error handling
+
         try:
-            if self.python_12.startswith("py "):
-                cmd = self.python_12.split() + ["--version"]
-            else:
-                cmd = [self.python_12, "--version"]
-                
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=True)
+            result = subprocess.run(
+                [
+                    self.python_12,
+                    "-c",
+                    "import sys; print(sys.version)",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+
             version_output = result.stdout.strip()
-            print(f"✅ Using: {version_output}")
-            
-            if "3.12" not in version_output:
-                print(f"❌ Expected Python 3.12 but got: {version_output}")
-                sys.exit(1)
-                
-        except Exception as e:
-            print(f"❌ Failed to verify Python 3.12: {e}")
-            print(f"   Command tried: {cmd}")
+            print(f"✅ Using Python: {version_output}")
+
+        except (subprocess.SubprocessError, OSError) as e:
+            print(f"❌ Failed to verify Python: {e}")
             sys.exit(1)
+
+
 
     # ----------------------------------------------------------
     def recreate_virtual_environment(self):
-        """Always recreate a fresh virtual environment with Python 3.12"""
-        if self.venv_path.exists():
-            print("🧹 Removing existing virtual environment...")
-            try:
-                shutil.rmtree(self.venv_path)
-            except Exception as e:
-                print(f"❌ Failed to remove old environment: {e}")
-                sys.exit(1)
-
-        print("🐍 Creating new virtual environment with Python 3.12...")
-        try:
-            # Use the found Python 3.12 to create venv
-            if self.python_12.startswith("py "):
-                # Handle py launcher on Windows
-                cmd = self.python_12.split() + ["-m", "venv", str(self.venv_path)]
-            else:
-                cmd = [self.python_12, "-m", "venv", str(self.venv_path)]
-                
-            print(f"   Running: {' '.join(cmd)}")
-            subprocess.run(cmd, check=True, timeout=60)
-        except Exception as e:
-            print(f"❌ Could not create venv with Python 3.12: {e}")
-            print("💡 Try installing Python 3.12 manually and ensure it's in PATH")
-            sys.exit(1)
+        """Reuse the existing venv or create one without deleting anything."""
 
         if self.is_windows:
-            self.python_executable = self.venv_path / "Scripts" / "python.exe"
-            self.pip_executable = self.venv_path / "Scripts" / "pip.exe"
+            python_path = self.venv_path / "Scripts" / "python.exe"
+            pip_path = self.venv_path / "Scripts" / "pip.exe"
         else:
-            self.python_executable = self.venv_path / "bin" / "python"
-            self.pip_executable = self.venv_path / "bin" / "pip"
-        
-        # Verify the venv was created successfully
-        if not self.python_executable.exists():
-            print(f"❌ Virtual environment creation failed: {self.python_executable} not found")
-            sys.exit(1)
-            
-        print(f"✅ Virtual environment ready: {self.python_executable}")
+            python_path = self.venv_path / "bin" / "python"
+            pip_path = self.venv_path / "bin" / "pip"
 
-    # ----------------------------------------------------------
-    def install_dependencies(self):
-        print("📦 Installing dependencies...")
-        if not self.requirements_file.exists():
-            self.requirements_file.parent.mkdir(exist_ok=True)
-            self.create_compatible_requirements()
+        # Reuse the existing environment if its Python executable exists.
+        if python_path.exists():
+            self.python_executable = python_path
+            self.pip_executable = pip_path
+
+            print(f"♻️ Reusing existing virtual environment: {python_path}")
+            return
+
+        # Never delete an existing directory automatically.
+        if self.venv_path.exists():
+            print(
+                "❌ The virtual environment directory exists, "
+                "but its Python executable was not found."
+            )
+            print(f"   Directory: {self.venv_path}")
+            print("   Please inspect it before making any changes.")
+            sys.exit(1)
+
+        print("🐍 Creating a new virtual environment...")
 
         try:
-            # Upgrade pip first
-            subprocess.run([str(self.python_executable), "-m", "pip", "install", "--upgrade", "pip"], 
-                         check=True, timeout=120)
-            
-            # Install requirements
-            subprocess.run([str(self.python_executable), "-m", "pip", "install", "-r", str(self.requirements_file)], 
-                         check=True, timeout=300)
-            print("✅ Dependencies installed successfully.")
+            subprocess.run(
+                [
+                    self.python_12,
+                    "-m",
+                    "venv",
+                    str(self.venv_path),
+                ],
+                check=True,
+                timeout=120,
+            )
+
+        except (subprocess.SubprocessError, OSError) as e:
+            print(f"❌ Could not create virtual environment: {e}")
+            sys.exit(1)
+
+        if not python_path.exists():
+            print(
+                f"❌ Virtual environment creation failed: "
+                f"{python_path} not found"
+            )
+            sys.exit(1)
+
+        self.python_executable = python_path
+        self.pip_executable = pip_path
+
+        print(f"✅ Virtual environment ready: {python_path}")
+
+
+
+    def verify_dependencies(self):
+        """Verify pinned dependencies without modifying the environment."""
+        print("📦 Verifying dependencies...")
+
+        if not self.requirements_file.exists():
+            print(f"❌ Requirements file not found: {self.requirements_file}")
+            return False
+
+        try:
+            from importlib.metadata import PackageNotFoundError, version
+            from packaging.requirements import Requirement
+
+            missing = []
+            mismatched = []
+
+            with self.requirements_file.open(
+                "r", encoding="utf-8"
+            ) as requirements:
+                for line_number, line in enumerate(requirements, start=1):
+                    line = line.strip()
+
+                    if not line or line.startswith("#"):
+                        continue
+
+                    try:
+                        requirement = Requirement(line)
+                    except Exception as error:
+                        print(
+                            f"❌ Invalid requirement at line "
+                            f"{line_number}: {line}"
+                        )
+                        print(f"   {error}")
+                        return False
+
+                    try:
+                        installed_version = version(requirement.name)
+                    except PackageNotFoundError:
+                        missing.append(requirement.name)
+                        continue
+
+                    if not requirement.specifier.contains(
+                        installed_version,
+                        prereleases=True,
+                    ):
+                        mismatched.append(
+                            f"{requirement.name}: "
+                            f"required {requirement.specifier}, "
+                            f"installed {installed_version}"
+                        )
+
+            if missing:
+                print("❌ Missing packages:")
+                for package in missing:
+                    print(f"   - {package}")
+
+            if mismatched:
+                print("❌ Version mismatches:")
+                for package in mismatched:
+                    print(f"   - {package}")
+
+            if missing or mismatched:
+                print("❌ Requirements verification failed.")
+                print("ℹ️  No packages were installed or upgraded.")
+                return False
+
+            subprocess.run(
+                [
+                    str(self.python_executable),
+                    "-m",
+                    "pip",
+                    "check",
+                ],
+                check=True,
+                timeout=60,
+            )
+
+            print("✅ All requirements are installed at compatible versions.")
+            print("✅ Installed packages have no dependency conflicts.")
+            print("ℹ️  No packages were installed or upgraded.")
+
+            return True
+
+        except subprocess.CalledProcessError as error:
+            print(f"❌ Dependency conflict check failed: {error}")
+            return False
+
         except subprocess.TimeoutExpired:
-            print("❌ Dependency installation timed out. Try running again.")
-            sys.exit(1)
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Failed to install dependencies: {e}")
-            sys.exit(1)
+            print("❌ Dependency verification timed out.")
+            return False
 
-    # ----------------------------------------------------------
-    def create_compatible_requirements(self):
-        """Create requirements compatible with Python 3.12"""
-        compatible_reqs = """Django>=4.2,<5.0
-djangorestframework>=3.14
-django-cors-headers>=4.0
-psycopg2-binary>=2.9
-Pillow>=10.0
-python-decouple>=3.8
-celery>=5.3
-redis>=4.5
-drf-yasg>=1.21
-django-filter>=23.0
-django-debug-toolbar>=4.0
-django-extensions>=3.2
-whitenoise>=6.4
-gunicorn>=21.0
-django-cleanup>=8.0
-python-memcached>=1.59
-django-redis>=5.2
-
-# JWT packages compatible with Python 3.12
-djangorestframework-simplejwt>=5.2.0
-PyJWT>=2.8.0
-
-# Database
-psycopg2-binary>=2.9.6
-
-# Development tools
-black>=23.0
-flake8>=6.0
-"""
-        with open(self.requirements_file, "w") as f:
-            f.write(compatible_reqs)
-        print("📄 Created Python 3.12 compatible requirements.txt")
-
-    # ----------------------------------------------------------
-    def fix_jwt_compatibility(self):
-        """Apply workaround for JWT package compatibility issues"""
-        print("🔧 Checking for JWT compatibility fixes...")
-        
-        # This is now less critical since we're using Python 3.12
-        jwt_init_file = self.venv_path / "Lib" / "site-packages" / "rest_framework_simplejwt" / "__init__.py"
-        
-        if jwt_init_file.exists():
-            try:
-                # Only fix if there's an importlib issue
-                with open(jwt_init_file, 'r') as f:
-                    content = f.read()
-                    
-                if "importlib" in content and "version" in content:
-                    # Backup original file
-                    backup_file = jwt_init_file.with_suffix('.py.backup')
-                    if not backup_file.exists():
-                        shutil.copy2(jwt_init_file, backup_file)
-                    
-                    # Replace with fixed version
-                    fixed_content = '''__version__ = "5.3.0"  # Manual version
-
-default_app_config = 'rest_framework_simplejwt.apps.SimpleJwtConfig'
-'''
-                    with open(jwt_init_file, 'w') as f:
-                        f.write(fixed_content)
-                    print("✅ Applied JWT compatibility fix")
-                else:
-                    print("✅ JWT package already compatible")
-            except Exception as e:
-                print(f"⚠️  Could not check JWT package (non-critical): {e}")
-        else:
-            print("ℹ️  JWT package not installed yet")
+        except Exception as error:
+            print(f"❌ Dependency verification failed: {error}")
+            return False
 
     # ----------------------------------------------------------
     def setup_env_files(self):
-        print("⚙️  Setting up .env files...")
-        env_example = self.project_root / ".env.example"
-        env_file = self.project_root / ".env"
+        """Prepare backend environment files without overwriting secrets."""
+        print("⚙️  Setting up backend .env files...")
 
-        if not env_example.exists():
-            with open(env_example, "w") as f:
-                f.write("""DEBUG=True
-SECRET_KEY=your-secret-key-here-make-it-very-long-and-secure
-ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
-DATABASE_URL=sqlite:///db.sqlite3
-CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-""")
-            print("📄 Created .env.example")
+        backend_dir = self.project_root / "backend"
+        env_example = backend_dir / ".env.example"
+        env_file = backend_dir / ".env"
 
-        if not env_file.exists():
-            shutil.copy(env_example, env_file)
-            print("✅ Created .env from template")
-        else:
-            print("📁 .env already exists")
+        if not backend_dir.exists():
 
-    # ----------------------------------------------------------
-    def run_django_setup(self):
-        print("🛠️  Running Django setup...")
-        manage_py = self.project_root / "manage.py"
-        if not manage_py.exists():
-            print("❌ manage.py not found — please ensure you're in a Django project root.")
+
+            print(f"❌ Backend directory not found: {backend_dir}")
             sys.exit(1)
 
+        # Create a template only if it does not already exist.
+        if not env_example.exists():
+            env_example.write_text(
+                """DEBUG=True
+SECRET_KEY=replace-with-a-secure-secret-key
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+DB_NAME=your_database_name
+DB_USER=your_database_user
+DB_PASSWORD=your_database_password
+DB_HOST=localhost
+DB_PORT=5432
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+""",
+                encoding="utf-8",
+            )
+            print("📄 Created backend/.env.example")
+        else:
+            print("📄 backend/.env.example already exists")
+
+        # Never overwrite an existing environment file.
+        if not env_file.exists():
+            shutil.copy2(env_example, env_file)
+            print("✅ Created backend/.env from template")
+            print("⚠️  Update backend/.env with your actual configuration.")
+        else:
+            print("🔒 backend/.env already exists. Keeping it unchanged.")
+
+    def run_django_setup(self):
+        """Run Django migrations and optionally collect static files."""
+        print("🛠️  Running Django setup...")
+
+        backend_dir = self.project_root / "backend"
+        manage_py = backend_dir / "manage.py"
+
+        if not manage_py.exists():
+            print(f"❌ Django manage.py not found: {manage_py}")
+            sys.exit(1)
+
+        # Validate Django configuration before making changes.
+        try:
+            subprocess.run(
+                [
+                    str(self.python_executable),
+                    str(manage_py),
+                    "check",
+                ],
+                cwd=str(backend_dir),
+                check=True,
+                timeout=30,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Django configuration check failed: {e}")
+            sys.exit(1)
+        except subprocess.TimeoutExpired:
+            print("❌ Django configuration check timed out.")
+            sys.exit(1)
+
+
+        # Database migrations are performed automatically.
         commands = [
-            ["makemigrations"],
-            ["migrate"],
-            ["collectstatic", "--noinput"],
+            ["migrate", "--noinput"],
         ]
-        
+
         for cmd in commands:
             try:
-                print(f"   Running: python manage.py {cmd[0]}")
-                subprocess.run([str(self.python_executable), str(manage_py)] + cmd, check=True, timeout=60)
+                print(f"   Running: python manage.py {' '.join(cmd)}")
+
+                subprocess.run(
+                    [
+                        str(self.python_executable),
+                        str(manage_py),
+                        *cmd,
+                    ],
+                    cwd=str(backend_dir),
+                    check=True,
+                    timeout=120,
+                )
+
                 print(f"✅ Django {cmd[0]} completed")
+
             except subprocess.CalledProcessError as e:
-                print(f"⚠️  Django {cmd[0]} failed: {e}")
-                if "auth" in str(e).lower() or "user" in str(e).lower():
-                    print("💡 Tip: You may need to check your custom user model configuration")
+                print(f"❌ Django {cmd[0]} failed: {e}")
+                sys.exit(1)
+
             except subprocess.TimeoutExpired:
-                print(f"⚠️  Django {cmd[0]} timed out")
-        
+                print(f"❌ Django {cmd[0]} timed out.")
+                sys.exit(1)
+
+        # Static collection requires explicit confirmation.
+        if sys.stdin.isatty():
+            answer = input(
+                "\nDo you want to collect static files now? [y/N]: "
+            ).strip().lower()
+
+            if answer in ("y", "yes"):
+                try:
+                    subprocess.run(
+                        [
+                            str(self.python_executable),
+                            str(manage_py),
+                            "collectstatic",
+                            "--noinput",
+                        ],
+                        cwd=str(backend_dir),
+                        check=True,
+                        timeout=120,
+                    )
+
+                    print("✅ Django collectstatic completed")
+
+                except subprocess.CalledProcessError as e:
+                    print(f"❌ Django collectstatic failed: {e}")
+                    sys.exit(1)
+
+                except subprocess.TimeoutExpired:
+                    print("❌ Django collectstatic timed out.")
+                    sys.exit(1)
+
+            else:
+                print("ℹ️  Static collection skipped.")
+
+        else:
+            print("ℹ️  Non-interactive environment detected.")
+            print("   Static collection skipped.")
+
         print("✅ Django setup completed.")
 
-    # ----------------------------------------------------------
+
+
     def setup_vscode(self):
+        """Create VS Code configuration only when files are missing."""
         print("🧩 Setting up VS Code configuration...")
+
         vscode_dir = self.project_root / ".vscode"
         vscode_dir.mkdir(exist_ok=True)
-        
+
+        settings_file = vscode_dir / "settings.json"
+        launch_file = vscode_dir / "launch.json"
+
         settings = {
             "python.defaultInterpreterPath": str(self.python_executable),
             "editor.formatOnSave": True,
             "python.formatting.provider": "black",
-            "python.terminal.activateEnvironment": False
+            "python.terminal.activateEnvironment": False,
         }
-        
-        with open(vscode_dir / "settings.json", "w") as f:
-            json.dump(settings, f, indent=2)
-        
-        # Create launch.json for debugging
+
         launch_config = {
             "version": "0.2.0",
             "configurations": [
                 {
                     "name": "Django Debug",
-                    "type": "python",
+                    "type": "debugpy",
                     "request": "launch",
-                    "program": "${workspaceFolder}/manage.py",
+                    "program": "${workspaceFolder}/backend/manage.py",
                     "args": ["runserver"],
+                    "cwd": "${workspaceFolder}/backend",
                     "django": True,
-                    "justMyCode": True
+                    "justMyCode": True,
                 }
-            ]
+            ],
         }
-        
-        with open(vscode_dir / "launch.json", "w") as f:
-            json.dump(launch_config, f, indent=2)
-            
-        print("✅ VS Code configured for Python 3.12")
 
-    # ----------------------------------------------------------
+        if settings_file.exists():
+            print("ℹ️  Existing settings.json preserved.")
+        else:
+            with open(settings_file, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=2)
+            print("✅ Created settings.json")
+
+        if launch_file.exists():
+            print("ℹ️  Existing launch.json preserved.")
+        else:
+            with open(launch_file, "w", encoding="utf-8") as f:
+                json.dump(launch_config, f, indent=2)
+            print("✅ Created launch.json")
+
+        print("✅ VS Code configuration checked.")
+
+
     def verify_installation(self):
-        """Verify that everything is working correctly"""
+        """Verify that the backend Django installation is working."""
         print("🔍 Verifying installation...")
-        
+
+        backend_dir = self.project_root / "backend"
+        manage_py = backend_dir / "manage.py"
+
         try:
-            # Test Python version in venv
             result = subprocess.run(
-                [str(self.python_executable), "--version"], 
-                capture_output=True, text=True, check=True, timeout=10
+                [str(self.python_executable), "--version"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
             )
+
             print(f"✅ {result.stdout.strip()}")
-            
-            # Test Django
+
             result = subprocess.run(
-                [str(self.python_executable), "manage.py", "check"], 
-                capture_output=True, text=True, check=True, timeout=30
+                [
+                    str(self.python_executable),
+                    str(manage_py),
+                    "check",
+                ],
+                cwd=str(backend_dir),
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
             )
+
+            print(result.stdout)
             print("✅ Django check passed")
-            
+
         except subprocess.CalledProcessError as e:
-            print(f"⚠️  Verification issue: {e}")
+            print(f"⚠️  Verification failed: {e}")
+
+            if e.stdout:
+                print(e.stdout)
+
+            if e.stderr:
+                print(e.stderr)
+
             return False
+
         except subprocess.TimeoutExpired:
             print("⚠️  Verification timed out")
             return False
-            
+
         return True
 
-    # ----------------------------------------------------------
+
     def run(self):
         self.print_header()
         self.check_python_version()
         self.recreate_virtual_environment()
-        self.install_dependencies()
-        self.fix_jwt_compatibility()
+
+        if not self.verify_dependencies():
+            print("❌ Initialization stopped: dependency verification failed.")
+            sys.exit(1)
+
         self.setup_env_files()
         self.run_django_setup()
         self.setup_vscode()
-        self.verify_installation()
-        
-        print("\n🎉 All set! Project initialized with Python 3.12")
-        print("\n🚀 To start your project:")
-        if self.is_windows:
-            print("   viro\\Scripts\\activate")
-            print("   python manage.py runserver")
-        else:
-            print("   source viro/bin/activate")
-            print("   python manage.py runserver")
-        
-        print("\n📝 Next steps:")
-        print("   1. Configure your database in .env file")
-        print("   2. Create a superuser: python manage.py createsuperuser")
-        print("   3. Start developing!")
-        print("\n✅ Initialization complete.")
+
+        if not self.verify_installation():
+            print("❌ Initialization failed: Django verification did not pass.")
+            sys.exit(1)
+
 
 # --------------------------------------------------------------
 def main():

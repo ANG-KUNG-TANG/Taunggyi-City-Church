@@ -24,3 +24,8 @@ dev = [
     "coverage>=7.4.0",
     "django-extensions>=3.2.3",
 ]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.testing"
+python_files = ["test_*.py", "*_test.py"]
+testpaths = ["apps"]
