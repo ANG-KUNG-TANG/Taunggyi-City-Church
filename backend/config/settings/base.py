@@ -67,7 +67,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "core.jwt.token_debugger.TokenDebugMiddleware",
+    "common.jwt.token_debugger.TokenDebugMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -158,7 +158,7 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "core.jwt.jwtauth.JWTAuthentication",
+        "common.jwt.jwtauth.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.TokenAuthentication",
     ],
