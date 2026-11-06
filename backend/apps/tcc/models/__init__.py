@@ -1,3 +1,3 @@
-from apps.users.users import User
+from apps.accounts.models.users import User
 
 __all__ = ["User"]
