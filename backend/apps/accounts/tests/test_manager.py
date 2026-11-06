@@ -1,6 +1,6 @@
 import pytest
 
-from backend.apps.accounts.models.users import User
+from apps.accounts.models.users import User
 
 
 def test_create_user_requires_email():

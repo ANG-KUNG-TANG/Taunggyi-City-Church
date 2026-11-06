@@ -1,4 +1,4 @@
-from backend.apps.accounts.models.users import User
+from apps.accounts.models.users import User
 from apps.tcc.models.base.enums import UserRole, UserStatus
 
 

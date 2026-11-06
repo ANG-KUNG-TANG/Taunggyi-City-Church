@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "crispy_forms",
     "crispy_bootstrap5",
+    "apps.accounts.apps.AccountsConfig",
     "apps.tcc.apps.TccConfig",
 ]
 AUTH_USER_MODEL = "tcc.User"
