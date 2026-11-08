@@ -1,0 +1,28 @@
+"""
+Central registry of stable application error codes.
+"""
+
+
+class ErrorCode:
+    # General errors
+    APPLICATION_ERROR = "APPLICATION_ERROR"
+    INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"
+
+    # Authentication and authorization
+    AUTHENTICATION_REQUIRED = "AUTHENTICATION_REQUIRED"
+    PERMISSION_DENIED = "PERMISSION_DENIED"
+
+    # Request validation
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    INVALID_REQUEST = "INVALID_REQUEST"
+
+    # Resource errors
+    RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND"
+    RESOURCE_CONFLICT = "RESOURCE_CONFLICT"
+
+    # Domain errors
+    ACCOUNT_ERROR = "ACCOUNT_ERROR"
+    ZONE_ERROR = "ZONE_ERROR"
+    MEMBER_ERROR = "MEMBER_ERROR"
+    ATTENDANCE_ERROR = "ATTENDANCE_ERROR"
+    FINANCE_ERROR = "FINANCE_ERROR"
