@@ -33,21 +33,16 @@ class RequestIDMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Process request
         request.id = request.META.get("HTTP_X_REQUEST_ID", str(uuid.uuid4()))
         _request_local.request_id = request.id
 
-        # Get response
-        response = self.get_response(request)
-
-        # Add request ID to response header
-        response["X-Request-ID"] = request.id
-
-        # Clean up
-        if hasattr(_request_local, "request_id"):
-            del _request_local.request_id
-
-        return response
+        try:
+            response = self.get_response(request)
+            response["X-Request-ID"] = request.id
+            return response
+        finally:
+            if hasattr(_request_local, "request_id"):
+                del _request_local.request_id
 
 
 class SecurityHeadersMiddleware:
@@ -78,18 +73,27 @@ class GlobalExceptionMiddleware:
         return self.get_response(request)
 
     def process_exception(self, request, exception):
+        request_id = getattr(request, "id", None) or get_request_id()
+
         logger.error(
-            f"Unhandled exception: {str(exception)}",
+            "Unhandled exception",
             exc_info=True,
-            extra={"request_id": get_request_id()},
+            extra={"request_id": request_id},
         )
 
-        # Return JSON error for API requests
         if request.path.startswith("/api/"):
-            return JsonResponse(
-                {"error": "Internal server error", "request_id": get_request_id()},
+            response = JsonResponse(
+                {
+                    "error": {
+                        "code": "INTERNAL_SERVER_ERROR",
+                        "message": "An unexpected error occurred.",
+                    },
+                    "request_id": request_id,
+                },
                 status=500,
             )
+            response["X-Request-ID"] = request_id
+            return response
 
         return None
 
