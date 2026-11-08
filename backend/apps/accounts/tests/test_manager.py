@@ -5,35 +5,40 @@ from apps.accounts.models.users import User
 
 def test_create_user_requires_email():
     with pytest.raises(ValueError, match="The email must be set"):
-        User.objects.create_user(
-            email="",
-            name="Test User",
-        )
+        User.objects.create_user(email="")
 
 
-def test_create_user_requires_name():
-    with pytest.raises(ValueError, match="The name must be set"):
-        User.objects.create_user(
-            email="test@example.com",
-            name="",
-        )
-
-
-def test_create_superuser_requires_staff_status():
-    with pytest.raises(ValueError, match="is_staff=True"):
+def test_create_superuser_is_not_supported():
+    with pytest.raises(
+        NotImplementedError,
+        match="Django superusers are not part",
+    ):
         User.objects.create_superuser(
             email="admin@example.com",
-            name="Admin User",
             password="test-password",
-            is_staff=False,
         )
 
 
-def test_create_superuser_requires_superuser_status():
-    with pytest.raises(ValueError, match="is_superuser=True"):
-        User.objects.create_superuser(
-            email="admin@example.com",
-            name="Admin User",
-            password="test-password",
-            is_superuser=False,
-        )
+@pytest.mark.django_db
+def test_create_user_sets_unusable_password_when_password_is_omitted():
+    user = User.objects.create_user(
+        email="test@example.com",
+        first_name="Test",
+        last_name="User",
+    )
+
+    assert user.has_usable_password() is False
+
+
+@pytest.mark.django_db
+def test_create_user_hashes_password():
+    password = "test-password"
+
+    user = User.objects.create_user(
+        email="test@example.com",
+        password=password,
+    )
+
+    assert user.has_usable_password() is True
+    assert user.check_password(password) is True
+    assert user.password != password
