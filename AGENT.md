@@ -1,215 +1,645 @@
-Taunggyi City Church — Agent Guide
-Project Overview
-Taunggyi City Church is a Django-based backend project.
+# Taunggyi City Church — Agent Guide
 
-The project is being developed to support church operations, including user management, authentication, attendees, and related church-management functionality.
+## 1. Project Overview
+
+Taunggyi City Church is a church community management system developed as a web application.
+
+The project supports church operations, including:
+
+- Staff accounts and authentication
+- Role-based access control
+- Member and zone management
+- Attendance management
+- Activities and announcements
+- Donation and fund management
+- Financial reporting and audit records
 
 The repository is maintained on GitHub:
 
 https://github.com/ANG-KUNG-TANG/Taunggyi-City-Church
-Current Development Status
-Completed: Backend Restructuring
-The Django backend has been moved into the backend/ directory.
 
-The restructuring was committed and pushed to GitHub.
+### Technology Baseline
+
+- Backend: Django
+- API: Django REST Framework
+- Database: PostgreSQL
+- Frontend: React and TypeScript
+- Architecture: Modular monolith
+- Version control: Git and GitHub
+- CI: GitHub Actions
+
+The approved OOAD and System Design Specification is the primary source of truth for business requirements and architecture.
+
+Do not invent business rules when the design identifies a decision as unresolved.
+
+---
+
+## 2. Current Development Status
+
+### Completed: Backend Restructuring
+
+The Django backend was moved into:
+
+`backend/`
+
+The restructuring was committed and pushed.
 
 Commit:
-9a6b59e chore: move Django backend into backend directory
-Completed: Remote Workflow Integration
+
+`9a6b59e chore: move Django backend into backend directory`
+
+### Completed: Remote Workflow Integration
+
 The existing GitHub Actions workflow was integrated into the local branch.
 
 Remote commit:
-e3de647 Add GitHub Actions workflow for Python package
 
-The merge was completed successfully.
+`e3de647 Add GitHub Actions workflow for Python package`
 
 Merge commit:
-a76025f Merge remote-tracking branch 'origin/main'
-Completed: Django Validation
-The Django system check was executed from the backend directory:
-cd backend
-python manage.py check
-Result:
-System check identified no issues (0 silenced).
-Completed: GitHub Push
-The merged changes were successfully pushed to:
 
-origin/main
+`a76025f Merge remote-tracking branch 'origin/main'`
 
-No force push was used.
-Project Structure
-The Django backend is located in:
-backend/
-The Django management entry point is:
-backend/manage.py
-The backend contains Django applications, API modules, configuration, middleware, serializers, models, and supporting services.
+The merge was completed successfully and pushed without force-pushing.
 
-The project also contains:
-.github/workflows/python-package.yml
-This workflow currently defines Python linting and pytest execution.
-Development Environment
-The project has been developed locally on macOS using a Python virtual environment.
+### Completed: Phase 1 — System Design Baseline
 
-Activate the existing virtual environment from the project root:
+Phase 1 established the system design documentation and implementation baseline.
+
+The design documents are located in:
+
+`backend/docs/`
+
+Documents:
+
+- `architecture.md`
+- `domain_model.md`
+- `database_design.md`
+- `role_permissions.md`
+- `finance_workflow.md`
+- `audit_policy.md`
+- `open_decisions.md`
+
+Baseline commit:
+
+`b0af822 docs: establish system design baseline`
+
+Branch:
+
+`feature/phase-1-system-design`
+
+The consolidated OOAD and System Design Specification is also available as the project's approved design reference.
+
+### Completed: CI Test Discovery Correction
+
+The backend test path in GitHub Actions was corrected from the invalid:
+
+`apps/users/tests/`
+
+to:
+
+`apps/accounts/tests/`
+
+Commit:
+
+`015c218 fix: correct backend test discovery path`
+
+The account test module was previously executed with 8 passing tests. This historical result has since been superseded by the latest Phase 2A test run.
+
+---
+
+## 3. Phase 2 — Backend Implementation
+
+Phase 2 implementation is underway.
+
+The first implementation milestone is the backend foundation, particularly staff accounts and role-based access control.
+
+### Phase 2A: Accounts and RBAC Foundation
+
+**Implementation status: Implemented locally; commit and PR still pending.**
+
+#### Custom User Model
+
+A custom User model has been implemented with:
+
+- UUID primary key
+- Unique email address
+- Optional first name and last name
+- Active status
+- Creation timestamp
+- Inherited password hashing and last-login functionality from Django's `AbstractBaseUser`
+
+The model uses email as its authentication identifier.
+
+The configured model reference is:
+
+`AUTH_USER_MODEL = "tcc.User"`
+
+The database table is:
+
+`users`
+
+#### Custom User Manager
+
+A custom `UserManager` has been implemented.
+
+It provides:
+
+- Email validation
+- Email normalization
+- Password hashing through Django's password utilities
+- Unusable passwords when no password is supplied
+
+Django superuser creation is explicitly unsupported because the application uses its own documented RBAC architecture.
+
+#### Role Model
+
+A Role model has been implemented with:
+
+- UUID primary key
+- Unique role code
+- Role name
+- Optional description
+- System-role indicator
+
+#### UserRole Model
+
+A UserRole model represents staff role assignments.
+
+It includes:
+
+- UUID primary key
+- User foreign key
+- Role foreign key
+- Optional assigning user
+- Assignment timestamp
+- Optional revocation timestamp
+
+The model supports recording role assignment history.
+
+#### Initial System Roles
+
+The following system roles have been seeded through a data migration:
+
+| Role Code | Role Name |
+|---|---|
+| `ZONE_LEADER` | Zone Leader |
+| `PASTOR` | Pastor |
+| `ADMINISTRATOR` | Administrator |
+
+`PUBLIC` is not seeded as a database role because Public Visitor is an unauthenticated actor, not an authenticated staff account.
+
+#### Django Admin and Superuser Decisions
+
+Django Admin integration has been removed from the project configuration.
+
+The application Administrator role is distinct from Django's built-in administrative and superuser concepts.
+
+The custom User model does not inherit `PermissionsMixin`, and Django superuser creation is not supported.
+
+Do not restore Django Admin, Django superuser functionality, or Django's built-in staff permission model without an explicit architectural reason and approval.
+
+#### Migration Status
+
+The following migrations have been created and applied to the local PostgreSQL database:
+
+- `0002_rebuild_user_and_add_rbac.py`
+  - Rebuilds the legacy User table.
+  - Creates the UUID-based User model.
+  - Creates Role and UserRole tables.
+
+- `0003_seed_system_roles.py`
+  - Seeds the three initial system roles.
+
+The original migration `0001_initial.py` remains unchanged.
+
+The local migration state was verified:
+
+- `0001_initial`: applied
+- `0002_rebuild_user_and_add_rbac`: applied
+- `0003_seed_system_roles`: applied
+
+The legacy test User record was removed as part of the approved table rebuild. A database backup was created before the rebuild.
+
+Backup location:
+
+`/Users/anrikung/taunggyi_church_before_user_rebuild.dump`
+
+This is a local backup and must not be committed or shared publicly.
+
+### Phase 2A Validation
+
+The following results have been recorded:
+
+| Validation | Result |
+|---|---|
+| Accounts tests | 9 passed |
+| Django system check | Passed |
+| Migration consistency check | No changes detected |
+| Flake8 critical-error checks | 0 errors |
+| `git diff --check` | Passed |
+| Black formatting | Formatting executed; final `--check` still needs verification |
+
+The accounts test command was:
+
+```bash
+python -m pytest apps/accounts/tests/ -v
+```
+
+The migration consistency command was:
+
+```bash
+python manage.py makemigrations --check --dry-run
+```
+
+Do not describe these results as full project test coverage. Only the accounts test module has been verified.
+
+---
+
+## 4. Current Git State
+
+### Current Branch
+
+`feat/phase-2a-accounts-roles`
+
+The remote tracking branch has been created:
+
+`origin/feat/phase-2a-accounts-roles`
+
+The upstream tracking relationship is configured.
+
+### Current Implementation Changes
+
+The following files were reported as staged:
+
+- Modified: `.env.example`
+- Modified: `apps/accounts/models/role.py`
+- Modified: `apps/accounts/models/user_role.py`
+- Modified: `apps/accounts/models/users.py`
+- Modified: `apps/accounts/tests/test_manager.py`
+- Modified: `apps/accounts/tests/test_models.py`
+- Modified: `apps/accounts/user_manager.py`
+- Added: `apps/tcc/migrations/0002_rebuild_user_and_add_rbac.py`
+- Added: `apps/tcc/migrations/0003_seed_system_roles.py`
+- Modified: `apps/tcc/models/__init__.py`
+- Modified: `config/settings/base.py`
+- Modified: `config/urls.py`
+
+**Important:** These changes were staged but had not yet been committed in the last reported Git status.
+
+The remote branch was pushed before these changes were committed. Therefore, the initial push created the remote branch but did not publish the staged implementation.
+
+### Pending Environment Example Review
+
+The staged `.env.example` requires another review before committing.
+
+A potential inconsistency was identified:
+
+```env
+DATABASE_URL=postgresql://user:password@db:3306/church_operation
+DB_PORT=5432
+```
+
+If PostgreSQL is intended, ensure the URL port and `DB_PORT` are consistent.
+
+Do not change database credentials or environment configuration blindly. Confirm how the project loads and prioritizes these settings.
+
+Never commit actual secrets or local credentials.
+
+### Pending Git Actions
+
+Before creating the PR:
+
+1. Review the `.env.example` changes.
+2. Run the final Black check.
+3. Review the staged diff.
+4. Confirm all intended files are staged.
+5. Commit the implementation.
+6. Push the commit.
+7. Create the pull request.
+
+Suggested commit message:
+
+`feat(accounts): establish custom user and RBAC foundation`
+
+Suggested PR branches:
+
+- Base: `dev`
+- Compare: `feat/phase-2a-accounts-roles`
+
+The PR has not yet been confirmed as created.
+
+---
+
+## 5. Development Environment
+
+The project is developed locally on macOS using a Python virtual environment.
+
+Activate the existing virtual environment from the repository root:
+
+```bash
 source .venv/bin/activate
-Enter the backend:
+```
+
+Enter the backend directory:
+
+```bash
 cd backend
+```
+
 Run Django system checks:
+
+```bash
 python manage.py check
-Git Workflow
+```
+
+Run account tests:
+
+```bash
+python -m pytest apps/accounts/tests/ -v
+```
+
+Check migration consistency:
+
+```bash
+python manage.py makemigrations --check --dry-run
+```
+
+Check formatting:
+
+```bash
+python -m black --check .
+```
+
+Run the configured critical Flake8 checks:
+
+```bash
+python -m flake8 apps/ \
+  --count \
+  --select=E9,F63,F7,F82 \
+  --show-source \
+  --statistics
+```
+
+Do not assume a command has passed unless its actual output has been observed.
+
+---
+
+## 6. Architecture and Business Rules
+
+The OOAD System Design Specification governs implementation decisions.
+
+### Release 1 Roles
+
+The documented actors and roles are:
+
+- Public Visitor
+- Zone Leader
+- Pastor
+- Administrator
+
+### Role Boundaries
+
+**Public Visitor**
+
+- Unauthenticated.
+- Can access published public information.
+- Does not require a staff account.
+
+**Zone Leader**
+
+- Manages members and attendance within assigned zones.
+- Must not access records outside assigned zones.
+- Must not transfer members between zones unless the approved requirements explicitly permit it.
+
+**Pastor**
+
+- Has church-wide member, zone, and attendance capabilities.
+- Has publishing and financial capabilities.
+
+**Administrator**
+
+- Manages staff accounts, roles, and system configuration.
+- Has publishing, audit-review, and explicitly defined financial capabilities.
+- Does not automatically have access to member records.
+
+### Authentication and Authorization
+
+- Staff login accounts must remain separate from church Member profiles.
+- Members do not receive login accounts in Release 1.
+- Authorization must be enforced on the backend.
+- Apply deny-by-default permission handling.
+- Zone Leaders require zone-scoped object-level authorization.
+- Frontend visibility is not a security boundary.
+
+### Finance
+
+- Finance access is restricted to Pastor and Administrator.
+- Financial records use the documented Pending, Authorised, and Rejected workflow.
+- Authorised financial records must not be silently overwritten.
+- Corrections and reversals must preserve the original financial history.
+- Sensitive financial operations require attributable audit records.
+
+### Database
+
+- UUID primary keys are the proposed standard for core entities.
+- Use database constraints and transactions to preserve integrity.
+- Do not introduce destructive deletion policies without reviewing the design and obtaining approval.
+
+---
+
+## 7. Unresolved Design Decisions
+
+Do not silently turn proposed policies into confirmed business rules.
+
+The following decisions remain unresolved or require explicit confirmation before implementation:
+
+- Whether a staff user may hold multiple active roles simultaneously.
+- Whether a staff user may have multiple active Zone Leader assignments.
+- The exact active-role semantics and primary-role policy.
+- The authentication approach: secure cookie sessions or token authentication.
+- The church-wide attendance operating workflow.
+- Financial self-authorisation and separation-of-duties policy.
+- Audit retention policy.
+- Currency and timezone policy.
+- Other open decisions documented in `backend/docs/open_decisions.md` and the OOAD specification.
+
+When an implementation depends on an unresolved decision:
+
+1. Identify the relevant decision.
+2. Explain the technical impact.
+3. Ask for confirmation when necessary.
+4. Avoid inventing a permanent business rule.
+
+---
+
+## 8. Project Structure
+
+The Django backend is located in:
+
+`backend/`
+
+The Django management entry point is:
+
+`backend/manage.py`
+
+Important backend directories include:
+
+- `backend/apps/`
+- `backend/config/`
+- `backend/requirements/`
+- `backend/docs/`
+
+The accounts implementation is located in:
+
+`backend/apps/accounts/`
+
+The TCC model registration and migrations are located in:
+
+`backend/apps/tcc/`
+
+Follow the existing app-label and model-registration architecture. Do not move models between Django apps or change migration ownership without reviewing the consequences.
+
+---
+
+## 9. Git Workflow
+
 The primary branch is:
-main
+
+`main`
+
 The remote is:
-origin
+
+`origin`
+
 Before making changes:
+
+```bash
 git status -sb
 git log -5 --oneline
+```
+
+Before committing:
+
+1. Review all modified and newly created files.
+2. Run relevant checks and tests.
+3. Inspect the complete Git diff.
+4. Check for secrets and accidental environment changes.
+5. Confirm the staged files.
+
 After implementation:
-1. Review the changed files.
-2. Run relevant Django checks and tests.
-3. Inspect the Git diff.
-4. Commit the implementation.
-5. Push to GitHub.
+
+1. Commit with a clear, focused message.
+2. Push to the appropriate feature branch.
+3. Open a pull request against the intended base branch.
+4. Review CI results before merging.
+
 Never use force push or destructive Git commands without explicit approval.
 
 Do not discard existing user changes.
-Agent Instructions
+
+Do not assume that pushing a branch publishes uncommitted or staged changes.
+
+---
+
+## 10. Agent Instructions
+
 When continuing development:
+
 1. Inspect the existing implementation before modifying files.
-2. Follow the existing Django architecture and naming conventions.
-3. Avoid creating duplicate models, serializers, services, or API endpoints.
-4. Keep changes focused on the requested feature.
-5. Do not introduce unnecessary dependencies.
-6. Do not hardcode secrets or credentials.
-7. Preserve existing functionality.
-8. Validate changes before committing.
-9. Explain important implementation decisions.
-10. Work incrementally and report the actual results of commands.
-Do not claim that a feature, test, or deployment succeeded unless it has been verified.
-Next Development Priority
-The next implementation should review and improve the GitHub Actions workflow after the backend relocation.
+2. Follow the approved OOAD specification and `backend/docs/`.
+3. Follow existing Django architecture and naming conventions.
+4. Avoid creating duplicate models, serializers, services, or API endpoints.
+5. Keep changes focused on the requested feature.
+6. Do not introduce unnecessary dependencies.
+7. Do not hardcode secrets or credentials.
+8. Preserve existing functionality.
+9. Validate changes before committing.
+10. Explain important implementation decisions.
+11. Work incrementally.
+12. Report actual command results.
+13. Distinguish implemented work from proposed or planned work.
+14. Preserve staged, unstaged, and untracked user changes.
+15. Do not claim that a feature, test, migration, or deployment succeeded unless it has been verified.
 
-The workflow should correctly:
-- Install dependencies from the backend directory.
-- Run linting against the Django backend.
-- Execute the project's actual test suite.
-- Use Python versions compatible with the project's dependencies.
-- Fail clearly when tests or lint checks fail.
-After CI is verified, continue with backend documentation and the next requested church-management feature.
-Current Milestone
-The backend restructuring is complete and pushed.
+### Database Safety
 
-The next milestone is to make automated validation reliable and continue implementing church-management functionality without disrupting the existing backend.
-Current Development Progress — 2026-11-05
-Django Initializer Review
-The project initializer is being reviewed in project_init.py.
-Changes made
-- Updated the virtual environment location to backend/.venv.
-- Updated the requirements file location to backend/requirements.txt.
-- Changed dependency handling from installation to verification.
-- Preserved existing virtual environments and configuration files.
-- Added Django system checks before database migrations.
-- Made static file collection require interactive confirmation.
-- Improved error handling for Django setup commands.
-- Updated the initializer description and documentation.
-Current Validation
-- git diff --check passed.
-- python -m py_compile project_init.py passed.
-- Django system checks passed previously.
-- Static file discovery was verified previously.
-Review Status
-- backend/config/settings/base.py changes reviewed; static directory formatting is equivalent.
-- management.md documents the current progress and remaining work.
-- The initializer has not been fully reviewed or runtime-tested.
-- Dependency verification still requires further review.
-- Database migration behavior requires further safety review.
-Current Git Changes
-- Modified: project_init.py
-- Modified: backend/config/settings/base.py
-- Added: management.md
-Review the complete diff before staging or committing.
-Safety Requirements
-- Do not run the initializer without explicit approval.
-- Do not run database migrations or static collection during review.
-- Do not install or upgrade dependencies automatically.
-- Do not delete or recreate the existing virtual environment.
-- Preserve existing user changes and environment files.
-- Do not commit until the remaining review and validation are complete.
-Next Steps
-1. Review the initializer for safety and correctness.
-2. Review dependency validation against backend/requirements.txt.
-3. Review environment-file and VS Code configuration behavior.
-4. Verify migration and static collection behavior without executing destructive operations.
-5. Review all changed files.
-6. Run appropriate non-destructive validation.
-7. Commit only after the user approves the final changes.
-Phase 1 Completion and Phase 2 Handoff — 2026-11-06
-Phase 1: System Design Baseline
-Phase 1 is complete. The system design documentation was established, reviewed for consistency, and committed.
+- Inspect migration state before proposing migration changes.
+- Do not drop databases or tables without explicit approval.
+- Do not reverse or rewrite applied migrations casually.
+- Review generated SQL for significant schema changes.
+- Preserve backups and never commit local database backups.
+- Do not run destructive database operations during code review.
 
-The design documents are under backend/docs/:
-- architecture.md
-- domain_model.md
-- database_design.md
-- role_permissions.md
-- finance_workflow.md
-- audit_policy.md
-- open_decisions.md
-Baseline commit:
-b0af822 docs: establish system design baseline
+### Initializer Safety
 
-Branch:
-feature/phase-1-system-design
-CI Test Discovery Fix
-The backend GitHub Actions test path was corrected from the invalid apps/users/tests/ path to the existing apps/accounts/tests/ path.
+The project initializer `project_init.py` was previously under review.
 
-Commit:
-015c218 fix: correct backend test discovery path
+Its review included:
 
-The commit was pushed to:
-origin/feature/phase-1-system-design
+- Virtual environment location.
+- Requirements file location.
+- Dependency verification.
+- Django system checks.
+- Static collection confirmation.
+- Migration behavior.
+- Environment-file handling.
+- VS Code configuration.
 
-The account test module was run locally:
-cd backend
-python -m pytest apps/accounts/tests/ -v
-Result recorded:
-8 passed
+The initializer was not confirmed as fully reviewed or runtime-tested.
 
-Important: this confirms the account tests only. Do not claim the complete domain test suite or full project test coverage has passed unless it is subsequently run and verified.
-Current Git State (Last Reported)
-- Branch: feature/phase-1-system-design
-- HEAD: 015c218
-- Local branch and origin branch were reported aligned.
-- .env.example remains modified locally and uncommitted.
-- Review .env.example database settings before staging or committing it.
-- Preserve this user change; do not discard or include it in unrelated commits.
-Phase 2: Backend Implementation
-Phase 2 has been planned but implementation has not yet been confirmed as started.
+Do not execute the initializer, run migrations, collect static files, install dependencies, or recreate the virtual environment without the relevant approval.
 
-Recommended first task:
-1. Inspect current Django app configuration and model imports.
-2. Confirm which domain models are registered with Django.
-3. Review existing migrations and migration state.
-4. Review PostgreSQL environment configuration without changing .env.example blindly.
-5. Identify missing app configs, model registrations, and migration coverage.
-6. Implement incrementally according to the approved Phase 1 design.
-7. Add and run tests for each domain module.
-8. Report only checks and tests that were actually executed.
-Potential domain implementation sequence:
-- Backend foundation and app/model registration
-- Accounts, roles, and permissions
-- Zones and members
-- Attendance
-- Finance and authorization workflow
-- Activities and announcements
-- Reports and audit
-- Integration testing
-Phase 2 Safety and Workflow Notes
-- Inspect existing code before editing; avoid duplicate models or endpoints.
-- Follow the approved design docs in backend/docs/.
-- Keep changes focused and incremental.
-- Preserve .env.example and all other existing user changes.
-- Do not run migrations, static collection, or project initialization without explicit approval when those operations are relevant.
-- Run appropriate checks and tests before committing.
-- Do not claim full test coverage based only on the 8 account tests.
-- Keep commits focused; do not include the unrelated .env.example change in the CI workflow fix.
+---
+
+## 11. Next Development Priorities
+
+### Immediate: Complete the Phase 2A Pull Request
+
+1. Review and correct `.env.example` if necessary.
+2. Run `python -m black --check .`.
+3. Review the complete staged diff.
+4. Commit the staged Phase 2A implementation.
+5. Push the commit.
+6. Create the PR against `dev`.
+7. Review GitHub Actions results.
+
+### Next: Phase 2B — Permissions and Authorization
+
+After Phase 2A is reviewed and merged:
+
+1. Review the OOAD permission matrix.
+2. Define backend permission classes and authorization services.
+3. Implement server-side role checks.
+4. Establish zone-scoped authorization for Zone Leaders.
+5. Add tests for allowed and denied operations.
+6. Confirm unresolved role-multiplicity policies before enforcing them.
+
+Do not assume that creating Role and UserRole models alone completes RBAC. The authorization enforcement layer is a separate implementation task.
+
+### Subsequent Domain Implementation
+
+Recommended sequence:
+
+1. Zones and Members
+2. Attendance
+3. Finance and authorization workflow
+4. Activities and announcements
+5. Reports and audit
+6. Integration testing
+
+Adjust this sequence only when dependencies or approved project priorities justify doing so.
+
+---
+
+## 12. Current Milestone Summary
+
+**Phase 1 — System Design Baseline:** Completed.
+
+**Phase 2A — Custom Accounts and RBAC Data Foundation:** Implemented locally and validated with the accounts test suite. Commit and PR remain pending.
+
+**Phase 2B — Backend Authorization Enforcement:** Not yet confirmed as implemented.
+
+**Remaining Release 1 Domains:** Not yet confirmed as implemented.
+
+The immediate priority is to complete the Phase 2A review, commit, push, and PR before proceeding to the next implementation milestone.
