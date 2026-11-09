@@ -443,6 +443,272 @@ Production deployment must not expose development secrets or use unsafe debug se
 
 The final authentication approach and session/token configuration must be documented before production deployment.
 
+### 12.1 Centralised Error and Exception Handling
+
+**Status:** Proposed
+**Target Release:** Release 1
+**Priority:** High
+**Architecture Type:** Backend Cross-Cutting Concern
+
+#### 12.1.1 Purpose
+
+The Taunggyi City Church Community Management System shall implement a centralised error and exception-handling architecture to ensure consistent, secure, and predictable error behaviour across all backend applications.
+
+The architecture shall separate business-level failure identification, API error response formatting, and error logging.
+
+Each application shall remain responsible for identifying its own business and domain failures. The central exception handler shall provide a consistent API response format, while the logging component shall record relevant diagnostic information.
+
+The architecture shall support the following applications:
+
+- Accounts
+- Zones
+- Members
+- Attendance
+- Finance
+- Reports
+- Other future backend applications
+
+The exception-handling architecture shall be implemented incrementally without requiring all applications to adopt it simultaneously.
+
+#### 12.1.2 Architectural Principles
+
+**1. Domain-Specific Exceptions**
+
+Each application shall define domain exceptions for business failures that require explicit handling.
+
+Examples include:
+
+- Invalid role assignment
+- Zone not found
+- Inactive zone
+- Invalid Zone Leader assignment
+- Member not found
+- Invalid member transfer
+- Attendance session closed
+- Duplicate attendance
+- Financial record conflict
+- Financial authorization failure
+
+Domain exceptions shall describe business failures rather than implementation failures.
+
+**2. Preserve Built-In Exceptions**
+
+The system shall continue to use appropriate Python, Django, and Django REST Framework exceptions.
+
+Examples include:
+
+- ValueError
+- TypeError
+- ValidationError
+- PermissionDenied
+- AuthenticationFailed
+- NotFound
+- APIException
+
+The architecture shall not require every exception to be converted into a custom domain exception.
+
+Custom exceptions shall be introduced only when they provide meaningful domain-specific information or support consistent API handling.
+
+**3. Centralised API Error Formatting**
+
+All API errors shall use a consistent response structure.
+
+The central exception handler shall:
+
+- Identify the exception type.
+- Determine the appropriate HTTP status code.
+- Return a stable error code.
+- Provide a safe, user-facing message.
+- Include relevant validation details when appropriate.
+- Include the request ID when available.
+- Prevent internal implementation details from being exposed.
+
+The central handler shall preserve the standard behaviour of Django REST Framework exceptions unless the project explicitly defines a different response policy.
+
+**4. Separation of Responsibilities**
+
+The architecture shall maintain the following responsibilities:
+
+| Component | Responsibility |
+|---|---|
+| Domain services | Identify and raise business-level exceptions |
+| Domain exception classes | Represent specific business failures |
+| Central exception handler | Convert exceptions into consistent API responses |
+| Request-ID middleware | Associate requests with a unique identifier |
+| Error logging component | Record diagnostic information |
+| Automated tests | Verify exception behaviour and response consistency |
+
+Domain services shall not directly construct HTTP responses.
+
+The central exception handler shall not contain application-specific business logic.
+
+**5. Security and Information Protection**
+
+Error responses shall not disclose:
+
+- Database credentials
+- Secret keys
+- JWT signing information
+- SQL statements
+- Internal file paths
+- Stack traces
+- Sensitive member information
+- Private information belonging to another zone
+- Financial information that the requesting user is not authorised to access
+
+The system shall follow the existing role-based access-control architecture.
+
+An error response shall not reveal whether a protected member, financial record, or other restricted resource exists when that information is not available to the requesting user.
+
+The system shall follow a deny-by-default policy.
+
+#### 12.1.3 Existing Backend Structure and Integration
+
+The central exception architecture shall be implemented inside the existing backend common package.
+
+Current structure:
+
+backend/
+└── common/
+    ├── core_validators/
+    │   ├── exceptions.py
+    │   ├── decorators.py
+    │   ├── registry.py
+    │   └── rules.py
+    ├── exceptions.py
+    ├── middleware/
+    │   ├── correlation_id.py
+    │   └── request_id.py
+    ├── jwt/
+    ├── utils/
+    ├── pagination.py
+    ├── permissions.py
+    ├── serializers.py
+    ├── tasks.py
+    └── validators.py
+
+The exception architecture shall extend this existing structure rather than introduce another independent common package.
+
+**Existing Exception Modules**
+
+The existing files shall retain their distinct responsibilities:
+
+- `backend/common/core_validators/exceptions.py` shall remain responsible for exceptions related to the core validation framework.
+- The existing `backend/common/exceptions.py` file shall be migrated into the central domain-exception package.
+- Domain exceptions shall not be placed inside the core validation framework unless they specifically belong to that framework.
+
+**Migration Requirement**
+
+The existing `backend/common/exceptions.py` file is currently an empty Python module.
+
+Before implementing the proposed package, it shall be converted into a package directory.
+
+The migration shall replace:
+
+`backend/common/exceptions.py`
+
+with:
+
+`backend/common/exceptions/`
+
+The existing empty module shall not remain alongside the package under the same name.
+
+#### 12.1.4 Proposed Package Structure
+
+The proposed exception architecture shall use the following structure:
+
+backend/
+└── common/
+    ├── exceptions/
+    │   ├── __init__.py
+    │   ├── base.py
+    │   ├── codes.py
+    │   ├── accounts.py
+    │   ├── zones.py
+    │   ├── members.py
+    │   ├── attendance.py
+    │   └── finance.py
+    │
+    ├── handlers/
+    │   ├── __init__.py
+    │   └── exception_handler.py
+    │
+    ├── logging/
+    │   ├── __init__.py
+    │   └── error_logger.py
+    │
+    ├── core_validators/
+    │   ├── exceptions.py
+    │   ├── decorators.py
+    │   ├── registry.py
+    │   └── rules.py
+    │
+    ├── middleware/
+    │   ├── correlation_id.py
+    │   └── request_id.py
+    │
+    ├── jwt/
+    ├── utils/
+    ├── pagination.py
+    ├── permissions.py
+    ├── serializers.py
+    ├── tasks.py
+    └── validators.py
+
+**Package Responsibilities**
+
+| File | Responsibility |
+|---|---|
+| exceptions/base.py | Define the common domain exception base class |
+| exceptions/codes.py | Define stable application error codes |
+| exceptions/accounts.py | Define account and role-assignment exceptions |
+| exceptions/zones.py | Define zone-related exceptions |
+| exceptions/members.py | Define member-related exceptions |
+| exceptions/attendance.py | Define attendance-related exceptions |
+| exceptions/finance.py | Define finance-related exceptions |
+| handlers/exception_handler.py | Centralise API exception formatting |
+| logging/error_logger.py | Provide structured error logging |
+
+The exception package shall be extended as additional applications are implemented.
+
+The package shall not require every application to create an exception module before domain exceptions are needed.
+
+#### 12.1.5 Domain Exception Design
+
+Domain exceptions shall inherit from a shared base exception.
+
+The base exception shall provide the following information:
+
+- Stable error code
+- Safe error message
+- Optional structured details
+- Appropriate HTTP status code
+
+The base exception shall not contain request-specific data or depend directly on Django REST Framework response objects.
+
+**Proposed Base Exception**
+
+The conceptual structure shall be:
+
+```python
+class DomainException(Exception):
+    """
+    Base class for application-level domain exceptions.
+    """
+
+    code = "COMMON_DOMAIN_ERROR"
+    message = "A domain operation could not be completed."
+    status_code = 400
+
+    def __init__(
+        self,
+        message=None,
+        details=None,
+    ):
+        self.message = message or self.message
+        self.details = details
+
+        super().__init__(self.message)
 ## 13. Release 1 Infrastructure
 
 Release 1 requires:
