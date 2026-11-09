@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "crispy_forms",
     "crispy_bootstrap5",
     "apps.accounts.apps.AccountsConfig",
+    "apps.members.apps.MembersConfig",
     "apps.tcc.apps.TccConfig",
 ]
 AUTH_USER_MODEL = "tcc.User"

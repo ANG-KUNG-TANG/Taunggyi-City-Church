@@ -12,3 +12,7 @@ __all__ = [
     "Zone",
     "ZoneLeaderAssignment",
 ]
+
+from apps.audit.models.audit_log import AuditLog
+
+__all__.append("AuditLog")
