@@ -27,3 +27,19 @@ __all__ = [
     "MemberAttendance",
     "VisitorCount",
 ]
+
+from apps.finance.models import (
+    FinancialCategory,
+    Donation,
+    FundTransaction,
+    FinancialAdjustment,
+    FinancialAuthorization,
+)
+
+__all__ += [
+    "FinancialCategory",
+    "Donation",
+    "FundTransaction",
+    "FinancialAdjustment",
+    "FinancialAuthorization",
+]
