@@ -108,7 +108,7 @@ class AttendanceSelector:
                 ),
                 distinct=True,
             ),
-            visitor_count=Coalesce(
+            reported_visitor_count=Coalesce(
                 Subquery(
                     visitor_count_subquery,
                     output_field=IntegerField(),
