@@ -10,7 +10,8 @@ import re
 import jwt as pyjwt
 from common.jwt.jwt_backend import JWTBackend, TokenType
 from django.conf import settings
-
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,10 @@ class JWTAuthentication(BaseAuthentication):
     """
 
     keyword = "Bearer"
+
+    def authenticate_header(self, request):
+        """Return the authentication challenge for unauthenticated requests."""
+        return self.keyword
 
     def __init__(self):
         super().__init__()
@@ -88,7 +93,7 @@ class JWTAuthentication(BaseAuthentication):
             )
 
             # Create user object from payload
-            user = self.create_jwt_user(payload)
+            user = self.get_database_user(payload)
 
             # Attach extra JWT data to request
             request.user_id = payload.get("sub")
@@ -102,7 +107,7 @@ class JWTAuthentication(BaseAuthentication):
 
             logger.info(
                 f"Authentication successful for user {user.email} "
-                f"with role {user.role}"
+                f"with role {payload.get('role')}"
             )
             return (user, token)
 
@@ -250,126 +255,30 @@ class JWTAuthentication(BaseAuthentication):
 
         return token
 
-    def create_jwt_user(self, payload: dict):
-        """
-        Create a Django-compatible user object from JWT payload.
-        """
+    def get_database_user(self, payload: dict):
+        """Resolve the JWT subject to the actual database user."""
 
-        class JWTUser:
-            """
-            Lightweight user class for JWT authentication.
-            Compatible with Django and DRF's authentication system.
-            """
+        user_id = payload.get("sub")
 
-            def __init__(self, payload):
-                # Basic identity
-                self.id = payload.get("sub")
-                self.pk = payload.get("sub")
-                self.username = payload.get("email", "")
-                self.email = payload.get("email", "")
+        if not user_id:
+            raise AuthenticationFailed("Token is missing user identifier")
 
-                # Role and permissions - CRITICAL FIX
-                self.role = payload.get("role")
-                if not self.role and "roles" in payload:
-                    self.role = payload["roles"][0] if payload["roles"] else "member"
+        User = get_user_model()
 
-                self.roles = payload.get(
-                    "roles", [self.role] if self.role else ["member"]
-                )
+        try:
+            user = User._default_manager.get(pk=user_id)
+        except (
+            User.DoesNotExist,
+            DjangoValidationError,
+            ValueError,
+            TypeError,
+        ):
+            raise AuthenticationFailed("User associated with token does not exist")
 
-                # Get permission flags from payload
-                self.is_superuser = payload.get("is_superuser", False)
-                self.is_staff = payload.get("is_staff", False)
+        if not user.is_active:
+            raise AuthenticationFailed("User account is inactive")
 
-                # Override with role-based permissions if not explicitly set
-                if not self.is_superuser and self.role in ["super_admin", "admin"]:
-                    self.is_superuser = True
-                if not self.is_staff and self.role in ["super_admin", "admin", "staff"]:
-                    self.is_staff = True
-
-                # JWT-specific attributes
-                self.jti = payload.get("jti")
-                self.session_id = payload.get("session_id")
-
-                # CRITICAL: These make DRF recognize the user as authenticated
-                self.is_authenticated = True
-                self.is_active = True
-                self.is_anonymous = False
-
-                self.backend = "common.jwt.authentication.JWTAuthentication"
-
-                logger.debug(
-                    f"JWTUser created: {self.email}, "
-                    f"role={self.role}, "
-                    f"is_superuser={self.is_superuser}, "
-                    f"is_staff={self.is_staff}"
-                )
-
-            def _has_role(self, role_list):
-                """Check if user has any of the specified roles"""
-                return self.role in role_list if self.role else False
-
-            def __str__(self):
-                return f"JWTUser({self.email}, role={self.role})"
-
-            def __repr__(self):
-                return f"<JWTUser: {self.email} (id={self.id}, role={self.role})>"
-
-            def get_username(self):
-                return self.username
-
-            # Permission methods
-            def has_perm(self, perm, obj=None):
-                # Super admin has all permissions
-                if self.role == "super_admin":
-                    return True
-                # Admin has most permissions except system-level
-                if self.role == "admin":
-                    return not perm.startswith("system.")
-                # Staff has limited permissions
-                if self.role == "staff":
-                    return perm.startswith("user.view") or perm.startswith("content.")
-                return False
-
-            def has_perms(self, perm_list, obj=None):
-                if self.role == "super_admin":
-                    return True
-                # Check each permission based on role
-                for perm in perm_list:
-                    if not self.has_perm(perm, obj):
-                        return False
-                return True
-
-            def has_module_perms(self, app_label):
-                if self.role == "super_admin":
-                    return True
-                if self.role == "admin":
-                    return app_label not in ["system", "auth"]
-                if self.role == "staff":
-                    return app_label in ["content", "user"]
-                return False
-
-            def __eq__(self, other):
-                if not isinstance(other, JWTUser):
-                    return False
-                return self.id == other.id
-
-            def __hash__(self):
-                return hash(self.id)
-
-            def save(self, *args, **kwargs):
-                raise NotImplementedError("JWT users cannot be saved to database")
-
-            def delete(self, *args, **kwargs):
-                raise NotImplementedError("JWT users cannot be deleted")
-
-        return JWTUser(payload)
-
-    def authenticate_header(self, request):
-        """
-        Return the WWW-Authenticate header value for 401 responses.
-        """
-        return f'{self.keyword} realm="api"'
+        return user
 
 
 class JWTAuthenticationOptional(JWTAuthentication):
