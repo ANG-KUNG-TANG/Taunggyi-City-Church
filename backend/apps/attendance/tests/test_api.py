@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, time, timedelta
 
 from django.test import TestCase
 from django.urls import reverse
@@ -9,7 +9,9 @@ from apps.accounts.models.role import Role
 from apps.accounts.models.user_role import UserRole
 from apps.accounts.models.users import User
 from apps.attendance.models.attendance_session import AttendanceSession
+from apps.attendance.models.member_attendance import MemberAttendance
 from apps.attendance.services.attendance_service import AttendanceService
+from apps.members.models import Member
 from apps.zones.models.zones import Zone, ZoneLeaderAssignment
 
 
@@ -60,10 +62,10 @@ class AttendanceSessionAPITests(TestCase):
     def authenticate(self, user):
         self.client.force_authenticate(user=user)
 
-    def create_session(self, actor, zone=None):
+    def create_session(self, actor, zone=None, session_date=None):
         return AttendanceService.create_session(
             actor=actor,
-            date=date.today(),
+            date=session_date or date.today(),
             start_time=time(10, 0),
             scope=AttendanceSession.Scope.ZONE,
             zone=zone or self.zone,
@@ -298,3 +300,149 @@ class AttendanceSessionAPITests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(AttendanceSession.objects.count(), 0)
+
+    def test_unauthenticated_user_cannot_access_attendance_report(self):
+        response = self.client.get(reverse("attendance-report"))
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_ordinary_user_cannot_access_attendance_report(self):
+        self.authenticate(self.ordinary_user)
+
+        response = self.client.get(reverse("attendance-report"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_pastor_can_view_all_attendance_reports(self):
+        session_a = self.create_session(self.leader, self.zone)
+        session_b = self.create_session(
+            self.other_leader,
+            self.other_zone,
+        )
+
+        self.authenticate(self.pastor)
+
+        response = self.client.get(reverse("attendance-report"))
+
+        self.assertEqual(response.status_code, 200)
+
+        returned_ids = {item["session_id"] for item in response.data["results"]}
+
+        self.assertEqual(
+            returned_ids,
+            {str(session_a.id), str(session_b.id)},
+        )
+
+    def test_zone_leader_report_contains_only_assigned_zone(self):
+        own_session = self.create_session(self.leader, self.zone)
+        self.create_session(self.other_leader, self.other_zone)
+
+        self.authenticate(self.leader)
+
+        response = self.client.get(reverse("attendance-report"))
+
+        self.assertEqual(response.status_code, 200)
+
+        returned_ids = {item["session_id"] for item in response.data["results"]}
+
+        self.assertEqual(returned_ids, {str(own_session.id)})
+
+    def test_attendance_report_filters_by_date(self):
+        yesterday = date.today() - timedelta(days=1)
+
+        old_session = self.create_session(
+            self.leader,
+            self.zone,
+            session_date=yesterday,
+        )
+        today_session = self.create_session(
+            self.leader,
+            self.zone,
+            session_date=date.today(),
+        )
+
+        self.authenticate(self.pastor)
+
+        response = self.client.get(
+            reverse("attendance-report"),
+            {
+                "start_date": date.today().isoformat(),
+                "end_date": date.today().isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        returned_ids = {item["session_id"] for item in response.data["results"]}
+
+        self.assertEqual(returned_ids, {str(today_session.id)})
+        self.assertNotIn(str(old_session.id), returned_ids)
+
+    def test_attendance_report_rejects_invalid_date_range(self):
+        self.authenticate(self.pastor)
+
+        response = self.client.get(
+            reverse("attendance-report"),
+            {
+                "start_date": date.today().isoformat(),
+                "end_date": (date.today() - timedelta(days=1)).isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_attendance_report_returns_correct_aggregates(self):
+        session = self.create_session(self.leader, self.zone)
+
+        AttendanceService.open_session(
+            actor=self.leader,
+            session_id=session.id,
+        )
+
+        present_member = Member.objects.create(
+            zone=self.zone,
+            full_name="Present Member",
+            created_by=self.pastor,
+        )
+
+        absent_member = Member.objects.create(
+            zone=self.zone,
+            full_name="Absent Member",
+            created_by=self.pastor,
+        )
+
+        AttendanceService.record_member_attendance(
+            actor=self.leader,
+            session_id=session.id,
+            member_id=present_member.id,
+            status=MemberAttendance.Status.PRESENT,
+        )
+
+        AttendanceService.record_member_attendance(
+            actor=self.leader,
+            session_id=session.id,
+            member_id=absent_member.id,
+            status=MemberAttendance.Status.ABSENT,
+        )
+
+        AttendanceService.record_visitor_count(
+            actor=self.leader,
+            session_id=session.id,
+            count=7,
+        )
+
+        self.authenticate(self.leader)
+
+        response = self.client.get(reverse("attendance-report"))
+
+        self.assertEqual(response.status_code, 200)
+
+        report = next(
+            item
+            for item in response.data["results"]
+            if item["session_id"] == str(session.id)
+        )
+
+        self.assertEqual(report["present_count"], 1)
+        self.assertEqual(report["absent_count"], 1)
+        self.assertEqual(report["visitor_count"], 7)
