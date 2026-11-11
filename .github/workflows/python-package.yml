@@ -103,4 +103,4 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
 
       - name: Run tests
-        run: python -m pytest apps/accounts/tests/ -v
+        run: python -m pytest apps/ -v
