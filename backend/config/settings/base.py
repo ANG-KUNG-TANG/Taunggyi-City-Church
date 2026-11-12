@@ -203,64 +203,34 @@ REST_FRAMEWORK = {
 # JWT Configuration
 # ──────────────────────────────
 
+JWT_SECRET_KEY = env("JWT_SECRET_KEY", default="")
+JWT_ALGORITHM = env("JWT_ALGORITHM", default="HS256").upper()
 
-def decode_jwt_key_from_env(key_str):
-    """
-    Decode JWT key from environment variable for django-environ.
-    Handles escaped newlines (\n) in .env file.
-    """
-    if not key_str:
-        return None
+if JWT_ALGORITHM != "HS256":
+    raise ValueError("Unsupported JWT algorithm. Only HS256 is currently supported.")
 
-    if isinstance(key_str, str) and "\n" in key_str:
-        return key_str
+JWT_ACCESS_TOKEN_EXPIRY = env.int("JWT_ACCESS_EXPIRY", default=900)
+JWT_REFRESH_TOKEN_EXPIRY = env.int("JWT_REFRESH_EXPIRY", default=604800)
+JWT_RESET_TOKEN_EXPIRY = env.int("JWT_RESET_EXPIRY", default=1800)
 
-    if isinstance(key_str, str) and "\\n" in key_str:
-        return key_str.replace("\\n", "\n")
-
-    try:
-        # Remove any whitespace
-        key_str = key_str.strip()
-        # Check if it looks like base64
-        if len(key_str) > 100 and " " not in key_str:
-            # Try to decode as base64
-            decoded = base64.b64decode(key_str).decode("utf-8")
-            return decoded
-    except:
-        pass
-
-    return key_str
-
-
-# Load JWT keys
-JWT_PRIVATE_KEY = decode_jwt_key_from_env(env("JWT_PRIVATE_KEY", default=""))
-JWT_PUBLIC_KEY = decode_jwt_key_from_env(env("JWT_PUBLIC_KEY", default=""))
-JWT_SECRET_KEY = env("JWT_SECRET_KEY", default="your-default-secret-key-change-this")
-
-# Determine which algorithm to use based on available keys
-if JWT_PRIVATE_KEY and JWT_PUBLIC_KEY:
-    JWT_ALGORITHM = "RS256"
-    print("✅ Using RS256 algorithm with RSA keys")
-elif JWT_SECRET_KEY:
-    JWT_ALGORITHM = "HS256"
-    print("✅ Using HS256 algorithm with secret key")
-else:
-    JWT_ALGORITHM = "HS256"
-    JWT_SECRET_KEY = "your-fallback-secret-key-for-development"
-    print("⚠️  No JWT keys found, using fallback secret (for development only)")
+for name, value in {
+    "JWT_ACCESS_EXPIRY": JWT_ACCESS_TOKEN_EXPIRY,
+    "JWT_REFRESH_EXPIRY": JWT_REFRESH_TOKEN_EXPIRY,
+    "JWT_RESET_EXPIRY": JWT_RESET_TOKEN_EXPIRY,
+}.items():
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer.")
 
 JWT_CONFIG = {
-    "ACCESS_TOKEN_EXPIRY": env.int(
-        "JWT_ACCESS_EXPIRY", default=3600
-    ),  # Increased from 900 to 3600 (1 hour)
-    "REFRESH_TOKEN_EXPIRY": env.int("JWT_REFRESH_EXPIRY", default=604800),  # 7 days
-    "RESET_TOKEN_EXPIRY": env.int("JWT_RESET_EXPIRY", default=1800),  # 30 minutes
+    "ACCESS_TOKEN_EXPIRY": JWT_ACCESS_TOKEN_EXPIRY,
+    "REFRESH_TOKEN_EXPIRY": JWT_REFRESH_TOKEN_EXPIRY,
+    "RESET_TOKEN_EXPIRY": JWT_RESET_TOKEN_EXPIRY,
     "ALGORITHM": JWT_ALGORITHM,
     "ISSUER": env("JWT_ISSUER", default="tcc-auth-service"),
     "AUDIENCE": env.list("JWT_AUDIENCE", default=["tcc-api"]),
-    "PRIVATE_KEY": JWT_PRIVATE_KEY if JWT_ALGORITHM == "RS256" else None,
-    "PUBLIC_KEY": JWT_PUBLIC_KEY if JWT_ALGORITHM == "RS256" else None,
-    "SECRET_KEY": JWT_SECRET_KEY if JWT_ALGORITHM == "HS256" else None,
+    "PRIVATE_KEY": None,
+    "PUBLIC_KEY": None,
+    "SECRET_KEY": JWT_SECRET_KEY or None,
 }
 
 # Verify keys are loaded
