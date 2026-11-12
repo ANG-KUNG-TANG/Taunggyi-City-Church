@@ -177,6 +177,12 @@ class FinancialAdjustmentService:
                 {"reason": "A meaningful adjustment reason is required."}
             )
 
+        reason = reason.strip()
+        if len(reason) > 500:
+            raise ValidationError(
+                {"reason": "Adjustment reason cannot exceed 500 characters."}
+            )
+
         adjustment = FinancialAdjustment(
             donation_id=(
                 _validate_uuid(donation_id, "donation_id")
@@ -251,7 +257,14 @@ class FinancialAdjustmentService:
                 raise ValidationError(
                     {"reason": "A meaningful adjustment reason is required."}
                 )
-            adjustment.reason = reason.strip()
+
+            reason = reason.strip()
+            if len(reason) > 500:
+                raise ValidationError(
+                    {"reason": "Adjustment reason cannot exceed 500 characters."}
+                )
+
+            adjustment.reason = reason
 
         if adjustment.adjustment_type == FinancialAdjustment.AdjustmentType.REVERSAL:
             _validate_reversal(
