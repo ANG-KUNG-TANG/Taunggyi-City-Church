@@ -49,13 +49,8 @@ class JWTAuthentication(BaseAuthentication):
 
         # Validate token format before attempting verification
         if not self.is_valid_jwt_format(token):
-            logger.error(f"Invalid JWT format. Token length: {len(token)}")
-            logger.error(
-                f"Token preview: '{token[:100] if len(token) > 100 else token}'"
-            )
+            logger.warning("Malformed JWT token received")
             raise AuthenticationFailed("Invalid token format")
-
-        logger.debug(f"Token extracted, length: {len(token)}")
 
         try:
             # Use the backend's verification method directly
@@ -114,146 +109,63 @@ class JWTAuthentication(BaseAuthentication):
         except pyjwt.ExpiredSignatureError:
             logger.warning("Token has expired")
             raise AuthenticationFailed("Token expired")
-        except pyjwt.DecodeError as e:
-            logger.error(f"Token decode error: {e}")
-            logger.error(f"Token that failed: '{token[:100]}...'")
+        except pyjwt.DecodeError:
+            logger.warning("JWT decoding failed")
             raise AuthenticationFailed("Invalid token format")
-        except pyjwt.InvalidTokenError as e:
-            logger.warning(f"Invalid token: {e}")
+        except pyjwt.InvalidTokenError:
+            logger.warning("JWT validation failed")
             raise AuthenticationFailed("Invalid token")
         except AuthenticationFailed:
             raise
-        except Exception as e:
-            logger.error(f"Unexpected authentication error: {str(e)}", exc_info=True)
+        except Exception:
+            logger.error("Unexpected JWT authentication error")
             raise AuthenticationFailed("Authentication failed")
 
     def is_valid_jwt_format(self, token: str) -> bool:
         """
-        Validate that token has the correct JWT format (3 parts separated by dots)
+        Validate the exact JWT value without modifying or repairing it.
         """
-        if not token or not isinstance(token, str):
-            logger.error("Token is empty or not a string")
+        if not isinstance(token, str) or len(token) < 10:
             return False
 
-        # Clean the token - remove any quotes
-        token = token.strip().strip("\"'")
-
-        if len(token) < 10:
-            logger.error(f"Token too short: {len(token)} chars")
-            return False
-
-        # JWT should have exactly 2 dots (3 parts)
         parts = token.split(".")
         if len(parts) != 3:
-            logger.error(f"JWT has {len(parts)} parts, expected 3")
             return False
 
-        # Each part should be non-empty
-        for i, part in enumerate(parts):
-            if not part:
-                logger.error(f"JWT part {i} is empty")
-                return False
-
-            if " " in part:
-                logger.error(f"JWT part {i} contains spaces")
-                return False
-
-        # Check for base64url characters
         base64url_pattern = r"^[A-Za-z0-9_-]+$"
-        for i, part in enumerate(parts):
-            if not re.match(base64url_pattern, part):
-                logger.error(f"JWT part {i} contains invalid base64url characters")
-                return False
-
-        return True
+        return all(re.fullmatch(base64url_pattern, part) is not None for part in parts)
 
     def extract_token(self, request):
         """
-        Extract JWT token from request headers or cookies.
+        Extract a JWT from a strict Bearer Authorization header or a
+        supported authentication cookie.
 
-        FIXED: Better token extraction with validation
+        A malformed Authorization header is rejected rather than ignored.
+        Cookie-based authentication remains supported.
         """
-        token = None
-
-        # Try Authorization header first
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
 
         if auth_header:
-            logger.debug(f"Raw Authorization header: '{auth_header[:100]}'")
+            parts = auth_header.strip().split()
 
-            # Clean up the header
-            auth_header = auth_header.strip()
+            if len(parts) != 2 or parts[0].lower() != self.keyword.lower():
+                logger.warning("Authorization header has an invalid Bearer format")
+                raise AuthenticationFailed("Invalid authorization header")
 
-            # Handle different formats
-            if auth_header.lower().startswith("bearer "):
-                # Extract token after "Bearer "
-                token = auth_header[7:].strip()
-            elif " " in auth_header:
-                # Try to extract token from other formats
-                parts = auth_header.split()
-                if len(parts) >= 2:
-                    # Take the last part if there are multiple parts
-                    token = parts[-1].strip()
-                else:
-                    token = auth_header.strip()
-            else:
-                # No bearer prefix, might be just the token
-                token = auth_header.strip()
+            return parts[1]
 
-            # Clean up the token
-            if token:
-                # Remove any quotes
-                token = token.strip("\"'")
+        cookie_names = [
+            "access_token",
+            "token",
+            "jwt_token",
+            "auth_token",
+        ]
 
-                # Remove any trailing spaces or newlines
-                token = token.strip()
+        for cookie_name in cookie_names:
+            if cookie_name in request.COOKIES:
+                return request.COOKIES[cookie_name]
 
-                # Log for debugging
-                logger.debug(f"Extracted token from header (length: {len(token)})")
-
-                # Validate it looks like a JWT
-                if "." not in token:
-                    logger.warning(
-                        "Extracted token doesn't contain dots, might not be a JWT"
-                    )
-                    token = None
-
-        # If no token from header, try cookies
-        if not token:
-            # Try different cookie names
-            cookie_names = ["access_token", "token", "jwt_token", "auth_token"]
-            for cookie_name in cookie_names:
-                if cookie_name in request.COOKIES:
-                    token = request.COOKIES[cookie_name]
-                    logger.debug(
-                        f"Found token in cookie '{cookie_name}' (length: {len(token)})"
-                    )
-                    break
-
-        # Final cleanup
-        if token:
-            token = token.strip().strip("\"'").strip()
-
-            # Basic validation
-            if len(token) < 10:
-                logger.error(f"Token too short after extraction: {len(token)} chars")
-                return None
-
-            # Check for common issues
-            if "\n" in token or "\r" in token:
-                logger.error("Token contains newline characters")
-                token = token.replace("\n", "").replace("\r", "")
-
-            if " " in token:
-                logger.warning("Token contains spaces, removing them")
-                # If it's a multi-part token with spaces, take the part that looks like a JWT
-                parts = token.split()
-                for part in parts:
-                    if "." in part and len(part) > 20:
-                        token = part
-                        break
-
-        return token
+        return None
 
     def get_database_user(self, payload: dict):
         """Resolve the JWT subject to the actual database user."""
@@ -296,6 +208,6 @@ class JWTAuthenticationOptional(JWTAuthentication):
             return super().authenticate(request)
         except AuthenticationFailed as e:
             logger.debug(
-                f"Optional JWT authentication failed: {e}, allowing anonymous access"
+                "Optional JWT authentication failed; allowing anonymous access"
             )
             return None

@@ -54,11 +54,6 @@ class TokenConfig:
         if not self.secret_key:
             raise ValueError("JWT_SECRET_KEY must be configured!")
 
-        # Log which key source is being used (first 10 chars for security)
-        logger.info(
-            f"JWT Secret Key loaded (first 10 chars): {self.secret_key[:10]}..."
-        )
-
         # Issuer and Audience configuration
         self.issuer = (
             issuer
