@@ -124,5 +124,10 @@ class FinancialAdjustment(models.Model):
         if not self.reason or not self.reason.strip():
             raise ValidationError({"reason": "An adjustment reason is required."})
 
+        if len(self.reason.strip()) > 500:
+            raise ValidationError(
+                {"reason": "Adjustment reason cannot exceed 500 characters."}
+            )
+
     def __str__(self):
         return f"{self.adjustment_type} - {self.amount_delta}"

@@ -290,6 +290,42 @@ class FinancialAdjustmentServiceTests(TestCase):
         self.assertEqual(event.before_data["amount_delta"], "-10.00")
         self.assertEqual(event.after_data["amount_delta"], "-20.00")
 
+    def test_create_accepts_reason_with_exactly_500_characters(self):
+        adjustment = self.create_adjustment(reason="R" * 500)
+
+        self.assertEqual(len(adjustment.reason), 500)
+
+    def test_create_rejects_reason_with_more_than_500_characters(self):
+        with self.assertRaises(ValidationError):
+            self.create_adjustment(reason="R" * 501)
+
+        self.assertEqual(FinancialAdjustment.objects.count(), 0)
+
+    def test_update_accepts_reason_with_exactly_500_characters(self):
+        adjustment = self.create_adjustment()
+
+        updated = FinancialAdjustmentService.update_pending_adjustment(
+            actor=self.pastor,
+            adjustment_id=adjustment.id,
+            reason="R" * 500,
+        )
+
+        self.assertEqual(len(updated.reason), 500)
+
+    def test_update_rejects_reason_with_more_than_500_characters(self):
+        adjustment = self.create_adjustment()
+        original_reason = adjustment.reason
+
+        with self.assertRaises(ValidationError):
+            FinancialAdjustmentService.update_pending_adjustment(
+                actor=self.pastor,
+                adjustment_id=adjustment.id,
+                reason="R" * 501,
+            )
+
+        adjustment.refresh_from_db()
+        self.assertEqual(adjustment.reason, original_reason)
+
     def test_update_revalidates_reversal_limit(self):
         adjustment = self.create_adjustment(
             adjustment_type=FinancialAdjustment.AdjustmentType.REVERSAL,

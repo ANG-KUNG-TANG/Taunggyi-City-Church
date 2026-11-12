@@ -47,7 +47,7 @@ class FinancialAdjustmentCreateSerializer(serializers.Serializer):
         max_digits=14,
         decimal_places=2,
     )
-    reason = serializers.CharField()
+    reason = serializers.CharField(max_length=500)
 
     def validate_amount_delta(self, value):
         if value == 0:
@@ -80,7 +80,7 @@ class FinancialAdjustmentUpdateSerializer(serializers.Serializer):
         decimal_places=2,
         required=False,
     )
-    reason = serializers.CharField(required=False)
+    reason = serializers.CharField(required=False, max_length=500)
 
     def validate_amount_delta(self, value):
         if value == 0:

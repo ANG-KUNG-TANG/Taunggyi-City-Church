@@ -264,6 +264,55 @@ class FinanceAPITests(APITestCase):
         self.assertEqual(response.data["status"], "PENDING")
         self.assertEqual(response.data["amount_delta"], Decimal("25.00"))
 
+    def test_create_adjustment_accepts_reason_with_exactly_500_characters(self):
+        donation_id = self.create_authorised_donation()
+
+        response = self.client.post(
+            reverse("financial-adjustment-list-create"),
+            {
+                "donation_id": donation_id,
+                "adjustment_type": "CORRECTION",
+                "amount_delta": "25.00",
+                "reason": "R" * 500,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(response.data["reason"]), 500)
+
+    def test_create_adjustment_rejects_reason_with_more_than_500_characters(self):
+        donation_id = self.create_authorised_donation()
+
+        response = self.client.post(
+            reverse("financial-adjustment-list-create"),
+            {
+                "donation_id": donation_id,
+                "adjustment_type": "CORRECTION",
+                "amount_delta": "25.00",
+                "reason": "R" * 501,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_adjustment_rejects_blank_reason(self):
+        donation_id = self.create_authorised_donation()
+
+        response = self.client.post(
+            reverse("financial-adjustment-list-create"),
+            {
+                "donation_id": donation_id,
+                "adjustment_type": "CORRECTION",
+                "amount_delta": "25.00",
+                "reason": "   ",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_adjustment_requires_exactly_one_target(self):
         response = self.client.post(
             reverse("financial-adjustment-list-create"),
