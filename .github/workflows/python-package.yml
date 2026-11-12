@@ -25,12 +25,12 @@ jobs:
     # Environment variables required by Django in CI
     env:
       SECRET_KEY: "ci-only-dummy-secret-key"
+      JWT_SECRET_KEY: "ci-only-jwt-signing-key-not-for-production-2026"
       DB_NAME: "tcc_ci_db"
       DB_USER: "tcc_ci_user"
       DB_PASSWORD: "ci-only-dummy-password"
       DB_HOST: "127.0.0.1"
       DB_PORT: "5432"
-
 
     defaults:
       run:
