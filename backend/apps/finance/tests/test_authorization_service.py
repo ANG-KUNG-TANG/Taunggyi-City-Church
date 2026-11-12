@@ -261,7 +261,70 @@ class FinancialAuthorizationServiceTests(TestCase):
             FinancialAdjustment.Status.AUTHORISED,
         )
         self.assertEqual(event.adjustment_id, adjustment.id)
+        self.assertEqual(
+            event.decision,
+            FinancialAuthorization.Decision.AUTHORISE,
+        )
+        self.assertEqual(event.decided_by, self.pastor)
+        self.assertIsNotNone(event.decided_at)
         self.assertEqual(adjustment.updated_by, self.pastor)
+
+        audit_event = AuditLog.objects.get(
+            entity_type="FinancialAdjustment",
+            entity_id=adjustment.id,
+            action=AuditLog.Action.AUTHORISE,
+        )
+        self.assertEqual(audit_event.actor, self.pastor)
+
+    def test_adjustment_approval_revalidates_reversal_limit_atomically(self):
+        donation = self.create_authorised_donation()
+
+        reversal = FinancialAdjustmentService.create_adjustment(
+            actor=self.pastor,
+            donation_id=donation.id,
+            adjustment_type=FinancialAdjustment.AdjustmentType.REVERSAL,
+            amount_delta=Decimal("-80.00"),
+            reason="Reversal pending approval.",
+        )
+
+        correction = FinancialAdjustmentService.create_adjustment(
+            actor=self.pastor,
+            donation_id=donation.id,
+            adjustment_type=FinancialAdjustment.AdjustmentType.CORRECTION,
+            amount_delta=Decimal("-30.00"),
+            reason="Correction approved before the reversal.",
+        )
+
+        FinancialAuthorizationService.decide_adjustment(
+            actor=self.pastor,
+            target_id=correction.id,
+            decision=FinancialAuthorization.Decision.AUTHORISE,
+        )
+
+        with self.assertRaises(ValidationError):
+            FinancialAuthorizationService.decide_adjustment(
+                actor=self.pastor,
+                target_id=reversal.id,
+                decision=FinancialAuthorization.Decision.AUTHORISE,
+            )
+
+        reversal.refresh_from_db()
+        self.assertEqual(
+            reversal.status,
+            FinancialAdjustment.Status.PENDING,
+        )
+        self.assertFalse(
+            FinancialAuthorization.objects.filter(
+                adjustment=reversal,
+            ).exists()
+        )
+        self.assertFalse(
+            AuditLog.objects.filter(
+                entity_type="FinancialAdjustment",
+                entity_id=reversal.id,
+                action=AuditLog.Action.AUTHORISE,
+            ).exists()
+        )
 
     def test_audit_failure_rolls_back_decision(self):
         donation = self.create_pending_donation()
