@@ -18,12 +18,18 @@ from apps.finance.views.donation_views import (
 from apps.finance.views.financial_audit_views import (
     FinancialAuditHistoryView,
 )
-from apps.finance.views.financial_report_views import (
-    FinancialSummaryReportView,
-)
 from apps.finance.views.fund_transaction_views import (
     FundTransactionDetailView,
     FundTransactionListCreateView,
+)
+
+from apps.finance.views.financial_report_views import (
+    DailyDonationReportView,
+    DailyFundReportView,
+    FinancialSummaryReportView,
+    MonthlyDonationReportView,
+    MonthlyIncomeReportView,
+    PendingFinancialReportView,
 )
 
 urlpatterns = [
@@ -81,5 +87,30 @@ urlpatterns = [
         "reports/summary/",
         FinancialSummaryReportView.as_view(),
         name="financial-summary-report",
+    ),
+    path(
+        "reports/daily-funds/",
+        DailyFundReportView.as_view(),
+        name="financial-daily-funds-report",
+    ),
+    path(
+        "reports/monthly-donations/",
+        MonthlyDonationReportView.as_view(),
+        name="financial-monthly-donations-report",
+    ),
+    path(
+        "reports/monthly-income/",
+        MonthlyIncomeReportView.as_view(),
+        name="financial-monthly-income-report",
+    ),
+    path(
+        "reports/pending-authorisations/",
+        PendingFinancialReportView.as_view(),
+        name="financial-pending-authorisations-report",
+    ),
+    path(
+        "reports/daily-donations/",
+        DailyDonationReportView.as_view(),
+        name="financial-daily-donations-report",
     ),
 ]

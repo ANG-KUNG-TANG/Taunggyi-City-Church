@@ -304,3 +304,664 @@ class FinanceAPITests(APITestCase):
         self.assertIn("donations", response.data["confirmed"])
         self.assertIn("fund_income", response.data["confirmed"])
         self.assertIn("fund_expenses", response.data["confirmed"])
+
+    def create_fund_transaction_with_status(
+        self,
+        amount,
+        target_status,
+        transaction_type="INCOME",
+    ):
+        """Create a fund transaction and apply its requested decision."""
+        response = self.client.post(
+            reverse("fund-transaction-list-create"),
+            self.fund_payload(
+                amount=amount,
+                transaction_type=transaction_type,
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        transaction_id = response.data["id"]
+
+        if target_status == "PENDING":
+            return transaction_id
+
+        decision = (
+            FinancialAuthorization.Decision.AUTHORISE
+            if target_status == "AUTHORISED"
+            else FinancialAuthorization.Decision.REJECT
+        )
+
+        payload = {"decision": decision}
+
+        if decision == FinancialAuthorization.Decision.REJECT:
+            payload["reason"] = "Rejected for API reporting test."
+
+        decision_response = self.client.post(
+            reverse(
+                "fund-transaction-authorise",
+                kwargs={"target_id": transaction_id},
+            ),
+            payload,
+            format="json",
+        )
+        self.assertEqual(
+            decision_response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        return transaction_id
+
+    def create_fund_adjustment(self, transaction_id, amount_delta, authorise):
+        """Create an adjustment and optionally authorise it."""
+        response = self.client.post(
+            reverse("financial-adjustment-list-create"),
+            {
+                "fund_transaction_id": transaction_id,
+                "adjustment_type": "CORRECTION",
+                "amount_delta": amount_delta,
+                "reason": "Daily fund reporting API test adjustment.",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        adjustment_id = response.data["id"]
+
+        if authorise:
+            decision_response = self.client.post(
+                reverse(
+                    "financial-adjustment-authorise",
+                    kwargs={"target_id": adjustment_id},
+                ),
+                {
+                    "decision": FinancialAuthorization.Decision.AUTHORISE,
+                },
+                format="json",
+            )
+            self.assertEqual(
+                decision_response.status_code,
+                status.HTTP_200_OK,
+            )
+
+        return adjustment_id
+
+    def test_daily_fund_report_requires_date(self):
+        response = self.client.get(
+            reverse("financial-daily-funds-report"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_daily_fund_report_rejects_invalid_date(self):
+        response = self.client.get(
+            reverse("financial-daily-funds-report"),
+            {"date": "not-a-valid-date"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_daily_fund_report_separates_transaction_statuses(self):
+        self.create_fund_transaction_with_status("200.00", "AUTHORISED")
+        self.create_fund_transaction_with_status("50.00", "PENDING")
+        self.create_fund_transaction_with_status("30.00", "REJECTED")
+
+        response = self.client.get(
+            reverse("financial-daily-funds-report"),
+            {"date": "2026-11-11"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["date"], date(2026, 11, 11))
+        self.assertEqual(len(response.data["results"]), 1)
+
+        result = response.data["results"][0]
+
+        self.assertEqual(result["transaction_type"], "INCOME")
+        self.assertEqual(result["currency_code"], "MMK")
+        self.assertEqual(result["authorised_total"], Decimal("200.00"))
+        self.assertEqual(result["pending_total"], Decimal("50.00"))
+        self.assertEqual(result["rejected_total"], Decimal("30.00"))
+        self.assertEqual(
+            result["authorised_adjustment_total"],
+            Decimal("0.00"),
+        )
+        self.assertEqual(result["confirmed_total"], Decimal("200.00"))
+
+    def test_daily_fund_report_includes_only_authorised_adjustments(self):
+        transaction_id = self.create_fund_transaction_with_status(
+            "200.00",
+            "AUTHORISED",
+        )
+
+        self.create_fund_adjustment(
+            transaction_id,
+            "25.00",
+            authorise=True,
+        )
+        self.create_fund_adjustment(
+            transaction_id,
+            "50.00",
+            authorise=False,
+        )
+
+        response = self.client.get(
+            reverse("financial-daily-funds-report"),
+            {"date": "2026-11-11"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+
+        result = response.data["results"][0]
+
+        self.assertEqual(result["authorised_total"], Decimal("200.00"))
+        self.assertEqual(
+            result["authorised_adjustment_total"],
+            Decimal("25.00"),
+        )
+        self.assertEqual(result["confirmed_total"], Decimal("225.00"))
+
+    def create_donation_with_status(
+        self,
+        amount,
+        target_status,
+        currency_code="MMK",
+    ):
+        """Create a donation and apply its requested decision."""
+        response = self.client.post(
+            reverse("donation-list-create"),
+            self.donation_payload(
+                amount=amount,
+                currency_code=currency_code,
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        donation_id = response.data["id"]
+
+        if target_status == "PENDING":
+            return donation_id
+
+        decision = (
+            FinancialAuthorization.Decision.AUTHORISE
+            if target_status == "AUTHORISED"
+            else FinancialAuthorization.Decision.REJECT
+        )
+
+        payload = {"decision": decision}
+
+        if decision == FinancialAuthorization.Decision.REJECT:
+            payload["reason"] = "Rejected for monthly reporting test."
+
+        decision_response = self.client.post(
+            reverse(
+                "donation-authorise",
+                kwargs={"target_id": donation_id},
+            ),
+            payload,
+            format="json",
+        )
+        self.assertEqual(
+            decision_response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        return donation_id
+
+    def create_donation_adjustment(
+        self,
+        donation_id,
+        amount_delta,
+        authorise,
+    ):
+        """Create a donation adjustment and optionally authorise it."""
+        response = self.client.post(
+            reverse("financial-adjustment-list-create"),
+            {
+                "donation_id": donation_id,
+                "adjustment_type": "CORRECTION",
+                "amount_delta": amount_delta,
+                "reason": "Monthly donation reporting test adjustment.",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        adjustment_id = response.data["id"]
+
+        if authorise:
+            decision_response = self.client.post(
+                reverse(
+                    "financial-adjustment-authorise",
+                    kwargs={"target_id": adjustment_id},
+                ),
+                {
+                    "decision": FinancialAuthorization.Decision.AUTHORISE,
+                },
+                format="json",
+            )
+            self.assertEqual(
+                decision_response.status_code,
+                status.HTTP_200_OK,
+            )
+
+        return adjustment_id
+
+    def test_monthly_donation_report_separates_statuses(self):
+        self.create_donation_with_status("100.00", "AUTHORISED")
+        self.create_donation_with_status("50.00", "PENDING")
+        self.create_donation_with_status("30.00", "REJECTED")
+
+        response = self.client.get(
+            reverse("financial-monthly-donations-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["year"], 2026)
+        self.assertEqual(response.data["month"], 11)
+        self.assertEqual(len(response.data["results"]), 1)
+
+        result = response.data["results"][0]
+
+        self.assertEqual(result["currency_code"], "MMK")
+        self.assertEqual(result["authorised_total"], Decimal("100.00"))
+        self.assertEqual(result["pending_total"], Decimal("50.00"))
+        self.assertEqual(result["rejected_total"], Decimal("30.00"))
+        self.assertEqual(
+            result["authorised_adjustment_total"],
+            Decimal("0.00"),
+        )
+        self.assertEqual(result["confirmed_total"], Decimal("100.00"))
+
+    def test_monthly_donation_report_includes_authorised_adjustments(self):
+        donation_id = self.create_donation_with_status(
+            "100.00",
+            "AUTHORISED",
+        )
+
+        self.create_donation_adjustment(
+            donation_id,
+            "25.00",
+            authorise=True,
+        )
+        self.create_donation_adjustment(
+            donation_id,
+            "50.00",
+            authorise=False,
+        )
+
+        response = self.client.get(
+            reverse("financial-monthly-donations-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+
+        result = response.data["results"][0]
+
+        self.assertEqual(result["authorised_total"], Decimal("100.00"))
+        self.assertEqual(
+            result["authorised_adjustment_total"],
+            Decimal("25.00"),
+        )
+        self.assertEqual(result["confirmed_total"], Decimal("125.00"))
+
+    def test_monthly_donation_report_preserves_currency_separation(self):
+        self.create_donation_with_status(
+            "100.00",
+            "AUTHORISED",
+            currency_code="MMK",
+        )
+        self.create_donation_with_status(
+            "50.00",
+            "AUTHORISED",
+            currency_code="USD",
+        )
+
+        response = self.client.get(
+            reverse("financial-monthly-donations-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 2)
+
+        results = {item["currency_code"]: item for item in response.data["results"]}
+
+        self.assertEqual(
+            results["MMK"]["confirmed_total"],
+            Decimal("100.00"),
+        )
+        self.assertEqual(
+            results["USD"]["confirmed_total"],
+            Decimal("50.00"),
+        )
+
+    def test_administrator_can_access_monthly_donation_report(self):
+        self.client.force_authenticate(user=self.administrator)
+
+        response = self.client.get(
+            reverse("financial-monthly-donations-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_zone_leader_cannot_access_monthly_donation_report(self):
+        self.client.force_authenticate(user=self.zone_leader)
+
+        response = self.client.get(
+            reverse("financial-monthly-donations-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_user_cannot_access_monthly_donation_report(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get(
+            reverse("financial-monthly-donations-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_monthly_donation_report_requires_year_and_month(self):
+        response = self.client.get(
+            reverse("financial-monthly-donations-report"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_monthly_donation_report_rejects_invalid_month(self):
+        response = self.client.get(
+            reverse("financial-monthly-donations-report"),
+            {"year": 2026, "month": 13},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_monthly_donation_report_rejects_invalid_year(self):
+        response = self.client.get(
+            reverse("financial-monthly-donations-report"),
+            {"year": 0, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pastor_can_access_monthly_income_report(self):
+        response = self.client.get(
+            reverse("financial-monthly-income-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["year"], 2026)
+        self.assertEqual(response.data["month"], 11)
+        self.assertIn("results", response.data)
+
+    def test_administrator_can_access_monthly_income_report(self):
+        self.client.force_authenticate(user=self.administrator)
+
+        response = self.client.get(
+            reverse("financial-monthly-income-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_zone_leader_cannot_access_monthly_income_report(self):
+        self.client.force_authenticate(user=self.zone_leader)
+
+        response = self.client.get(
+            reverse("financial-monthly-income-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_user_cannot_access_monthly_income_report(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get(
+            reverse("financial-monthly-income-report"),
+            {"year": 2026, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_monthly_income_report_requires_year_and_month(self):
+        response = self.client.get(
+            reverse("financial-monthly-income-report"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_monthly_income_report_rejects_invalid_month(self):
+        response = self.client.get(
+            reverse("financial-monthly-income-report"),
+            {"year": 2026, "month": 13},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_monthly_income_report_rejects_invalid_year(self):
+        response = self.client.get(
+            reverse("financial-monthly-income-report"),
+            {"year": 0, "month": 11},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pending_authorisations_report_returns_all_pending_record_types(self):
+        self.create_donation_with_status("100.00", "PENDING")
+        self.create_donation_with_status("30.00", "REJECTED")
+
+        self.create_fund_transaction_with_status("200.00", "PENDING")
+        self.create_fund_transaction_with_status("40.00", "REJECTED")
+
+        authorised_donation_id = self.create_authorised_donation()
+        self.create_donation_adjustment(
+            authorised_donation_id,
+            "25.00",
+            authorise=False,
+        )
+
+        response = self.client.get(
+            reverse("financial-pending-authorisations-report"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        pending = response.data["pending"]
+
+        self.assertEqual(len(pending["donations"]), 1)
+        self.assertEqual(len(pending["fund_transactions"]), 1)
+        self.assertEqual(len(pending["adjustments"]), 1)
+
+        self.assertEqual(pending["donations"][0]["status"], "PENDING")
+        self.assertEqual(
+            pending["fund_transactions"][0]["status"],
+            "PENDING",
+        )
+        self.assertEqual(pending["adjustments"][0]["status"], "PENDING")
+
+    def test_pending_authorisations_report_filters_by_date_range(self):
+        self.client.post(
+            reverse("donation-list-create"),
+            self.donation_payload(transaction_date="2026-11-10"),
+            format="json",
+        )
+        self.client.post(
+            reverse("donation-list-create"),
+            self.donation_payload(transaction_date="2026-11-11"),
+            format="json",
+        )
+
+        response = self.client.get(
+            reverse("financial-pending-authorisations-report"),
+            {
+                "start_date": "2026-11-11",
+                "end_date": "2026-11-11",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["pending"]["donations"]), 1)
+        self.assertEqual(
+            response.data["pending"]["donations"][0]["transaction_date"],
+            "2026-11-11",
+        )
+
+    def test_pending_authorisations_report_rejects_invalid_date_range(self):
+        response = self.client.get(
+            reverse("financial-pending-authorisations-report"),
+            {
+                "start_date": "2026-11-12",
+                "end_date": "2026-11-11",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_administrator_can_access_pending_authorisations_report(self):
+        self.client.force_authenticate(user=self.administrator)
+
+        response = self.client.get(
+            reverse("financial-pending-authorisations-report"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_zone_leader_cannot_access_pending_authorisations_report(self):
+        self.client.force_authenticate(user=self.zone_leader)
+
+        response = self.client.get(
+            reverse("financial-pending-authorisations-report"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_user_cannot_access_pending_authorisations_report(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get(
+            reverse("financial-pending-authorisations-report"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_daily_donation_report_requires_date(self):
+        response = self.client.get(
+            reverse("financial-daily-donations-report"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_daily_donation_report_rejects_invalid_date(self):
+        response = self.client.get(
+            reverse("financial-daily-donations-report"),
+            {"date": "invalid-date"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_daily_donation_report_separates_statuses(self):
+        self.create_donation_with_status("100.00", "AUTHORISED")
+        self.create_donation_with_status("50.00", "PENDING")
+        self.create_donation_with_status("30.00", "REJECTED")
+
+        response = self.client.get(
+            reverse("financial-daily-donations-report"),
+            {"date": "2026-11-11"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+
+        result = response.data["results"][0]
+
+        self.assertEqual(result["currency_code"], "MMK")
+        self.assertEqual(result["payment_method"], "CASH")
+        self.assertEqual(result["authorised_total"], Decimal("100.00"))
+        self.assertEqual(result["pending_total"], Decimal("50.00"))
+        self.assertEqual(result["rejected_total"], Decimal("30.00"))
+        self.assertEqual(result["confirmed_total"], Decimal("100.00"))
+        self.assertEqual(len(result["donations"]), 3)
+
+    def test_daily_donation_report_preserves_currency_separation(self):
+        self.create_donation_with_status("100.00", "AUTHORISED", currency_code="MMK")
+        self.create_donation_with_status("50.00", "AUTHORISED", currency_code="USD")
+
+        response = self.client.get(
+            reverse("financial-daily-donations-report"),
+            {"date": "2026-11-11"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 2)
+
+        totals = {
+            item["currency_code"]: item["confirmed_total"]
+            for item in response.data["results"]
+        }
+
+        self.assertEqual(totals["MMK"], Decimal("100.00"))
+        self.assertEqual(totals["USD"], Decimal("50.00"))
+
+    def test_daily_donation_report_excludes_adjustments(self):
+        donation_id = self.create_donation_with_status("100.00", "AUTHORISED")
+
+        self.create_donation_adjustment(
+            donation_id,
+            "25.00",
+            authorise=True,
+        )
+
+        response = self.client.get(
+            reverse("financial-daily-donations-report"),
+            {"date": "2026-11-11"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        result = response.data["results"][0]
+
+        self.assertEqual(result["authorised_total"], Decimal("100.00"))
+        self.assertEqual(result["confirmed_total"], Decimal("100.00"))
+
+    def test_administrator_can_access_daily_donation_report(self):
+        self.client.force_authenticate(user=self.administrator)
+
+        response = self.client.get(
+            reverse("financial-daily-donations-report"),
+            {"date": "2026-11-11"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_zone_leader_cannot_access_daily_donation_report(self):
+        self.client.force_authenticate(user=self.zone_leader)
+
+        response = self.client.get(
+            reverse("financial-daily-donations-report"),
+            {"date": "2026-11-11"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_user_cannot_access_daily_donation_report(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get(
+            reverse("financial-daily-donations-report"),
+            {"date": "2026-11-11"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
