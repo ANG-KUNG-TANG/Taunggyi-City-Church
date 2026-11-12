@@ -234,6 +234,21 @@ class FinancialAdjustmentServiceTests(TestCase):
                 amount_delta=Decimal("-100.01"),
             )
 
+    def test_reversal_accepts_exact_remaining_amount(self):
+        donation = self.create_authorised_donation()
+
+        adjustment = self.create_adjustment(
+            donation_id=donation.id,
+            adjustment_type=FinancialAdjustment.AdjustmentType.REVERSAL,
+            amount_delta=Decimal("-100.00"),
+        )
+
+        self.assertEqual(adjustment.amount_delta, Decimal("-100.00"))
+        self.assertEqual(
+            adjustment.status,
+            FinancialAdjustment.Status.PENDING,
+        )
+
     def test_pending_reversals_cannot_exceed_remaining_amount(self):
         donation = self.create_authorised_donation()
 
