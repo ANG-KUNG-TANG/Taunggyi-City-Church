@@ -15,6 +15,8 @@ from apps.attendance.models import (
     VisitorCount,
 )
 
+from apps.tcc.models.refresh_token import RefreshToken
+
 __all__ = [
     "User",
     "Role",
@@ -26,6 +28,7 @@ __all__ = [
     "AttendanceSession",
     "MemberAttendance",
     "VisitorCount",
+    "RefreshToken",
 ]
 
 from apps.finance.models import (

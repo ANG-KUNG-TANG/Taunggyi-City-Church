@@ -9,7 +9,6 @@ import logging
 import re
 import jwt as pyjwt
 from common.jwt.jwt_backend import JWTBackend, TokenType
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 
@@ -201,13 +200,4 @@ class JWTAuthenticationOptional(JWTAuthentication):
     """
 
     def authenticate(self, request):
-        """
-        Try to authenticate, but return None instead of failing.
-        """
-        try:
-            return super().authenticate(request)
-        except AuthenticationFailed as e:
-            logger.debug(
-                "Optional JWT authentication failed; allowing anonymous access"
-            )
-            return None
+        return super().authenticate(request)
