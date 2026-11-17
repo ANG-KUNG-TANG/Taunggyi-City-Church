@@ -5,30 +5,83 @@ Audit records are created through this service and should be written
 inside the same transaction as the domain operation being audited.
 """
 
+import math
+import re
 from uuid import UUID
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 
 from apps.audit.models.audit_log import AuditLog
 
 
-# Fields that must never be included in audit snapshots.
-SENSITIVE_FIELDS = {
+# Credential-related fields are excluded from audit snapshots.
+SENSITIVE_FIELD_FRAGMENTS = (
     "password",
-    "password_hash",
     "token",
-    "access_token",
-    "refresh_token",
     "secret",
-    "secret_key",
-}
+    "authorization",
+    "credential",
+    "cookie",
+    "privatekey",
+    "apikey",
+    "sessionkey",
+)
+
+
+def _normalize_key(key):
+    """Normalise field names to catch spelling and separator variations."""
+    return re.sub(r"[^a-z0-9]", "", str(key).casefold())
+
+
+def _is_sensitive_field(key):
+    normalized_key = _normalize_key(key)
+    return any(fragment in normalized_key for fragment in SENSITIVE_FIELD_FRAGMENTS)
+
+
+def _clean_value(value):
+    """
+    Recursively sanitise and validate a snapshot value.
+
+    Supported values are JSON primitives, UUIDs, dictionaries,
+    lists, and tuples. Tuples are converted to lists.
+    """
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValidationError("Audit snapshots cannot contain non-finite numbers.")
+        return value
+
+    if isinstance(value, UUID):
+        return str(value)
+
+    if isinstance(value, dict):
+        cleaned = {}
+
+        for key, nested_value in value.items():
+            if not isinstance(key, str):
+                raise ValidationError("Audit snapshot dictionary keys must be strings.")
+
+            if _is_sensitive_field(key):
+                continue
+
+            cleaned[key] = _clean_value(nested_value)
+
+        return cleaned
+
+    if isinstance(value, (list, tuple)):
+        return [_clean_value(item) for item in value]
+
+    raise ValidationError(
+        "Audit snapshots contain an unsupported value type: " f"{type(value).__name__}."
+    )
 
 
 def _clean_snapshot(data):
     """
-    Return a safe snapshot containing JSON-compatible values.
-
-    Sensitive fields are excluded recursively.
+    Return a safe, JSON-compatible dictionary snapshot or None.
     """
     if data is None:
         return None
@@ -36,30 +89,30 @@ def _clean_snapshot(data):
     if not isinstance(data, dict):
         raise ValidationError("Audit snapshots must be dictionaries or None.")
 
-    cleaned = {}
+    return _clean_value(data)
 
-    for key, value in data.items():
-        normalized_key = str(key).lower()
 
-        if normalized_key in SENSITIVE_FIELDS:
-            continue
+def _validate_actor(actor):
+    """
+    Accept None for legitimate system events.
 
-        if isinstance(value, dict):
-            cleaned[key] = _clean_snapshot(value)
+    Otherwise, require a persisted instance of the configured user model.
+    """
+    if actor is None:
+        return
 
-        elif isinstance(value, (list, tuple)):
-            cleaned[key] = [
-                _clean_snapshot(item) if isinstance(item, dict) else item
-                for item in value
-            ]
+    User = get_user_model()
 
-        elif isinstance(value, UUID):
-            cleaned[key] = str(value)
+    if not isinstance(actor, User):
+        raise ValidationError(
+            "Audit actor must be an instance of the configured user model."
+        )
 
-        else:
-            cleaned[key] = value
+    if actor.pk is None or actor._state.adding:
+        raise ValidationError("Audit actor must be a persisted user.")
 
-    return cleaned
+    if not User._default_manager.filter(pk=actor.pk).exists():
+        raise ValidationError("Audit actor does not exist.")
 
 
 class AuditService:
@@ -82,7 +135,8 @@ class AuditService:
         Create an audit event.
 
         Args:
-            actor: Authenticated user responsible for the operation.
+            actor: Authenticated user responsible for the operation,
+                or None for a legitimate system-generated event.
             entity_type: Domain entity name, e.g. "Member".
             entity_id: UUID of the affected entity.
             action: AuditLog.Action value.
@@ -93,7 +147,12 @@ class AuditService:
         Returns:
             The newly created AuditLog instance.
         """
-        if not entity_type or len(entity_type) > 80:
+        if not isinstance(entity_type, str) or not entity_type.strip():
+            raise ValidationError(
+                "entity_type must contain between 1 and 80 characters."
+            )
+
+        if len(entity_type) > 80:
             raise ValidationError(
                 "entity_type must contain between 1 and 80 characters."
             )
@@ -108,6 +167,8 @@ class AuditService:
 
         if action not in valid_actions:
             raise ValidationError("Invalid audit action.")
+
+        _validate_actor(actor)
 
         safe_before = _clean_snapshot(before_data)
         safe_after = _clean_snapshot(after_data)

@@ -5,7 +5,7 @@ Handles activity creation, editing, publication, and archiving.
 Sensitive operations are recorded in the audit log.
 """
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
@@ -45,10 +45,31 @@ class ActivityService:
         }
 
     @staticmethod
+    def _require_activity_manager(actor):
+        """Require an active Pastor or Administrator."""
+        if (
+            actor is None
+            or not getattr(actor, "is_authenticated", False)
+            or not getattr(actor, "is_active", False)
+        ):
+            raise PermissionDenied("An active authenticated user is required.")
+
+        has_manager_role = actor.role_assignments.filter(
+            revoked_at__isnull=True,
+            role__code__in=("PASTOR", "ADMINISTRATOR"),
+        ).exists()
+
+        if not has_manager_role:
+            raise PermissionDenied(
+                "Only Pastors and Administrators may manage activities."
+            )
+
+    @staticmethod
     @transaction.atomic
     def create_activity(*, actor, title, body, correlation_id=None):
         """Create a new activity as a draft."""
 
+        ActivityService._require_activity_manager(actor)
         ActivityService._validate_content(title=title, body=body)
 
         activity = Activity.objects.create(
@@ -80,6 +101,7 @@ class ActivityService:
     ):
         """Update activity content without changing its publication state."""
 
+        ActivityService._require_activity_manager(actor)
         ActivityService._validate_content(title=title, body=body)
 
         activity = Activity.objects.select_for_update().get(id=activity_id)
@@ -110,20 +132,8 @@ class ActivityService:
     def publish_activity(*, actor, activity_id, correlation_id=None):
         """Publish an activity after server-side role authorization."""
 
+        ActivityService._require_activity_manager(actor)
         activity = Activity.objects.select_for_update().get(id=activity_id)
-
-        if not actor or not actor.is_authenticated or not actor.is_active:
-            raise ValidationError("An active authenticated user is required.")
-
-        has_publish_role = actor.role_assignments.filter(
-            revoked_at__isnull=True,
-            role__code__in=["PASTOR", "ADMINISTRATOR"],
-        ).exists()
-
-        if not has_publish_role:
-            raise PermissionError(
-                "Only Pastors and Administrators may publish activities."
-            )
 
         ActivityService._validate_content(
             title=activity.title,
@@ -164,6 +174,7 @@ class ActivityService:
     def archive_activity(*, actor, activity_id, correlation_id=None):
         """Archive an activity and record the change."""
 
+        ActivityService._require_activity_manager(actor)
         activity = Activity.objects.select_for_update().get(id=activity_id)
 
         before_data = ActivityService._snapshot(activity)
