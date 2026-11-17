@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from unittest.mock import patch
 
 import jwt
 from django.test import TestCase
@@ -190,6 +191,72 @@ class JWTAuthenticationTests(TestCase):
 
         with self.assertRaises(AuthenticationFailed):
             self.authenticate_token(self.access_token)
+
+    def test_failed_replacement_creation_rolls_back_token_consumption(self):
+        is_valid, payload = self.jwt_manager.verify_token_sync(
+            self.refresh_token,
+            TokenType.REFRESH,
+        )
+        self.assertTrue(is_valid)
+
+        original_record = RefreshToken.objects.get(jti=payload["jti"])
+
+        with patch.object(
+            self.jwt_backend,
+            "create_tokens_sync",
+            side_effect=RuntimeError("Replacement token creation failed."),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.jwt_backend._refresh_tokens_sync(self.refresh_token)
+
+        original_record.refresh_from_db()
+        self.assertIsNone(original_record.consumed_at)
+
+    def test_refresh_token_rejects_user_and_session_record_mismatches(self):
+        is_valid, payload = self.jwt_manager.verify_token_sync(
+            self.refresh_token,
+            TokenType.REFRESH,
+        )
+        self.assertTrue(is_valid)
+
+        record = RefreshToken.objects.get(jti=payload["jti"])
+        original_user_id = record.user_id
+
+        other_user = User.objects.create_user(
+            email="jwt-other-user@example.com",
+            password="test-password",
+        )
+
+        record.user = other_user
+        record.save(update_fields=["user"])
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            self.jwt_backend._refresh_tokens_sync(self.refresh_token)
+
+        record.user_id = original_user_id
+        record.session_id = uuid.uuid4()
+        record.save(update_fields=["user", "session_id"])
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            self.jwt_backend._refresh_tokens_sync(self.refresh_token)
+
+        record.refresh_from_db()
+        self.assertIsNone(record.consumed_at)
+
+    def test_inactive_user_cannot_refresh_and_session_is_revoked(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        with self.assertRaisesRegex(ValueError, "Inactive users"):
+            self.jwt_backend._refresh_tokens_sync(self.refresh_token)
+
+        session_tokens = RefreshToken.objects.filter(
+            user_id=self.user.pk,
+            session_id=self.session_id,
+        )
+
+        self.assertTrue(session_tokens.exists())
+        self.assertFalse(session_tokens.filter(revoked_at__isnull=True).exists())
 
 
 class LoginAPITests(TestCase):

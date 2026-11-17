@@ -290,7 +290,7 @@ class JWTManager:
         except ValueError:
             logger.warning("JWT verification failed: invalid UUID.")
         except Exception:
-            logger.exception("Unexpected JWT verification error.")
+            logger.error("Unexpected JWT verification error.")
 
         return False, None
 
@@ -349,7 +349,7 @@ class JWTManager:
         except (ValueError, TypeError):
             return True
         except Exception:
-            logger.exception("Failed to check refresh-token state.")
+            logger.error("Failed to check refresh-token state.")
             return True
 
     async def is_token_blacklisted(
@@ -394,7 +394,7 @@ class JWTManager:
         except (ValueError, TypeError):
             return False
         except Exception:
-            logger.exception("Failed to revoke refresh token.")
+            logger.error("Failed to revoke refresh token.")
             return False
 
 
@@ -787,7 +787,7 @@ class JWTBackend:
             ).exists()
 
         except Exception:
-            logger.exception("Session validation failed.")
+            logger.error("Session validation failed.")
             return False
 
     def revoke_session_sync(

@@ -94,7 +94,7 @@ class JWTAuthentication(BaseAuthentication):
             raise
 
         except Exception:
-            logger.exception("Unexpected JWT authentication error")
+            logger.error("Unexpected JWT authentication error.")
             raise AuthenticationFailed("Authentication failed")
 
     def extract_token(self, request):

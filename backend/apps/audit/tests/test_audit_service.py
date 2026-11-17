@@ -208,3 +208,128 @@ class AuditServiceTests(TestCase):
 
         with self.assertRaises(ValidationError):
             AuditLog.objects.all().delete()
+
+    def test_deeply_nested_credentials_are_removed(self):
+        event = AuditService.record_event(
+            actor=self.actor,
+            entity_type="User",
+            entity_id=uuid.uuid4(),
+            action=AuditLog.Action.UPDATE,
+            after_data={
+                "metadata": [
+                    [
+                        {
+                            "profile": {
+                                "access_token": "hidden",
+                                "name": "Test",
+                            }
+                        }
+                    ]
+                ]
+            },
+        )
+
+        self.assertEqual(
+            event.after_data,
+            {
+                "metadata": [
+                    [
+                        {
+                            "profile": {
+                                "name": "Test",
+                            }
+                        }
+                    ]
+                ]
+            },
+        )
+
+    def test_alternative_credential_field_names_are_removed(self):
+        event = AuditService.record_event(
+            actor=self.actor,
+            entity_type="User",
+            entity_id=uuid.uuid4(),
+            action=AuditLog.Action.UPDATE,
+            after_data={
+                "accessToken": "hidden",
+                "client_secret": "hidden",
+                "Authorization": "Bearer hidden",
+                "credential_value": "hidden",
+                "session_key": "hidden",
+                "display_name": "Test User",
+            },
+        )
+
+        self.assertEqual(
+            event.after_data,
+            {"display_name": "Test User"},
+        )
+
+    def test_non_finite_float_values_are_rejected(self):
+        for invalid_value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=invalid_value):
+                with self.assertRaises(ValidationError):
+                    AuditService.record_event(
+                        actor=self.actor,
+                        entity_type="User",
+                        entity_id=uuid.uuid4(),
+                        action=AuditLog.Action.UPDATE,
+                        after_data={"score": invalid_value},
+                    )
+
+    def test_unsupported_snapshot_objects_are_rejected(self):
+        with self.assertRaises(ValidationError):
+            AuditService.record_event(
+                actor=self.actor,
+                entity_type="User",
+                entity_id=uuid.uuid4(),
+                action=AuditLog.Action.UPDATE,
+                after_data={"unsupported": object()},
+            )
+
+    def test_non_string_snapshot_keys_are_rejected(self):
+        with self.assertRaises(ValidationError):
+            AuditService.record_event(
+                actor=self.actor,
+                entity_type="User",
+                entity_id=uuid.uuid4(),
+                action=AuditLog.Action.UPDATE,
+                after_data={123: "invalid key"},
+            )
+
+    def test_unsaved_actor_is_rejected(self):
+        unsaved_user = User(
+            email="unsaved@example.com",
+        )
+
+        with self.assertRaises(ValidationError):
+            AuditService.record_event(
+                actor=unsaved_user,
+                entity_type="User",
+                entity_id=uuid.uuid4(),
+                action=AuditLog.Action.CREATE,
+            )
+
+    def test_invalid_actor_object_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            AuditService.record_event(
+                actor=object(),
+                entity_type="User",
+                entity_id=uuid.uuid4(),
+                action=AuditLog.Action.CREATE,
+            )
+
+    def test_system_event_without_actor_is_allowed(self):
+        event = AuditService.record_event(
+            actor=None,
+            entity_type="System",
+            entity_id=uuid.uuid4(),
+            action=AuditLog.Action.CREATE,
+            after_data={"event": "Automated maintenance"},
+        )
+
+        self.assertIsNone(event.actor_id)
+        self.assertEqual(
+            event.after_data,
+            {"event": "Automated maintenance"},
+        )
