@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
+from apps.audit.models.audit_log import AuditLog
 
 from apps.accounts.models.role import Role
 from apps.accounts.models.user_role import UserRole
@@ -260,3 +261,131 @@ class ZoneServiceTests(TestCase):
                 assignment=assignment,
                 actor=self.pastor,
             )
+
+    def test_create_zone_records_audit_event(self):
+        zone = create_zone(
+            name="East Zone",
+            actor=self.pastor,
+        )
+
+        event = AuditLog.objects.get(
+            entity_type="Zone",
+            entity_id=zone.pk,
+            action=AuditLog.Action.CREATE,
+        )
+
+        self.assertEqual(event.actor, self.pastor)
+        self.assertEqual(event.after_data["name"], "East Zone")
+
+    def test_update_zone_records_before_and_after_snapshots(self):
+        original_name = self.zone.name
+
+        updated = update_zone(
+            zone=self.zone,
+            actor=self.pastor,
+            name="Central Zone",
+        )
+
+        event = AuditLog.objects.get(
+            entity_type="Zone",
+            entity_id=updated.pk,
+            action=AuditLog.Action.UPDATE,
+        )
+
+        self.assertEqual(event.before_data["name"], original_name)
+        self.assertEqual(event.after_data["name"], "Central Zone")
+        self.assertEqual(event.actor, self.pastor)
+
+    def test_deactivate_zone_records_audit_event(self):
+        deactivated = deactivate_zone(
+            zone=self.zone,
+            actor=self.pastor,
+        )
+
+        event = AuditLog.objects.get(
+            entity_type="Zone",
+            entity_id=deactivated.pk,
+            action=AuditLog.Action.UPDATE,
+        )
+
+        self.assertTrue(event.before_data["is_active"])
+        self.assertFalse(event.after_data["is_active"])
+
+    def test_assign_zone_leader_records_audit_event(self):
+        assignment = assign_zone_leader(
+            zone=self.zone,
+            user=self.leader,
+            actor=self.pastor,
+        )
+
+        event = AuditLog.objects.get(
+            entity_type="ZoneLeaderAssignment",
+            entity_id=assignment.pk,
+            action=AuditLog.Action.CREATE,
+        )
+
+        self.assertEqual(event.actor, self.pastor)
+        self.assertEqual(
+            event.after_data["user_id"],
+            str(self.leader.pk),
+        )
+
+    def test_end_assignment_records_audit_event(self):
+        assignment = assign_zone_leader(
+            zone=self.zone,
+            user=self.leader,
+            actor=self.pastor,
+        )
+
+        end_zone_leader_assignment(
+            assignment=assignment,
+            actor=self.pastor,
+        )
+
+        event = AuditLog.objects.filter(
+            entity_type="ZoneLeaderAssignment",
+            entity_id=assignment.pk,
+            action=AuditLog.Action.UPDATE,
+        ).latest("occurred_at")
+
+        self.assertIsNone(event.before_data["effective_to"])
+        self.assertIsNotNone(event.after_data["effective_to"])
+
+    def test_failed_zone_creation_does_not_create_audit_event(self):
+        with self.assertRaises(ValidationError):
+            create_zone(
+                name="   ",
+                actor=self.pastor,
+            )
+
+        self.assertFalse(
+            AuditLog.objects.filter(
+                entity_type="Zone",
+                action=AuditLog.Action.CREATE,
+            ).exists()
+        )
+
+    def test_inactive_zone_assignment_does_not_create_audit_event(self):
+        self.zone.is_active = False
+        self.zone.save(update_fields=["is_active"])
+
+        with self.assertRaises(ValidationError):
+            assign_zone_leader(
+                zone=self.zone,
+                user=self.leader,
+                actor=self.pastor,
+            )
+
+        self.assertFalse(
+            AuditLog.objects.filter(
+                entity_type="ZoneLeaderAssignment",
+                action=AuditLog.Action.CREATE,
+            ).exists()
+        )
+
+        self.assertFalse(
+            ZoneLeaderAssignment.objects.filter(
+                zone=self.zone,
+                user=self.leader,
+            ).exists()
+        )

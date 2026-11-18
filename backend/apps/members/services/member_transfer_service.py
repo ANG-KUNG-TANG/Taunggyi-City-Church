@@ -14,13 +14,22 @@ from apps.audit.services.audit_service import AuditService
 from apps.members.models import Member
 from apps.members.services.member_service import (
     PASTOR_ROLE,
+    MemberVersionConflict,
     _has_active_role,
     _member_snapshot,
+    _validate_text,
 )
 from apps.zones.models.zones import Zone
 
 
-def transfer_member(*, member, destination_zone, actor):
+def transfer_member(
+    *,
+    member,
+    destination_zone,
+    actor,
+    reason,
+    expected_version,
+):
     """
     Transfer a member to another active zone.
 
@@ -42,8 +51,22 @@ def transfer_member(*, member, destination_zone, actor):
     if not isinstance(destination_zone, Zone):
         raise ValidationError("A valid destination zone is required.")
 
+    if type(expected_version) is not int or expected_version < 1:
+        raise ValidationError("A valid positive expected_version is required.")
+
+    reason = _validate_text(reason, "Transfer reason")
+
+    if not reason:
+        raise ValidationError("A transfer reason is required.")
+
     with transaction.atomic():
         current_member = Member.objects.select_for_update().get(pk=member.pk)
+
+        if current_member.version != expected_version:
+            raise MemberVersionConflict(
+                "This member has been modified by another request. "
+                "Refresh the member record before transferring."
+            )
 
         target_zone = Zone.objects.select_for_update().get(pk=destination_zone.pk)
 
@@ -57,14 +80,19 @@ def transfer_member(*, member, destination_zone, actor):
 
         current_member.zone = target_zone
         current_member.updated_by = actor
+        current_member.version += 1
 
         current_member.save(
             update_fields=[
                 "zone",
                 "updated_by",
                 "updated_at",
+                "version",
             ]
         )
+
+        after_data = _member_snapshot(current_member)
+        after_data["transfer_reason"] = reason
 
         AuditService.record_event(
             actor=actor,
@@ -72,7 +100,7 @@ def transfer_member(*, member, destination_zone, actor):
             entity_id=current_member.id,
             action=AuditLog.Action.UPDATE,
             before_data=before_data,
-            after_data=_member_snapshot(current_member),
+            after_data=after_data,
         )
 
     return current_member

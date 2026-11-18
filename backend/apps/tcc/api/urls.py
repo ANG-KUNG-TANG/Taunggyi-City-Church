@@ -9,4 +9,5 @@ urlpatterns = [
         "v1/activities/",
         include("apps.activities.urls"),
     ),
+    path("v1/members/", include("apps.members.urls")),
 ]

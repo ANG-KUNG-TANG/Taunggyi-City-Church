@@ -10,6 +10,7 @@ from apps.accounts.models.users import User
 from apps.audit.models.audit_log import AuditLog
 from apps.members.models import Member
 from apps.members.services.member_service import (
+    MemberVersionConflict,
     create_member,
     update_member,
 )
@@ -168,6 +169,7 @@ class MemberServiceTests(TestCase):
         updated = update_member(
             member=member,
             actor=self.pastor,
+            expected_version=member.version,
             full_name="Updated Member",
             phone="0912345678",
         )
@@ -194,6 +196,7 @@ class MemberServiceTests(TestCase):
         updated = update_member(
             member=member,
             actor=self.leader,
+            expected_version=member.version,
             phone="0912345678",
         )
 
@@ -212,6 +215,7 @@ class MemberServiceTests(TestCase):
             update_member(
                 member=member,
                 actor=self.leader,
+                expected_version=member.version,
                 full_name="Unauthorized Update",
             )
 
@@ -235,6 +239,7 @@ class MemberServiceTests(TestCase):
         updated = update_member(
             member=member,
             actor=self.pastor,
+            expected_version=member.version,
             full_name=member.full_name,
         )
 
@@ -248,6 +253,7 @@ class MemberServiceTests(TestCase):
             update_member(
                 member=member,
                 actor=self.pastor,
+                expected_version=member.version,
                 full_name="   ",
             )
 
@@ -262,6 +268,7 @@ class MemberServiceTests(TestCase):
             update_member(
                 member=member,
                 actor=self.pastor,
+                expected_version=member.version,
                 is_active="false",
             )
 
@@ -280,6 +287,7 @@ class MemberServiceTests(TestCase):
                 update_member(
                     member=member,
                     actor=self.pastor,
+                    expected_version=member.version,
                     full_name="Updated Member",
                 )
 
@@ -296,3 +304,83 @@ class MemberServiceTests(TestCase):
             ).count(),
             0,
         )
+
+    def test_successful_update_increments_member_version(self):
+        member = self.create_member()
+        initial_version = member.version
+
+        updated = update_member(
+            member=member,
+            actor=self.pastor,
+            expected_version=initial_version,
+            full_name="Updated Member",
+        )
+
+        updated.refresh_from_db()
+
+        self.assertEqual(
+            updated.version,
+            initial_version + 1,
+        )
+
+    def test_stale_version_rejects_update(self):
+        member = self.create_member()
+
+        update_member(
+            member=member,
+            actor=self.pastor,
+            expected_version=member.version,
+            full_name="First Update",
+        )
+
+        member.refresh_from_db()
+
+        with self.assertRaises(MemberVersionConflict):
+            update_member(
+                member=member,
+                actor=self.pastor,
+                expected_version=1,
+                full_name="Stale Update",
+            )
+
+        member.refresh_from_db()
+
+        self.assertEqual(member.full_name, "First Update")
+        self.assertEqual(member.version, 2)
+
+    def test_no_op_update_does_not_increment_version(self):
+        member = self.create_member()
+        initial_version = member.version
+
+        update_member(
+            member=member,
+            actor=self.pastor,
+            expected_version=initial_version,
+            full_name=member.full_name,
+        )
+
+        member.refresh_from_db()
+
+        self.assertEqual(member.version, initial_version)
+
+    def test_audit_failure_rolls_back_version_increment(self):
+        member = self.create_member()
+        initial_version = member.version
+
+        with patch(
+            "apps.members.services.member_service.AuditService.record_event",
+            side_effect=RuntimeError("Audit failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                update_member(
+                    member=member,
+                    actor=self.pastor,
+                    expected_version=initial_version,
+                    full_name="Updated Member",
+                )
+
+        member.refresh_from_db()
+
+        self.assertEqual(member.full_name, "Test Member")
+        self.assertEqual(member.version, initial_version)
+        self.assertIsNone(member.updated_by)

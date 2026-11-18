@@ -1,8 +1,7 @@
 """
 Zone business services.
 
-These functions enforce zone-management and assignment rules.
-API permissions will be implemented separately.
+These functions enforce zone-management, assignment, and audit rules.
 """
 
 from django.core.exceptions import ValidationError
@@ -10,6 +9,8 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.accounts.models.users import User
+from apps.audit.models.audit_log import AuditLog
+from apps.audit.services.audit_service import AuditService
 from apps.zones.models.zones import Zone, ZoneLeaderAssignment
 
 
@@ -61,8 +62,30 @@ def _validate_zone_name(name):
     return name
 
 
+def _zone_snapshot(zone):
+    """Return a JSON-serializable zone snapshot."""
+    return {
+        "name": zone.name,
+        "description": zone.description,
+        "is_active": zone.is_active,
+    }
+
+
+def _assignment_snapshot(assignment):
+    """Return a JSON-serializable assignment snapshot."""
+    return {
+        "zone_id": str(assignment.zone_id),
+        "user_id": str(assignment.user_id),
+        "assigned_by_id": str(assignment.assigned_by_id),
+        "effective_from": assignment.effective_from.isoformat(),
+        "effective_to": (
+            assignment.effective_to.isoformat() if assignment.effective_to else None
+        ),
+    }
+
+
 def create_zone(*, name, actor, description=""):
-    """Create a zone."""
+    """Create a zone and record its audit event."""
     _require_pastor(actor)
 
     name = _validate_zone_name(name)
@@ -70,43 +93,66 @@ def create_zone(*, name, actor, description=""):
     if not isinstance(description, str):
         raise ValidationError("Description must be a string.")
 
-    if Zone.objects.filter(name__iexact=name).exists():
-        raise ValidationError("A zone with this name already exists.")
+    description = description.strip()
 
-    return Zone.objects.create(
-        name=name,
-        description=description.strip(),
-    )
+    with transaction.atomic():
+        if Zone.objects.filter(name__iexact=name).exists():
+            raise ValidationError("A zone with this name already exists.")
+
+        zone = Zone.objects.create(
+            name=name,
+            description=description,
+        )
+
+        AuditService.record_event(
+            actor=actor,
+            entity_type="Zone",
+            entity_id=zone.pk,
+            action=AuditLog.Action.CREATE,
+            after_data=_zone_snapshot(zone),
+        )
+
+    return zone
 
 
 def update_zone(*, zone, actor, name=None, description=None):
-    """Update a zone's name and description."""
+    """Update a zone and record before-and-after snapshots."""
     _require_pastor(actor)
 
     if not isinstance(zone, Zone):
         raise ValidationError("A valid zone is required.")
 
-    if name is not None:
-        zone.name = _validate_zone_name(name)
+    with transaction.atomic():
+        zone = Zone.objects.select_for_update().get(pk=zone.pk)
 
-    if description is not None:
-        if not isinstance(description, str):
-            raise ValidationError("Description must be a string.")
+        before_data = _zone_snapshot(zone)
 
-        zone.description = description.strip()
+        if name is not None:
+            zone.name = _validate_zone_name(name)
 
-    duplicate = (
-        Zone.objects.filter(
-            name__iexact=zone.name,
+        if description is not None:
+            if not isinstance(description, str):
+                raise ValidationError("Description must be a string.")
+
+            zone.description = description.strip()
+
+        duplicate = (
+            Zone.objects.filter(name__iexact=zone.name).exclude(pk=zone.pk).exists()
         )
-        .exclude(pk=zone.pk)
-        .exists()
-    )
 
-    if duplicate:
-        raise ValidationError("A zone with this name already exists.")
+        if duplicate:
+            raise ValidationError("A zone with this name already exists.")
 
-    zone.save(update_fields=["name", "description", "updated_at"])
+        zone.save(update_fields=["name", "description", "updated_at"])
+
+        AuditService.record_event(
+            actor=actor,
+            entity_type="Zone",
+            entity_id=zone.pk,
+            action=AuditLog.Action.UPDATE,
+            before_data=before_data,
+            after_data=_zone_snapshot(zone),
+        )
 
     return zone
 
@@ -118,9 +164,23 @@ def deactivate_zone(*, zone, actor):
     if not isinstance(zone, Zone):
         raise ValidationError("A valid zone is required.")
 
-    if zone.is_active:
-        zone.is_active = False
-        zone.save(update_fields=["is_active", "updated_at"])
+    with transaction.atomic():
+        zone = Zone.objects.select_for_update().get(pk=zone.pk)
+
+        if zone.is_active:
+            before_data = _zone_snapshot(zone)
+
+            zone.is_active = False
+            zone.save(update_fields=["is_active", "updated_at"])
+
+            AuditService.record_event(
+                actor=actor,
+                entity_type="Zone",
+                entity_id=zone.pk,
+                action=AuditLog.Action.UPDATE,
+                before_data=before_data,
+                after_data=_zone_snapshot(zone),
+            )
 
     return zone
 
@@ -143,9 +203,6 @@ def assign_zone_leader(
     if not isinstance(zone, Zone):
         raise ValidationError("A valid zone is required.")
 
-    if not zone.is_active:
-        raise ValidationError("An inactive zone cannot receive new assignments.")
-
     _require_active_user(
         user,
         "An inactive user cannot be assigned as a Zone Leader.",
@@ -160,23 +217,40 @@ def assign_zone_leader(
     if not timezone.is_aware(effective_from):
         raise ValidationError("effective_from must be a valid datetime.")
 
-    if ZoneLeaderAssignment.objects.filter(
-        zone=zone,
-        user=user,
-        effective_to__isnull=True,
-    ).exists():
-        raise ValidationError(
-            "This user already has an active assignment to this zone."
-        )
-
     try:
         with transaction.atomic():
+            # Lock the zone to coordinate with concurrent deactivation.
+            locked_zone = Zone.objects.select_for_update().get(pk=zone.pk)
+
+            if not locked_zone.is_active:
+                raise ValidationError(
+                    "An inactive zone cannot receive new assignments."
+                )
+
+            if ZoneLeaderAssignment.objects.filter(
+                zone=locked_zone,
+                user=user,
+                effective_to__isnull=True,
+            ).exists():
+                raise ValidationError(
+                    "This user already has an active assignment " "to this zone."
+                )
+
             assignment = ZoneLeaderAssignment.objects.create(
-                zone=zone,
+                zone=locked_zone,
                 user=user,
                 assigned_by=actor,
                 effective_from=effective_from,
             )
+
+            AuditService.record_event(
+                actor=actor,
+                entity_type="ZoneLeaderAssignment",
+                entity_id=assignment.pk,
+                action=AuditLog.Action.CREATE,
+                after_data=_assignment_snapshot(assignment),
+            )
+
     except IntegrityError as exc:
         raise ValidationError(
             "An active assignment already exists for this zone and user."
@@ -197,19 +271,35 @@ def end_zone_leader_assignment(
     if not isinstance(assignment, ZoneLeaderAssignment):
         raise ValidationError("A valid Zone Leader assignment is required.")
 
-    if assignment.effective_to is not None:
-        raise ValidationError("This assignment has already ended.")
-
     if effective_to is None:
         effective_to = timezone.now()
 
     if not timezone.is_aware(effective_to):
         raise ValidationError("effective_to must be a valid datetime.")
 
-    if effective_to < assignment.effective_from:
-        raise ValidationError("Assignment end time cannot precede its start time.")
+    with transaction.atomic():
+        assignment = ZoneLeaderAssignment.objects.select_for_update().get(
+            pk=assignment.pk
+        )
 
-    assignment.effective_to = effective_to
-    assignment.save(update_fields=["effective_to"])
+        if assignment.effective_to is not None:
+            raise ValidationError("This assignment has already ended.")
+
+        if effective_to < assignment.effective_from:
+            raise ValidationError("Assignment end time cannot precede its start time.")
+
+        before_data = _assignment_snapshot(assignment)
+
+        assignment.effective_to = effective_to
+        assignment.save(update_fields=["effective_to"])
+
+        AuditService.record_event(
+            actor=actor,
+            entity_type="ZoneLeaderAssignment",
+            entity_id=assignment.pk,
+            action=AuditLog.Action.UPDATE,
+            before_data=before_data,
+            after_data=_assignment_snapshot(assignment),
+        )
 
     return assignment

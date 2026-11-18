@@ -50,13 +50,17 @@ class CanAccessMembers(BasePermission):
 
     def has_object_permission(self, request, view, obj):
         """
-        Restrict object-level access to the user's assigned zones.
+        Restrict member access to active zones.
 
-        Pastors can access members across zones.
-        Zone leaders must have a current assignment to the
-        member's zone.
+        Pastors can access members in all active zones.
+        Zone leaders can access members only in their
+        currently assigned active zones.
         """
         user = request.user
+
+        # Members in inactive zones are not accessible.
+        if not obj.zone.is_active:
+            return False
 
         if self.has_active_role(user, "PASTOR"):
             return True

@@ -227,3 +227,31 @@ class MemberPermissionTests(TestCase):
                 self.member_a,
             )
         )
+
+    def test_pastor_cannot_access_member_in_inactive_zone(self):
+        self.zone_a.is_active = False
+        self.zone_a.save(update_fields=["is_active"])
+
+        request = self.request_for(self.pastor)
+
+        self.assertFalse(
+            self.permission.has_object_permission(
+                request,
+                self.view,
+                self.member_a,
+            )
+        )
+
+    def test_zone_leader_cannot_access_member_in_inactive_zone(self):
+        self.zone_a.is_active = False
+        self.zone_a.save(update_fields=["is_active"])
+
+        request = self.request_for(self.zone_leader)
+
+        self.assertFalse(
+            self.permission.has_object_permission(
+                request,
+                self.view,
+                self.member_a,
+            )
+        )
