@@ -9,7 +9,10 @@ from apps.accounts.models.user_role import UserRole
 from apps.accounts.models.users import User
 from apps.audit.models.audit_log import AuditLog
 from apps.members.models import Member
-from apps.members.services.member_service import create_member
+from apps.members.services.member_service import (
+    MemberVersionConflict,
+    create_member,
+)
 from apps.members.services.member_transfer_service import transfer_member
 from apps.zones.models.zones import Zone, ZoneLeaderAssignment
 
@@ -65,6 +68,8 @@ class MemberTransferServiceTests(TestCase):
 
         transferred = transfer_member(
             member=member,
+            reason="Approved member relocation",
+            expected_version=member.version,
             destination_zone=self.other_zone,
             actor=self.pastor,
         )
@@ -90,12 +95,20 @@ class MemberTransferServiceTests(TestCase):
             str(self.other_zone.id),
         )
 
+        self.assertEqual(
+            audit.after_data["transfer_reason"],
+            "Approved member relocation",
+        )
+        self.assertEqual(transferred.version, 2)
+
     def test_zone_leader_cannot_transfer_member(self):
         member = self.create_member()
 
         with self.assertRaises(ValidationError):
             transfer_member(
                 member=member,
+                reason="Approved member relocation",
+                expected_version=member.version,
                 destination_zone=self.other_zone,
                 actor=self.leader,
             )
@@ -119,6 +132,8 @@ class MemberTransferServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             transfer_member(
                 member=member,
+                reason="Approved member relocation",
+                expected_version=member.version,
                 destination_zone=self.other_zone,
                 actor=self.ordinary_user,
             )
@@ -137,6 +152,8 @@ class MemberTransferServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             transfer_member(
                 member=member,
+                reason="Approved member relocation",
+                expected_version=member.version,
                 destination_zone=self.other_zone,
                 actor=self.pastor,
             )
@@ -155,6 +172,8 @@ class MemberTransferServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             transfer_member(
                 member=member,
+                reason="Approved member relocation",
+                expected_version=member.version,
                 destination_zone=self.other_zone,
                 actor=self.pastor,
             )
@@ -170,6 +189,8 @@ class MemberTransferServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             transfer_member(
                 member=member,
+                reason="Approved member relocation",
+                expected_version=member.version,
                 destination_zone=self.zone,
                 actor=self.pastor,
             )
@@ -190,6 +211,8 @@ class MemberTransferServiceTests(TestCase):
             with self.assertRaises(RuntimeError):
                 transfer_member(
                     member=member,
+                    reason="Approved member relocation",
+                    expected_version=member.version,
                     destination_zone=self.other_zone,
                     actor=self.pastor,
                 )
@@ -206,3 +229,84 @@ class MemberTransferServiceTests(TestCase):
                 action=AuditLog.Action.UPDATE,
             ).exists()
         )
+
+    def test_transfer_increments_member_version(self):
+        member = self.create_member()
+        initial_version = member.version
+
+        transferred = transfer_member(
+            member=member,
+            destination_zone=self.other_zone,
+            actor=self.pastor,
+            reason="Approved member relocation",
+            expected_version=initial_version,
+        )
+
+        transferred.refresh_from_db()
+
+        self.assertEqual(
+            transferred.version,
+            initial_version + 1,
+        )
+
+    def test_stale_version_rejects_transfer(self):
+        member = self.create_member()
+
+        member.version = 2
+        member.save(update_fields=["version"])
+
+        with self.assertRaises(MemberVersionConflict):
+            transfer_member(
+                member=member,
+                destination_zone=self.other_zone,
+                actor=self.pastor,
+                reason="Approved member relocation",
+                expected_version=1,
+            )
+
+        member.refresh_from_db()
+
+        self.assertEqual(member.zone, self.zone)
+        self.assertEqual(member.version, 2)
+        self.assertIsNone(member.updated_by)
+
+    def test_blank_transfer_reason_is_rejected(self):
+        member = self.create_member()
+
+        with self.assertRaises(ValidationError):
+            transfer_member(
+                member=member,
+                destination_zone=self.other_zone,
+                actor=self.pastor,
+                reason="   ",
+                expected_version=member.version,
+            )
+
+        member.refresh_from_db()
+
+        self.assertEqual(member.zone, self.zone)
+        self.assertEqual(member.version, 1)
+
+    def test_audit_failure_rolls_back_transfer_version(self):
+        member = self.create_member()
+        initial_version = member.version
+
+        with patch(
+            "apps.members.services.member_transfer_service."
+            "AuditService.record_event",
+            side_effect=RuntimeError("Audit failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                transfer_member(
+                    member=member,
+                    destination_zone=self.other_zone,
+                    actor=self.pastor,
+                    reason="Approved member relocation",
+                    expected_version=initial_version,
+                )
+
+        member.refresh_from_db()
+
+        self.assertEqual(member.zone, self.zone)
+        self.assertEqual(member.version, initial_version)
+        self.assertIsNone(member.updated_by)

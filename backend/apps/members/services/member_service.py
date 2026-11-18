@@ -1,7 +1,7 @@
 """
 Member business services.
 
-These functions enforce member creation rules.
+These functions enforce member creation and update rules.
 API permissions are implemented separately.
 """
 
@@ -19,6 +19,10 @@ from apps.zones.models.zones import Zone, ZoneLeaderAssignment
 
 PASTOR_ROLE = "PASTOR"
 ZONE_LEADER_ROLE = "ZONE_LEADER"
+
+
+class MemberVersionConflict(Exception):
+    """Raised when a member has been modified by another request."""
 
 
 def _has_active_role(user, role_code):
@@ -62,7 +66,7 @@ def _require_zone_access(*, zone, actor):
         raise ValidationError("A valid zone is required.")
 
     if not zone.is_active:
-        raise ValidationError("Members cannot be created in an inactive zone.")
+        raise ValidationError("Members cannot be managed in an inactive zone.")
 
     if _has_active_role(actor, PASTOR_ROLE):
         return
@@ -100,7 +104,7 @@ def _validate_text(value, field_name, max_length=None):
 
 
 def _member_snapshot(member):
-    """Return the member fields permitted in audit snapshots."""
+    """Return member fields permitted in audit snapshots."""
     return {
         "id": str(member.id),
         "zone_id": str(member.zone_id),
@@ -109,6 +113,7 @@ def _member_snapshot(member):
         "address": member.address,
         "notes": member.notes,
         "is_active": member.is_active,
+        "version": member.version,
     }
 
 
@@ -121,10 +126,9 @@ def create_member(
     address="",
     notes="",
 ):
-    """
-    Create a member and record its audit event atomically.
-    """
+    """Create a member and record its audit event atomically."""
     _require_member_manager(actor)
+
     _require_zone_access(
         zone=zone,
         actor=actor,
@@ -145,15 +149,8 @@ def create_member(
         max_length=40,
     )
 
-    address = _validate_text(
-        address,
-        "Address",
-    )
-
-    notes = _validate_text(
-        notes,
-        "Notes",
-    )
+    address = _validate_text(address, "Address")
+    notes = _validate_text(notes, "Notes")
 
     with transaction.atomic():
         member = Member.objects.create(
@@ -183,6 +180,7 @@ def update_member(
     *,
     member,
     actor,
+    expected_version,
     full_name=_UNSET,
     phone=_UNSET,
     address=_UNSET,
@@ -190,7 +188,9 @@ def update_member(
     is_active=_UNSET,
 ):
     """
-    Update permitted member fields and record an audit event atomically.
+    Update permitted member fields with optimistic concurrency control.
+
+    The member update and audit event are atomic.
 
     Zone changes are intentionally excluded. Use the Pastor-only
     transfer service for member transfers.
@@ -199,6 +199,9 @@ def update_member(
 
     if not isinstance(member, Member) or member.pk is None:
         raise ValidationError("A valid saved member is required.")
+
+    if type(expected_version) is not int or expected_version < 1:
+        raise ValidationError("A valid positive expected_version is required.")
 
     allowed_fields = {
         "full_name": full_name,
@@ -210,6 +213,12 @@ def update_member(
 
     with transaction.atomic():
         current_member = Member.objects.select_for_update().get(pk=member.pk)
+
+        if current_member.version != expected_version:
+            raise MemberVersionConflict(
+                "This member has been modified by another request. "
+                "Refresh the member record before submitting changes."
+            )
 
         _require_zone_access(
             zone=current_member.zone,
@@ -250,12 +259,14 @@ def update_member(
             return current_member
 
         current_member.updated_by = actor
+        current_member.version += 1
 
         current_member.save(
             update_fields=[
                 *changed_fields,
                 "updated_by",
                 "updated_at",
+                "version",
             ]
         )
 

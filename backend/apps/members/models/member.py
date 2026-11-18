@@ -47,6 +47,12 @@ class Member(models.Model):
         default=True,
     )
 
+    version = models.PositiveIntegerField(
+        default=1,
+        editable=False,
+        help_text="Incremented whenever the member record is successfully modified.",
+    )
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
