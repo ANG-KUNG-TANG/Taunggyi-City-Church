@@ -9,6 +9,8 @@ from apps.audit.models.audit_log import AuditLog
 
 from apps.activities.models.activity import Activity
 
+from apps.announcements.models.announcement import Announcement
+
 from apps.attendance.models import (
     AttendanceSession,
     MemberAttendance,
@@ -25,6 +27,7 @@ __all__ = [
     "ZoneLeaderAssignment",
     "AuditLog",
     "Activity",
+    "Announcement",
     "AttendanceSession",
     "MemberAttendance",
     "VisitorCount",
