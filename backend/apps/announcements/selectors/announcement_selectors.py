@@ -18,18 +18,24 @@ class AnnouncementSelector:
 
     @staticmethod
     def get_published_announcements():
-        """Return published announcements for public access."""
-        return Announcement.objects.filter(
-            status=Announcement.Status.PUBLISHED
-        ).order_by("-published_at", "-id")
+        """Return published announcements with their media prefetched."""
+        return (
+            Announcement.objects.filter(status=Announcement.Status.PUBLISHED)
+            .prefetch_related("media")
+            .order_by("-published_at", "-id")
+        )
 
     @staticmethod
     def get_published_announcement_by_id(announcement_id):
-        """Retrieve one published announcement for public access."""
-        return Announcement.objects.filter(
-            id=announcement_id,
-            status=Announcement.Status.PUBLISHED,
-        ).first()
+        """Retrieve one published announcement with its media prefetched."""
+        return (
+            Announcement.objects.filter(
+                id=announcement_id,
+                status=Announcement.Status.PUBLISHED,
+            )
+            .prefetch_related("media")
+            .first()
+        )
 
     @staticmethod
     def get_all_announcements():

@@ -13,6 +13,7 @@ from apps.announcements.views.announcement_views import (
     PublicAnnouncementDetailView,
     PublicAnnouncementListView,
 )
+from apps.content_media.views.media_views import AnnouncementMediaListUploadView
 
 urlpatterns = [
     path("", PublicAnnouncementListView.as_view(), name="public-announcement-list"),
@@ -45,5 +46,10 @@ urlpatterns = [
         "manage/<uuid:announcement_id>/archive/",
         AnnouncementArchiveView.as_view(),
         name="announcement-archive",
+    ),
+    path(
+        "manage/<uuid:announcement_id>/media/",
+        AnnouncementMediaListUploadView.as_view(),
+        name="announcement-media-list-upload",
     ),
 ]

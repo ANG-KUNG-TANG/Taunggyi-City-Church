@@ -11,4 +11,5 @@ urlpatterns = [
     ),
     path("v1/members/", include("apps.members.urls")),
     path("v1/announcements/", include("apps.announcements.urls")),
+    path("v1/media/", include("apps.content_media.urls")),
 ]
