@@ -13,6 +13,7 @@ from apps.activities.views.activities_view import (
     PublicActivityDetailView,
     PublicActivityListView,
 )
+from apps.content_media.views.media_views import ActivityMediaListUploadView
 
 urlpatterns = [
     path("", PublicActivityListView.as_view(), name="activity-public-list"),
@@ -45,5 +46,10 @@ urlpatterns = [
         "manage/<uuid:activity_id>/archive/",
         ActivityArchiveView.as_view(),
         name="activity-archive",
+    ),
+    path(
+        "manage/<uuid:activity_id>/media/",
+        ActivityMediaListUploadView.as_view(),
+        name="activity-media-list-upload",
     ),
 ]

@@ -138,20 +138,35 @@ USE_I18N = True
 USE_TZ = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+
 # ──────────────────────────────
 # Static & Media
 # ──────────────────────────────
+
 # Static files
 STATIC_URL = "/static/"
-
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
+
+# Uploaded media
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+# Django storage backends
+STORAGES = {
+    "default": {
+        "BACKEND": env(
+            "MEDIA_STORAGE_BACKEND",
+            default="django.core.files.storage.FileSystemStorage",
+        ),
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # ──────────────────────────────
 # REST Framework

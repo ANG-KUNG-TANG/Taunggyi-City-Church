@@ -5,10 +5,18 @@ Activity serializers for the Taunggyi City Church system.
 from rest_framework import serializers
 
 from apps.activities.models.activity import Activity
+from apps.content_media.serializers.media_serializer import (
+    ContentMediaPublicSerializer,
+)
 
 
 class ActivitySerializer(serializers.ModelSerializer):
     """Serialize activity data while protecting publication metadata."""
+
+    media = ContentMediaPublicSerializer(
+        many=True,
+        read_only=True,
+    )
 
     published_by = serializers.PrimaryKeyRelatedField(
         read_only=True,
@@ -31,6 +39,7 @@ class ActivitySerializer(serializers.ModelSerializer):
             "status",
             "published_by",
             "published_at",
+            "media",
             "created_at",
             "updated_at",
         ]
@@ -39,6 +48,7 @@ class ActivitySerializer(serializers.ModelSerializer):
             "status",
             "published_by",
             "published_at",
+            "media",
             "created_at",
             "updated_at",
         ]

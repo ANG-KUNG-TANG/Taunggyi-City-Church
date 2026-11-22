@@ -6,10 +6,18 @@ from rest_framework import serializers
 
 from apps.announcements.models.announcement import Announcement
 from apps.announcements.validators import validate_announcement_content
+from apps.content_media.serializers.media_serializer import (
+    ContentMediaPublicSerializer,
+)
 
 
 class AnnouncementSerializer(serializers.ModelSerializer):
     """Serialize announcement data and validate editable content."""
+
+    media = ContentMediaPublicSerializer(
+        many=True,
+        read_only=True,
+    )
 
     class Meta:
         model = Announcement
@@ -20,6 +28,7 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             "status",
             "published_by",
             "published_at",
+            "media",
             "created_at",
             "updated_at",
         ]
@@ -28,6 +37,7 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             "status",
             "published_by",
             "published_at",
+            "media",
             "created_at",
             "updated_at",
         ]

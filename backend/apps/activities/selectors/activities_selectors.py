@@ -18,18 +18,24 @@ class ActivitySelector:
 
     @staticmethod
     def get_published_activities():
-        """Return published activities for public access."""
-        return Activity.objects.filter(status=Activity.Status.PUBLISHED).order_by(
-            "-published_at"
+        """Return published activities with their media prefetched."""
+        return (
+            Activity.objects.filter(status=Activity.Status.PUBLISHED)
+            .prefetch_related("media")
+            .order_by("-published_at")
         )
 
     @staticmethod
     def get_published_activity_by_id(activity_id):
-        """Retrieve one published activity for public access."""
-        return Activity.objects.filter(
-            id=activity_id,
-            status=Activity.Status.PUBLISHED,
-        ).first()
+        """Retrieve one published activity with its media prefetched."""
+        return (
+            Activity.objects.filter(
+                id=activity_id,
+                status=Activity.Status.PUBLISHED,
+            )
+            .prefetch_related("media")
+            .first()
+        )
 
     @staticmethod
     def get_all_activities():

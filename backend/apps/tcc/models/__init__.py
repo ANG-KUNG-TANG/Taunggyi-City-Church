@@ -19,6 +19,8 @@ from apps.attendance.models import (
 
 from apps.tcc.models.refresh_token import RefreshToken
 
+from apps.content_media.models.content_media import ContentMedia
+
 __all__ = [
     "User",
     "Role",
@@ -28,6 +30,7 @@ __all__ = [
     "AuditLog",
     "Activity",
     "Announcement",
+    "ContentMedia",
     "AttendanceSession",
     "MemberAttendance",
     "VisitorCount",
