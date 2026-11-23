@@ -311,7 +311,7 @@ class FinancialCalculationService:
         Return daily donations grouped by category, payment method and currency.
 
         Status totals are reported separately. Only authorised donations
-        contribute to confirmed totals. Adjustments are excluded.
+        and authorised adjustments contribute to confirmed totals.
         """
         donations = get_donations_for_report(
             start_date=report_date,
@@ -352,6 +352,43 @@ class FinancialCalculationService:
                 groups[key]["confirmed_total"] += donation.amount
 
             groups[key]["donations"].append(donation)
+
+        adjustments = (
+            FinancialAdjustment.objects.filter(
+                status=FinancialAdjustment.Status.AUTHORISED,
+                donation__status=Donation.Status.AUTHORISED,
+                donation__transaction_date=report_date,
+            )
+            .values(
+                "donation__category_id",
+                "donation__category__name",
+                "donation__payment_method",
+                "donation__currency_code",
+            )
+            .annotate(total=Sum("amount_delta"))
+        )
+
+        for adjustment in adjustments:
+            key = (
+                adjustment["donation__category_id"],
+                adjustment["donation__payment_method"],
+                adjustment["donation__currency_code"],
+            )
+
+            if key not in groups:
+                groups[key] = {
+                    "category_id": adjustment["donation__category_id"],
+                    "category_name": adjustment["donation__category__name"],
+                    "payment_method": adjustment["donation__payment_method"],
+                    "currency_code": adjustment["donation__currency_code"],
+                    "authorised_total": ZERO,
+                    "pending_total": ZERO,
+                    "rejected_total": ZERO,
+                    "confirmed_total": ZERO,
+                    "donations": [],
+                }
+
+            groups[key]["confirmed_total"] += adjustment["total"] or ZERO
 
         return sorted(
             groups.values(),
