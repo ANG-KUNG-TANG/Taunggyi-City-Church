@@ -84,7 +84,7 @@ class FinancialAuditHistoryAPITests(APITestCase):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 3)
+        self.assertEqual(response.data["count"], 3)
 
     def test_administrator_can_view_financial_audit_history(self):
         self.client.force_authenticate(user=self.administrator)
@@ -116,7 +116,7 @@ class FinancialAuditHistoryAPITests(APITestCase):
     def test_only_financial_entity_types_are_returned(self):
         response = self.client.get(self.url)
 
-        entity_types = {event["entity_type"] for event in response.data}
+        entity_types = {event["entity_type"] for event in response.data["results"]}
 
         self.assertEqual(
             entity_types,
@@ -135,8 +135,8 @@ class FinancialAuditHistoryAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]["entity_type"], "Donation")
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["entity_type"], "Donation")
 
     def test_filter_by_entity_id(self):
         response = self.client.get(
@@ -145,9 +145,9 @@ class FinancialAuditHistoryAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data["count"], 1)
         self.assertEqual(
-            response.data[0]["entity_id"],
+            response.data["results"][0]["entity_id"],
             str(self.donation_id),
         )
 
@@ -158,7 +158,7 @@ class FinancialAuditHistoryAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data["count"], 2)
 
     def test_filter_by_action(self):
         response = self.client.get(
@@ -167,9 +167,9 @@ class FinancialAuditHistoryAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data["count"], 1)
         self.assertEqual(
-            response.data[0]["action"],
+            response.data["results"][0]["action"],
             AuditLog.Action.UPDATE,
         )
 
@@ -180,9 +180,9 @@ class FinancialAuditHistoryAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data["count"], 1)
         self.assertEqual(
-            response.data[0]["correlation_id"],
+            response.data["results"][0]["correlation_id"],
             str(self.correlation_id),
         )
 
@@ -234,6 +234,57 @@ class FinancialAuditHistoryAPITests(APITestCase):
             status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
+    def test_default_page_size_is_50(self):
+        AuditLog.objects.bulk_create(
+            [
+                AuditLog(
+                    actor=self.pastor,
+                    entity_type="Donation",
+                    entity_id=uuid.uuid4(),
+                    action=AuditLog.Action.CREATE,
+                )
+                for _ in range(55)
+            ]
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 58)
+        self.assertEqual(len(response.data["results"]), 50)
+        self.assertIsNotNone(response.data["next"])
+        self.assertIsNone(response.data["previous"])
+
+    def test_custom_page_size_is_respected(self):
+        response = self.client.get(self.url, {"page_size": 2})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 3)
+        self.assertEqual(len(response.data["results"]), 2)
+        self.assertIsNotNone(response.data["next"])
+        self.assertIsNone(response.data["previous"])
+
+    def test_page_size_is_capped_at_100(self):
+        AuditLog.objects.bulk_create(
+            [
+                AuditLog(
+                    actor=self.pastor,
+                    entity_type="Donation",
+                    entity_id=uuid.uuid4(),
+                    action=AuditLog.Action.CREATE,
+                )
+                for _ in range(105)
+            ]
+        )
+
+        response = self.client.get(self.url, {"page_size": 150})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 108)
+        self.assertEqual(len(response.data["results"]), 100)
+        self.assertIsNotNone(response.data["next"])
+        self.assertIsNone(response.data["previous"])
+
     def test_response_contains_audit_details(self):
         response = self.client.get(
             self.url,
@@ -242,7 +293,7 @@ class FinancialAuditHistoryAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        event = response.data[0]
+        event = response.data["results"][0]
 
         self.assertEqual(
             event["id"],

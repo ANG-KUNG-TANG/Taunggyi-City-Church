@@ -10,6 +10,7 @@ from apps.audit.models.audit_log import AuditLog
 from apps.activities.models.activity import Activity
 
 from apps.announcements.models.announcement import Announcement
+from apps.church_info.models.church_information import ChurchInformation
 
 from apps.attendance.models import (
     AttendanceSession,
@@ -30,6 +31,7 @@ __all__ = [
     "AuditLog",
     "Activity",
     "Announcement",
+    "ChurchInformation",
     "ContentMedia",
     "AttendanceSession",
     "MemberAttendance",

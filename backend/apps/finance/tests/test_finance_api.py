@@ -964,13 +964,18 @@ class FinanceAPITests(APITestCase):
         self.assertEqual(totals["MMK"], Decimal("100.00"))
         self.assertEqual(totals["USD"], Decimal("50.00"))
 
-    def test_daily_donation_report_excludes_adjustments(self):
+    def test_daily_donation_report_includes_only_authorised_adjustments(self):
         donation_id = self.create_donation_with_status("100.00", "AUTHORISED")
 
         self.create_donation_adjustment(
             donation_id,
             "25.00",
             authorise=True,
+        )
+        self.create_donation_adjustment(
+            donation_id,
+            "10.00",
+            authorise=False,
         )
 
         response = self.client.get(
@@ -983,7 +988,7 @@ class FinanceAPITests(APITestCase):
         result = response.data["results"][0]
 
         self.assertEqual(result["authorised_total"], Decimal("100.00"))
-        self.assertEqual(result["confirmed_total"], Decimal("100.00"))
+        self.assertEqual(result["confirmed_total"], Decimal("125.00"))
 
     def test_administrator_can_access_daily_donation_report(self):
         self.client.force_authenticate(user=self.administrator)
