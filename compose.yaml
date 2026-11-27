@@ -1,0 +1,26 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: taunggyi-church-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+      DEBUG: "False"
+      DB_HOST: host.docker.internal
+      DB_PORT: "5432"
+      CACHE_BACKEND: locmen
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      SECURE_SSL_REDIRECT: "False"
+      SECURE_HSTS_SECONDS: "0"
+      SESSION_COOKIE_SECURE: "False"
+      CSRF_COOKIE_SECURE: "False"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/media:/app/media
+      - ./backend/logs:/app/logs
+      - ./backend/staticfiles:/app/staticfiles

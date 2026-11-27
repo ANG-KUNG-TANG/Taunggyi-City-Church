@@ -1,0 +1,34 @@
+# Environment files and secrets
+.env
+.env.*
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Git and development tools
+.git/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+
+# Runtime data — preserve on the host
+media/
+logs/
+staticfiles/
+
+# Local databases and backups
+*.sqlite3
+*.db
+*.dump
+*.backup
+
+# Operating system files
+.DS_Store
